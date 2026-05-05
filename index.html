@@ -216,6 +216,52 @@ async function fetchWeather(lat,lng){
   const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`);
   return r.json();
 }
+async function fetchUSGSStat(siteNo){
+  // Fetch the annual max (peak) statistic for a site so we can show % of max
+  try{
+    var url="https://waterservices.usgs.gov/nwis/stat/?format=json&sites="+siteNo+"&parameterCd=00060&statReportType=annual&statYearType=water";
+    var r=await fetch(url);
+    if(!r.ok) return null;
+    var d=await r.json();
+    var ts=(d.value&&d.value.timeSeries)||[];
+    if(!ts.length) return null;
+    // Find the max statistic value across all years
+    var maxVal=0;
+    ts.forEach(function(t){
+      (t.values||[]).forEach(function(v){
+        (v.value||[]).forEach(function(rec){
+          var n=parseFloat(rec.value);
+          if(!isNaN(n)&&n>maxVal) maxVal=n;
+        });
+      });
+    });
+    return maxVal>0?maxVal:null;
+  }catch(e){ return null; }
+}
+
+async function fetchUSGSRange(siteNo, days){
+  var e=new Date(), s=new Date();
+  s.setDate(e.getDate()-days);
+  function fmt(d){return d.toISOString().split("T")[0];}
+  // Use instantaneous values for <=7 days, daily values for longer periods
+  var url;
+  if(days<=7){
+    url="https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e);
+  } else {
+    url="https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e);
+  }
+  try{
+    var r=await fetch(url);
+    if(!r.ok) return [];
+    var d=await r.json();
+    var ts=(d.value&&d.value.timeSeries)||[];
+    if(!ts.length) return [];
+    var vals=(ts[0].values&&ts[0].values[0]&&ts[0].values[0].value)||[];
+    return vals.map(function(v){return{t:v.dateTime,v:parseFloat(v.value)};}).filter(function(v){return !isNaN(v.v)&&v.v>=0&&v.v<500000;});
+  }catch(e){ return []; }
+}
+
+
 async function fetchUSGSLive(lat,lng){
   // Try multiple bounding box sizes to find gauges
   const sizes=[0.5, 1.0, 1.5, 2.5];
@@ -340,6 +386,133 @@ function ApiKeySetup({onSave}){
       <p>🔑 <strong>Optional: Add your Anthropic API key</strong> to enable AI fishing reports and fly shop search. Get a key at <strong>console.anthropic.com</strong> — costs a few cents per report.</p>
       <input className="api-input" type="password" placeholder="sk-ant-api..." value={val} onChange={e=>setVal(e.target.value)}/>
       <button className="api-save" onClick={()=>{if(val.trim()){localStorage.setItem("anthropic_key",val.trim());onSave();}}}>Save API Key</button>
+    </div>
+  );
+}
+
+// ── Gauge Chart ──────────────────────────────────────────────────────────────
+const TIMEFRAMES = [
+  {label:"7D",  days:7},
+  {label:"30D", days:30},
+  {label:"90D", days:90},
+  {label:"1Y",  days:365},
+];
+
+function GaugeChart({siteNo, siteName, initialCFS}){
+  const [days, setDays]     = useState(30);
+  const [points, setPoints] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(()=>{
+    if(!siteNo) return;
+    setLoading(true);
+    fetchUSGSRange(siteNo, days).then(pts=>{
+      setPoints(pts);
+      setLoading(false);
+    });
+  },[siteNo, days]);
+
+  // SVG chart
+  const W=290, H=90, PL=38, PR=8, PT=6, PB=22;
+  const iW=W-PL-PR, iH=H-PT-PB;
+
+  function renderChart(){
+    if(!points.length) return null;
+    const vals=points.map(p=>p.v);
+    const minV=Math.min(...vals), maxV=Math.max(...vals), range=maxV-minV||1;
+    const px=i=>PL+(i/(points.length-1))*iW;
+    const py=v=>PT+iH-((v-minV)/range)*iH;
+    const linePts=points.map((p,i)=>`${px(i)},${py(p.v)}`).join(" ");
+    const areaPts=`${PL},${PT+iH} `+points.map((p,i)=>`${px(i)},${py(p.v)}`).join(" ")+` ${PL+iW},${PT+iH}`;
+
+    // X axis labels — show 3 evenly spaced dates
+    const xIdxs=[0,Math.floor(points.length/2),points.length-1];
+    const yTicks=[minV,(minV+maxV)/2,maxV];
+
+    // Current value dot
+    const lastPt=points[points.length-1];
+    const dotX=PL+iW, dotY=py(lastPt.v);
+
+    return(
+      <svg width={W} height={H} style={{display:"block",maxWidth:"100%"}}>
+        <defs>
+          <linearGradient id={`fg-${siteNo}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#b8d4dc" stopOpacity="0.4"/>
+            <stop offset="100%" stopColor="#b8d4dc" stopOpacity="0.02"/>
+          </linearGradient>
+        </defs>
+        {[0,0.5,1].map((f,i)=>(
+          <line key={i} x1={PL} x2={PL+iW} y1={PT+iH*(1-f)} y2={PT+iH*(1-f)} stroke="rgba(255,255,255,0.06)" strokeWidth="1"/>
+        ))}
+        {yTicks.map((v,i)=>(
+          <text key={i} x={PL-4} y={py(v)+4} textAnchor="end" fontSize="9" fill="#8a8a7a">
+            {v>=1000?`${(v/1000).toFixed(1)}k`:Math.round(v)}
+          </text>
+        ))}
+        {xIdxs.map((idx,i)=>{
+          const d=new Date(points[idx].t);
+          const label=days<=7
+            ? d.toLocaleString("en-US",{month:"numeric",day:"numeric",hour:"numeric",hour12:true}).replace(":00","")
+            : `${d.getMonth()+1}/${d.getDate()}`;
+          return <text key={i} x={px(idx)} y={H-4} textAnchor="middle" fontSize="9" fill="#8a8a7a">{label}</text>;
+        })}
+        <polygon points={areaPts} fill={`url(#fg-${siteNo})`}/>
+        <polyline points={linePts} fill="none" stroke="#b8d4dc" strokeWidth="1.5" strokeLinejoin="round"/>
+        <circle cx={dotX} cy={dotY} r="3" fill="#c8a84b"/>
+        <text x={dotX+4} y={dotY+4} fontSize="9" fill="#c8a84b">
+          {lastPt.v>=1000?`${(lastPt.v/1000).toFixed(1)}k`:Math.round(lastPt.v)}
+        </text>
+      </svg>
+    );
+  }
+
+  return(
+    <div style={{marginTop:10,borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:10}}>
+      {/* Timeframe selector */}
+      <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+        <span style={{fontSize:11,color:"var(--stone)",marginRight:2}}>Show:</span>
+        {TIMEFRAMES.map(tf=>(
+          <button key={tf.label} onClick={()=>setDays(tf.days)}
+            style={{
+              background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
+              border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
+              borderRadius:6, padding:"3px 10px", color:days===tf.days?"var(--foam)":"var(--stone)",
+              fontSize:11, cursor:"pointer", fontFamily:"'Crimson Pro',serif",
+              transition:"all .15s"
+            }}>
+            {tf.label}
+          </button>
+        ))}
+      </div>
+      {loading&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
+      {!loading&&points.length>0&&renderChart()}
+      {!loading&&points.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
+    </div>
+  );
+}
+
+// ── Gauge List with expandable charts ────────────────────────────────────────
+function GaugeList({gauges}){
+  const [expanded, setExpanded] = useState(null);
+  return(
+    <div>
+      {gauges.map((g,i)=>(
+        <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
+          <div className="grow">
+            <span className="gname">{g.name}</span>
+            <span className={`gbadge ${g.cls}`}>{g.label}</span>
+          </div>
+          <div className="grow">
+            <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
+            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:8}}>{g.pct}% of hist. max</span>}
+            <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲":"▼"}</span>
+          </div>
+          <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
+          {expanded===i&&(
+            <GaugeChart siteNo={g.siteNo} siteName={g.name} initialCFS={g.cfs}/>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -495,7 +668,9 @@ function TripPlanner({defaultLocation}){
         const{label,cls}=cfsLabel(cfs);
         return{name:t.sourceInfo?.siteName??"Unknown",cfs,pct:cfs?Math.min(Math.round((cfs/5000)*100),100):0,label,cls};
       }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000)).sort((a,b)=>(b.cfs??-1)-(a.cfs??-1)).slice(0,6);
-      setGauges(pg);
+      const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
+      const pgScaled=pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
+      setGauges(pgScaled);
       const histTS=histD.value?.timeSeries??[];
       if(histTS.length){
         const best=histTS.sort((a,b)=>(b.values?.[0]?.value?.length||0)-(a.values?.[0]?.value?.length||0))[0];
@@ -667,11 +842,19 @@ function App(){
       const d=await fetchUSGSLive(lat,lng);
       const ts=d.value?.timeSeries??[];
       if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
-      const parsed=ts.map(t=>{
+      const rawParsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
-        return{name:t.sourceInfo?.siteName??"Unknown",cfs,pct:cfs?Math.min(Math.round((cfs/5000)*100),100):0,label,cls};
+        const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
+        return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo};
       }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000)).sort((a,b)=>(b.cfs??-1)-(a.cfs??-1)).slice(0,8);
+      // Fetch per-site historical max in parallel, fallback to relative scaling
+      const statResults=await Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo)));
+      const parsed=rawParsed.map((g,i)=>{
+        const histMax=statResults[i];
+        const pct=g.cfs!=null?(histMax?Math.min(Math.round((g.cfs/histMax)*100),100):Math.min(Math.round((g.cfs/Math.max(...rawParsed.map(x=>x.cfs||0),1))*95),100)):0;
+        return{...g,pct,histMax};
+      });
       setGauges(parsed);
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }catch{setGaugeError("Could not load stream data.");}
@@ -750,13 +933,7 @@ function App(){
                 <div className="csub">Live USGS · Search by city for best results{lastUpd&&` · Updated ${lastUpd}`}</div>
                 {gaugeLoading&&<div className="loading">Loading gauges…</div>}
                 {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
-                {!gaugeLoading&&gauges.map((g,i)=>(
-                  <div className="gi" key={i}>
-                    <div className="grow"><span className="gname">{g.name}</span><span className={`gbadge ${g.cls}`}>{g.label}</span></div>
-                    <div className="grow"><span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span></div>
-                    <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
-                  </div>
-                ))}
+                {!gaugeLoading&&<GaugeList gauges={gauges}/>}
               </div>
             </>}
             <div className="card">
