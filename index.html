@@ -686,18 +686,21 @@ function TripPlanner({defaultLocation}){
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
         try{
-          const combinedTxt=await askClaude(`For ${loc.label} on ${ds} with flows ${gs} and hatches ${hi}, provide: 1) top local fly fishing shops 2) fishing conditions report. Respond ONLY with this JSON structure: {"shops":[{"name":"shop name","rating":4.5,"reviews":100,"specialty":"dry fly","address":"City, ST"}],"overview":"conditions overview","rivers":[{"name":"river name","conditions":"current conditions","techniques":"recommended techniques","flies":["Fly #14","Fly #16"]}],"hatches":"current hatch activity","bestTimes":"best fishing times","tips":"local tips","flyBoxEssentials":["Fly #14","Fly #16","Fly #18"]}`,false,1000);
-          console.log("Claude response:", combinedTxt);
-          const combined=extractJSON(combinedTxt);
-          console.log("Parsed JSON:", combined);
-          if(combined){
-            if(Array.isArray(combined.shops)&&combined.shops.length>0)setShops(combined.shops.slice(0,5));
-            if(combined.overview||combined.rivers){
-              setReport({overview:combined.overview||"",rivers:combined.rivers||[],hatches:combined.hatches||"",bestTimes:combined.bestTimes||"",tips:combined.tips||"",flyBoxEssentials:combined.flyBoxEssentials||[]});
-            }
+          // Two separate smaller calls to stay under rate limit
+          let shopData=[];
+          try{
+            const shopTxt=await askClaude(`List 4 real fly fishing shops near ${loc.label}. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":""}]`,false,400);
+            const sd=extractJSON(shopTxt);
+            if(Array.isArray(sd))shopData=sd.slice(0,4);
+            setShops(shopData);
+          }catch(e){}
+
+          const reportTxt=await askClaude(`Fly fishing report for ${loc.label} on ${ds}. Current flows: ${gs}. Active hatches: ${hi}. Write a helpful report for an angler. JSON only: {"overview":"2-3 sentence overview","rivers":[{"name":"river","conditions":"conditions","techniques":"techniques","flies":["Fly #size","Fly #size"]}],"hatches":"hatch details","bestTimes":"best times to fish","tips":"local tips","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,false,600);
+          const rpt=extractJSON(reportTxt);
+          if(rpt){
+            setReport({overview:rpt.overview||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
           } else {
-            // Fallback: show raw text as overview
-            setReport({overview:combinedTxt,rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
+            setReport({overview:reportTxt,rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
           }
         }catch(e2){}
         addStep("Report complete ✓");
@@ -760,13 +763,7 @@ function TripPlanner({defaultLocation}){
         </div>
       )}
 
-      {flowPts.length>1&&!busy&&(
-        <div className="card">
-          <div className="ctitle">📈 30-Day Flow History</div>
-          <div className="flow-wrap"><FlowChart points={flowPts} label={flowLabel}/></div>
-          <div style={{fontSize:11,color:"var(--stone)",marginTop:6,textAlign:"right",fontStyle:"italic"}}>Source: USGS · CFS</div>
-        </div>
-      )}
+
 
       {shops.length>0&&!busy&&(
         <div className="card">
