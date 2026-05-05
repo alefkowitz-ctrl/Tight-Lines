@@ -191,7 +191,7 @@ function getKey(){return localStorage.getItem("anthropic_key")||"";}
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const key=getKey();
   if(!key)throw new Error("NO_KEY");
-  const body={model:"claude-sonnet-4-20250514",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
+  const body={model:"claude-sonnet-4-5",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
