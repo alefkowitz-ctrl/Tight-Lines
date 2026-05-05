@@ -229,6 +229,60 @@ async function fetchWeather(lat,lng){
   const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`);
   return r.json();
 }
+function getMoonPhase(date){
+  const d = date || new Date();
+  const year = d.getFullYear(), month = d.getMonth()+1, day = d.getDate();
+  let c = 0, e = 0, jd = 0;
+  if(month < 3){ const y=year-1, m=month+12; jd = Math.floor(365.25*(y+4716))+Math.floor(30.6001*(m+1))+day-1524.5; }
+  else { jd = Math.floor(365.25*(year+4716))+Math.floor(30.6001*(month+1))+day-1524.5; }
+  const b = 2-Math.floor(year/100)+Math.floor(Math.floor(year/100)/4);
+  jd += b < 0 ? b : 0;
+  const daysSinceNew = (jd - 2451549.5) % 29.53058867;
+  const phase = daysSinceNew < 0 ? daysSinceNew + 29.53058867 : daysSinceNew;
+  const pct = phase / 29.53058867;
+  let name, emoji, fishingNote;
+  if(pct < 0.03 || pct > 0.97){ name="New Moon"; emoji="🌑"; fishingNote="Excellent — fish feed actively all day"; }
+  else if(pct < 0.22){ name="Waxing Crescent"; emoji="🌒"; fishingNote="Good — morning hatches strong"; }
+  else if(pct < 0.28){ name="First Quarter"; emoji="🌓"; fishingNote="Fair — evening bite improving"; }
+  else if(pct < 0.47){ name="Waxing Gibbous"; emoji="🌔"; fishingNote="Fair — midday lull likely"; }
+  else if(pct < 0.53){ name="Full Moon"; emoji="🌕"; fishingNote="Fish fed overnight — slower daytime bite"; }
+  else if(pct < 0.72){ name="Waning Gibbous"; emoji="🌖"; fishingNote="Fair — early morning best"; }
+  else if(pct < 0.78){ name="Last Quarter"; emoji="🌗"; fishingNote="Good — evening hatches strong"; }
+  else { name="Waning Crescent"; emoji="🌘"; fishingNote="Good — all-day feeding activity"; }
+  return { name, emoji, pct, fishingNote };
+}
+
+function getStateRegLink(label){
+  const s = label||"";
+  const states = {
+    "CO":"https://cpw.state.co.us/learn/Pages/Fishing.aspx",
+    "Colorado":"https://cpw.state.co.us/learn/Pages/Fishing.aspx",
+    "MT":"https://fwp.mt.gov/fish/fishing-regulations",
+    "Montana":"https://fwp.mt.gov/fish/fishing-regulations",
+    "WY":"https://wgfd.wyo.gov/Fishing/Fishing-Regulations",
+    "Wyoming":"https://wgfd.wyo.gov/Fishing/Fishing-Regulations",
+    "ID":"https://idfg.idaho.gov/fish/fishing/regulations",
+    "Idaho":"https://idfg.idaho.gov/fish/fishing/regulations",
+    "OR":"https://myodfw.com/articles/2024-25-oregon-sport-fishing-regulations",
+    "Oregon":"https://myodfw.com/articles/2024-25-oregon-sport-fishing-regulations",
+    "WA":"https://wdfw.wa.gov/fishing/regulations",
+    "Washington":"https://wdfw.wa.gov/fishing/regulations",
+    "UT":"https://wildlife.utah.gov/regulations.html",
+    "Utah":"https://wildlife.utah.gov/regulations.html",
+    "NM":"https://www.wildlife.state.nm.us/fishing/regulations/",
+    "New Mexico":"https://www.wildlife.state.nm.us/fishing/regulations/",
+    "AZ":"https://www.azgfd.com/fishing/regulations/",
+    "Arizona":"https://www.azgfd.com/fishing/regulations/",
+    "CA":"https://wildlife.ca.gov/Regulations",
+    "California":"https://wildlife.ca.gov/Regulations",
+  };
+  for(const [key,url] of Object.entries(states)){
+    if(s.includes(key)) return url;
+  }
+  return null;
+}
+
+
 async function fetchUSGSStat(siteNo){
   // Fetch the annual max (peak) statistic for a site so we can show % of max
   try{
@@ -274,6 +328,21 @@ async function fetchUSGSRange(siteNo, days){
   }catch(e){ return []; }
 }
 
+
+async function fetchUSGSTemp(siteNo){
+  try{
+    const url="https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00010&siteStatus=active";
+    const r=await fetch(url);
+    if(!r.ok) return null;
+    const d=await r.json();
+    const ts=(d.value&&d.value.timeSeries)||[];
+    if(!ts.length) return null;
+    const raw=ts[0].values?.[0]?.value?.[0]?.value;
+    if(raw==null) return null;
+    const tempC=parseFloat(raw);
+    return isNaN(tempC)?null:Math.round(tempC*9/5+32); // Convert C to F
+  }catch{ return null; }
+}
 
 async function fetchUSGSLive(lat,lng){
   // Try multiple bounding box sizes to find gauges
@@ -403,6 +472,52 @@ function ApiKeySetup({onSave}){
   );
 }
 
+
+// ── Hatch Detail Modal ────────────────────────────────────────────────────────
+const HATCH_DETAILS = {
+  "Midge":{ latin:"Chironomidae", sizes:"#18-26", timing:"Year-round, best 10am-2pm", depth:"Surface & film", patterns:["Zebra Midge","Mercury Midge","Disco Midge","Griffiths Gnat"], tip:"Use a size 22-24 in winter. Dead drift just below the surface." },
+  "Blue Winged Olive":{ latin:"Baetis spp.", sizes:"#16-22", timing:"10am-3pm on overcast days", depth:"Surface emerger", patterns:["RS2","Pheasant Tail","Sparkle Dun","Parachute BWO"], tip:"Fish hatches on cold, cloudy days. Trout key in on emergers just under the film." },
+  "Pale Morning Dun":{ latin:"Ephemerella spp.", sizes:"#14-18", timing:"Morning to early afternoon", depth:"Surface", patterns:["PMD Cripple","Sparkle Dun PMD","Comparadun","Pheasant Tail"], tip:"Cripples and emergers outfish duns. Match size precisely." },
+  "Caddis":{ latin:"Trichoptera", sizes:"#12-16", timing:"Evening, dusk", depth:"Surface & subsurface", patterns:["Elk Hair Caddis","X Caddis","Breadcrust","Pupa"], tip:"Skate a dry fly or swing a soft hackle in the evening. Trout go crazy." },
+  "Green Drake":{ latin:"Drunella grandis", sizes:"#10-12", timing:"Midday, brief hatch", depth:"Surface", patterns:["Parachute Green Drake","Wulff","Slate Wing Olive","Usual"], tip:"One of the best hatches of the year. Be ready — it can be intense but short." },
+  "Trico":{ latin:"Tricorythodes spp.", sizes:"#20-26", timing:"Early morning spinner fall", depth:"Surface", patterns:["Trico Spinner","CDC Trico","Poly Wing Spinner"], tip:"Fish the spinner fall at dawn. Use long fine tippet and be patient." },
+  "Hopper":{ latin:"Acrididae (terrestrial)", sizes:"#6-12", timing:"Afternoon, windy days", depth:"Surface", patterns:["Dave's Hopper","Chubby Chernobyl","Parachute Hopper","Fat Albert"], tip:"Slap the fly on the water near grassy banks. Trout love a big meal." },
+  "Salmonfly":{ latin:"Pteronarcys californica", sizes:"#2-6", timing:"Late afternoon, early evening", depth:"Surface", patterns:["Sofa Pillow","Cheryl's Salmonfly","Bird's Stonefly"], tip:"Fish the edges and banks. This is a bucket list hatch — fish go wild." },
+  "Skwala Stonefly":{ latin:"Skwala parallela", sizes:"#8-12", timing:"Midday warmth", depth:"Surface", patterns:["Skwala Dry","Peacock Skwala","Girdle Bug"], tip:"First big hatch of spring. Fish sunny, warm afternoons in March." },
+  "March Brown":{ latin:"Rhithrogena morrisoni", sizes:"#12-14", timing:"Afternoon", depth:"Surface", patterns:["March Brown Parachute","Hare's Ear","Soft Hackle"], tip:"A reliable early season hatch. Fish the emerger in broken water." },
+  "Yellow Sally":{ latin:"Isoperla spp.", sizes:"#14-16", timing:"Afternoon", depth:"Surface", patterns:["Yellow Sally","Stimulator","Yellow Humpy"], tip:"Small stonefly. Fish near rocky runs and riffles in summer." },
+  "Mahogany Dun":{ latin:"Paraleptophlebia spp.", sizes:"#16-18", timing:"Afternoon, overcast days", depth:"Surface", patterns:["Mahogany Dun","Comparadun","Pheasant Tail"], tip:"Fall hatch. Fish slow, flat water with long leaders." },
+};
+
+function HatchModal({hatch, onClose}){
+  const d = HATCH_DETAILS[hatch.name] || {};
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:"var(--deep)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:430}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:"rgba(255,255,255,0.2)",borderRadius:2,margin:"0 auto 20px"}}/>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--gold)",marginBottom:4}}>{hatch.name}</div>
+        {d.latin&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",marginBottom:16}}>{d.latin}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          {[["Hook Size",d.sizes||"Varies"],["Activity",hatch.a],["Timing",d.timing||"Seasonal"],["Depth",d.depth||"Surface"]].map(([l,v])=>(
+            <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
+              <div style={{fontSize:13,color:"var(--foam)"}}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {d.patterns&&<>
+          <div style={{fontSize:11,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Matching Patterns</div>
+          <div className="chips" style={{marginBottom:14}}>
+            {d.patterns.map((p,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(p+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>🪶 {p}</a>)}
+          </div>
+        </>}
+        {d.tip&&<div style={{background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:12,padding:"12px 14px",fontSize:13,color:"var(--sky)",lineHeight:1.6}}>💡 {d.tip}</div>}
+        <button className="btn" style={{width:"100%",marginTop:16}} onClick={onClose}>Done</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Gauge Chart ──────────────────────────────────────────────────────────────
 const TIMEFRAMES = [
   {label:"7D",  days:7},
@@ -517,7 +632,8 @@ function GaugeList({gauges}){
           </div>
           <div className="grow">
             <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
-            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:8}}>{g.pct}% of hist. max</span>}
+            {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
+            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲":"▼"}</span>
           </div>
           <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
@@ -1142,6 +1258,7 @@ function App(){
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
   const [wxError,setWxError]=useState(null);
+  const [wxForecast,setWxForecast]=useState(null);
   const [gauges,setGauges]=useState([]);
   const [gaugeLoading,setGaugeLoading]=useState(false);
   const [gaugeError,setGaugeError]=useState(null);
@@ -1161,6 +1278,7 @@ function App(){
       const d=await fetchWeather(lat,lng);
       const c=d.current;
       setWeather({temp:Math.round(c.temperature_2m),humidity:c.relative_humidity_2m,wind:Math.round(c.wind_speed_10m),pressure:(c.surface_pressure*0.02953).toFixed(2),uv:Math.round(c.uv_index??0),desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()});
+      setWxForecast(d);
     }catch{setWxError("Weather unavailable.");}
     finally{setWxLoading(false);}
     setGaugeLoading(true);setGaugeError(null);setGauges([]);
@@ -1180,11 +1298,15 @@ function App(){
         .sort((a,b)=>a.dist-b.dist)
         .slice(0,8);
       // Fetch per-site historical max in parallel, fallback to relative scaling
-      const statResults=await Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo)));
+      const [statResults, tempResults]=await Promise.all([
+        Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo))),
+        Promise.all(rawParsed.map(g=>fetchUSGSTemp(g.siteNo)))
+      ]);
       const parsed=rawParsed.map((g,i)=>{
         const histMax=statResults[i];
+        const waterTempF=tempResults[i];
         const pct=g.cfs!=null?(histMax?Math.min(Math.round((g.cfs/histMax)*100),100):Math.min(Math.round((g.cfs/Math.max(...rawParsed.map(x=>x.cfs||0),1))*95),100)):0;
-        return{...g,pct,histMax};
+        return{...g,pct,histMax,waterTempF};
       });
       setGauges(parsed);
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
@@ -1268,13 +1390,87 @@ function App(){
               </div>
             </>}
             <div className="card">
+              <div className="ctitle">🌙 Moon Phase</div>
+              {(()=>{const m=getMoonPhase();return(<div>
+                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:8}}>
+                  <span style={{fontSize:42}}>{m.emoji}</span>
+                  <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
+                  <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div></div>
+                </div>
+                <div style={{fontSize:13,color:"var(--sky)",fontStyle:"italic",padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10}}>🎣 {m.fishingNote}</div>
+              </div>);})()}
+            </div>
+            {weather&&(
+              <div className="card">
+                <div className="ctitle">🌤 7-Day Forecast</div>
+                <div className="fcgrid">
+                  {wxForecast&&wxForecast.daily?.time?.slice(0,7).map((d,i)=>{
+                    const dt=new Date(d+"T12:00:00");
+                    return(
+                      <div key={i} className="fcd">
+                        <div className="fcdn">{DAYS[dt.getDay()]}</div>
+                        <div className="fcic">{WX_EMOJI[wxForecast.daily.weather_code?.[i]]||"🌡"}</div>
+                        <div className="fchi">{Math.round(wxForecast.daily.temperature_2m_max?.[i])}°</div>
+                        <div className="fclo">{Math.round(wxForecast.daily.temperature_2m_min?.[i])}°</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {loc&&(()=>{const url=getStateRegLink(loc.label);return url?(<div className="card">
+              <div className="ctitle">📋 Fishing Regulations</div>
+              <a href={url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"rgba(0,0,0,0.2)",borderRadius:12,color:"var(--sky)",textDecoration:"none",fontSize:14}}>
+                🔗 View current regulations for this state
+              </a>
+            </div>):null;})()}
+            <div className="card">
               <div className="ctitle">🪲 This Month's Hatches</div>
-              {hatches.map(h=><div className="hr" key={h.name}><span className="hn">{h.name}</span><span className="ha">{h.a}</span></div>)}
+              {(()=>{
+                const [selHatch,setSelHatch]=React.useState(null);
+                return(<>
+                  {selHatch&&<HatchModal hatch={selHatch} onClose={()=>setSelHatch(null)}/>}
+                  {hatches.map(h=>(
+                    <div className="hr" key={h.name} style={{cursor:"pointer"}} onClick={()=>setSelHatch(h)}>
+                      <span className="hn">{h.name}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span className="ha">{h.a}</span>
+                        <span style={{fontSize:11,color:"var(--stone)"}}>ℹ</span>
+                      </div>
+                    </div>
+                  ))}
+                </>);
+              })()}
             </div>
           </>}
 
           {tab==="log"&&<>
-            <div className="lhdr"><span className="lttl">My Catches · {catches.length} fish</span></div>
+            <div className="lhdr" style={{flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
+                <span className="lttl">My Catches · {catches.length} fish</span>
+                <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
+                  const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
+                  const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
+                  const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
+                }}>⬇ CSV</button>
+              </div>
+              {catches.length>0&&(()=>{
+                const counts={};catches.forEach(c=>{counts[c.species]=(counts[c.species]||0)+1;});
+                const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+                const max=sorted[0][1];
+                return(<div style={{width:"100%"}}>
+                  {sorted.map(([sp,n])=>(
+                    <div key={sp} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{fontSize:11,color:"var(--stone)",width:120,flexShrink:0}}>{sp}</span>
+                      <div style={{flex:1,height:8,background:"rgba(0,0,0,0.3)",borderRadius:4,overflow:"hidden"}}>
+                        <div style={{width:`${(n/max)*100}%`,height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:4}}/>
+                      </div>
+                      <span style={{fontSize:11,color:"var(--sky)",width:20,textAlign:"right"}}>{n}</span>
+                    </div>
+                  ))}
+                </div>);
+              })()}
+            </div>
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>(
               <div className="cc" key={c.id}>
