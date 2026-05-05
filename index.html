@@ -217,54 +217,62 @@ async function fetchWeather(lat,lng){
   return r.json();
 }
 async function fetchUSGSLive(lat,lng){
-  const p=0.8;
-  const bbox=lng-p+","+( lat-p)+","+(lng+p)+","+(lat+p);
-  // Try new USGS API first (waterservices.usgs.gov decommissioned Feb 2026)
+  // Use wider bbox (1.5 degrees = ~100 miles) for better coverage
+  const p=1.5;
+  const minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
+  // New USGS OGC API - parameter_code 00060 = streamflow
+  const newUrl="https://api.waterdata.usgs.gov/ogcapi/v0/collections/observations/items?f=json&bbox="+minLng+","+minLat+","+maxLng+","+maxLat+"&parameter_code=00060&resultType=latest&limit=20";
   try{
-    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+bbox+"&parameter-name=Streamflow&resultType=latest&limit=20";
-    const r=await fetch(url);
-    if(!r.ok) throw new Error("new api failed");
+    const r=await fetch(newUrl);
+    if(!r.ok) throw new Error("status "+r.status);
     const d=await r.json();
     const features=d.features||[];
+    if(!features.length) throw new Error("no features");
     const timeSeries=features.map(function(f){
+      const p=f.properties||{};
+      const name=p.monitoring_location_name||p.monitoring_location_id||"Unknown";
+      const val=p.value||p.result||"0";
       return{
-        sourceInfo:{siteName:f.properties&&(f.properties.monitoring_location_name||f.properties.site_no)||"Unknown"},
-        values:[{value:[{value:String((f.properties&&(f.properties.result||f.properties.value))||0)}]}]
+        sourceInfo:{siteName:name},
+        values:[{value:[{value:String(val)}]}]
       };
     });
     return{value:{timeSeries:timeSeries}};
-  }catch(e1){
-    // Fallback to old API while it still works
+  }catch(err1){
+    // Fallback: old API (works until 2027)
     try{
-      const url2="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
-      const r2=await fetch(url2);
-      if(!r2.ok) throw new Error("old api failed");
+      const bbox=minLng+","+minLat+","+maxLng+","+maxLat;
+      const oldUrl="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
+      const r2=await fetch(oldUrl);
+      if(!r2.ok) throw new Error("old api status "+r2.status);
       return r2.json();
-    }catch(e2){
+    }catch(err2){
       return{value:{timeSeries:[]}};
     }
   }
 }
 async function fetchUSGSHistory(lat,lng){
-  const p=0.8;
-  const bbox=lng-p+","+( lat-p)+","+(lng+p)+","+(lat+p);
+  const p=1.5;
+  const minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
   const e=new Date(),s=new Date();
   s.setDate(e.getDate()-30);
-  const fmt=function(d){return d.toISOString().split("T")[0];};
+  function fmt(d){return d.toISOString().split("T")[0];}
+  // Try new API first
   try{
-    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+bbox+"&parameter-name=Streamflow&datetime="+fmt(s)+"/"+fmt(e)+"&limit=500";
+    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+minLng+","+minLat+","+maxLng+","+maxLat+"&parameter_code=00060&datetime="+fmt(s)+"/"+fmt(e)+"&limit=500";
     const r=await fetch(url);
-    if(!r.ok) throw new Error("new api failed");
+    if(!r.ok) throw new Error("status "+r.status);
     const d=await r.json();
     const features=d.features||[];
-    if(!features.length) throw new Error("no data");
+    if(!features.length) throw new Error("no features");
     const sites={};
     features.forEach(function(f){
-      const id=(f.properties&&(f.properties.monitoring_location_id||f.properties.site_no))||"unknown";
-      const name=(f.properties&&f.properties.monitoring_location_name)||id;
+      const fp=f.properties||{};
+      const id=fp.monitoring_location_id||"unknown";
+      const name=fp.monitoring_location_name||id;
       if(!sites[id]) sites[id]={name:name,values:[]};
-      const val=parseFloat((f.properties&&(f.properties.result||f.properties.value))||0);
-      const t=(f.properties&&(f.properties.time||f.properties.date))||new Date().toISOString();
+      const val=parseFloat(fp.value||fp.result||0);
+      const t=fp.time||fp.date||new Date().toISOString();
       if(!isNaN(val)&&val>=0&&val<500000) sites[id].values.push({t:t,v:val});
     });
     const siteArr=Object.values(sites).sort(function(a,b){return b.values.length-a.values.length;});
@@ -274,13 +282,15 @@ async function fetchUSGSHistory(lat,lng){
       sourceInfo:{siteName:best.name},
       values:[{value:best.values.map(function(v){return{dateTime:v.t,value:String(v.v)};})}]
     }]}};
-  }catch(e1){
+  }catch(err1){
+    // Fallback to old API
     try{
+      const bbox=minLng+","+minLat+","+maxLng+","+maxLat;
       const url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
       const r2=await fetch(url2);
-      if(!r2.ok) throw new Error("old api failed");
+      if(!r2.ok) throw new Error("old api status "+r2.status);
       return r2.json();
-    }catch(e2){
+    }catch(err2){
       return{value:{timeSeries:[]}};
     }
   }
