@@ -686,11 +686,18 @@ function TripPlanner({defaultLocation}){
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
         try{
-          const combinedTxt=await askClaude(`${loc.label} fishing ${ds}. Flows:${gs}. Hatches:${hi}. JSON:{"shops":[{"name":"","rating":0,"reviews":0,"specialty":"","address":""}],"overview":"","rivers":[{"name":"","conditions":"","techniques":"","flies":["#","#","#"]}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":["#","#","#","#","#"]}`,false,800);
+          const combinedTxt=await askClaude(`For ${loc.label} on ${ds} with flows ${gs} and hatches ${hi}, provide: 1) top local fly fishing shops 2) fishing conditions report. Respond ONLY with this JSON structure: {"shops":[{"name":"shop name","rating":4.5,"reviews":100,"specialty":"dry fly","address":"City, ST"}],"overview":"conditions overview","rivers":[{"name":"river name","conditions":"current conditions","techniques":"recommended techniques","flies":["Fly #14","Fly #16"]}],"hatches":"current hatch activity","bestTimes":"best fishing times","tips":"local tips","flyBoxEssentials":["Fly #14","Fly #16","Fly #18"]}`,false,1000);
+          console.log("Claude response:", combinedTxt);
           const combined=extractJSON(combinedTxt);
+          console.log("Parsed JSON:", combined);
           if(combined){
-            if(Array.isArray(combined.shops))setShops(combined.shops.slice(0,5));
-            setReport({overview:combined.overview||"",rivers:combined.rivers||[],hatches:combined.hatches||"",bestTimes:combined.bestTimes||"",tips:combined.tips||"",flyBoxEssentials:combined.flyBoxEssentials||[]});
+            if(Array.isArray(combined.shops)&&combined.shops.length>0)setShops(combined.shops.slice(0,5));
+            if(combined.overview||combined.rivers){
+              setReport({overview:combined.overview||"",rivers:combined.rivers||[],hatches:combined.hatches||"",bestTimes:combined.bestTimes||"",tips:combined.tips||"",flyBoxEssentials:combined.flyBoxEssentials||[]});
+            }
+          } else {
+            // Fallback: show raw text as overview
+            setReport({overview:combinedTxt,rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
           }
         }catch(e2){}
         addStep("Report complete ✓");
