@@ -217,80 +217,69 @@ async function fetchWeather(lat,lng){
   return r.json();
 }
 async function fetchUSGSLive(lat,lng){
-  // Use wider bbox (1.5 degrees = ~100 miles) for better coverage
-  const p=1.5;
-  const minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
-  // New USGS OGC API - parameter_code 00060 = streamflow
-  const newUrl="https://api.waterdata.usgs.gov/ogcapi/v0/collections/observations/items?f=json&bbox="+minLng+","+minLat+","+maxLng+","+maxLat+"&parameter_code=00060&resultType=latest&limit=20";
-  try{
-    const r=await fetch(newUrl);
-    if(!r.ok) throw new Error("status "+r.status);
-    const d=await r.json();
-    const features=d.features||[];
-    if(!features.length) throw new Error("no features");
-    const timeSeries=features.map(function(f){
-      const p=f.properties||{};
-      const name=p.monitoring_location_name||p.monitoring_location_id||"Unknown";
-      const val=p.value||p.result||"0";
-      return{
-        sourceInfo:{siteName:name},
-        values:[{value:[{value:String(val)}]}]
-      };
-    });
-    return{value:{timeSeries:timeSeries}};
-  }catch(err1){
-    // Fallback: old API (works until 2027)
+  // Try multiple bounding box sizes to find gauges
+  const sizes=[0.5, 1.0, 1.5, 2.5];
+  for(var si=0; si<sizes.length; si++){
+    var p=sizes[si];
+    var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
+    var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
-      const bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-      const oldUrl="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
-      const r2=await fetch(oldUrl);
-      if(!r2.ok) throw new Error("old api status "+r2.status);
-      return r2.json();
-    }catch(err2){
-      return{value:{timeSeries:[]}};
-    }
+      var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
+      var r=await fetch(url);
+      if(!r.ok) continue;
+      var d=await r.json();
+      var ts=(d.value&&d.value.timeSeries)||[];
+      if(ts.length>0) return d;
+    }catch(e){}
   }
+  // Last resort: try new USGS API
+  try{
+    var p2=1.5;
+    var bbox2=(lng-p2)+","+(lat-p2)+","+(lng+p2)+","+(lat+p2);
+    var url2="https://api.waterdata.usgs.gov/ogcapi/v0/collections/observations/items?f=json&bbox="+bbox2+"&parameter_code=00060&limit=20";
+    var r2=await fetch(url2);
+    if(r2.ok){
+      var d2=await r2.json();
+      var features=d2.features||[];
+      if(features.length>0){
+        var ts2=features.map(function(f){
+          var fp=f.properties||{};
+          return{
+            sourceInfo:{siteName:fp.monitoring_location_name||fp.monitoring_location_id||"Unknown"},
+            values:[{value:[{value:String(fp.value||fp.result||"0")}]}]
+          };
+        });
+        return{value:{timeSeries:ts2}};
+      }
+    }
+  }catch(e2){}
+  return{value:{timeSeries:[]}};
 }
 async function fetchUSGSHistory(lat,lng){
-  const p=1.5;
-  const minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
-  const e=new Date(),s=new Date();
+  var p=1.5;
+  var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
+  var e=new Date(), s=new Date();
   s.setDate(e.getDate()-30);
   function fmt(d){return d.toISOString().split("T")[0];}
-  // Try new API first
+  var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
   try{
-    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+minLng+","+minLat+","+maxLng+","+maxLat+"&parameter_code=00060&datetime="+fmt(s)+"/"+fmt(e)+"&limit=500";
-    const r=await fetch(url);
-    if(!r.ok) throw new Error("status "+r.status);
-    const d=await r.json();
-    const features=d.features||[];
-    if(!features.length) throw new Error("no features");
-    const sites={};
-    features.forEach(function(f){
-      const fp=f.properties||{};
-      const id=fp.monitoring_location_id||"unknown";
-      const name=fp.monitoring_location_name||id;
-      if(!sites[id]) sites[id]={name:name,values:[]};
-      const val=parseFloat(fp.value||fp.result||0);
-      const t=fp.time||fp.date||new Date().toISOString();
-      if(!isNaN(val)&&val>=0&&val<500000) sites[id].values.push({t:t,v:val});
-    });
-    const siteArr=Object.values(sites).sort(function(a,b){return b.values.length-a.values.length;});
-    const best=siteArr[0];
-    if(!best||!best.values.length) throw new Error("no usable data");
-    return{value:{timeSeries:[{
-      sourceInfo:{siteName:best.name},
-      values:[{value:best.values.map(function(v){return{dateTime:v.t,value:String(v.v)};})}]
-    }]}};
-  }catch(err1){
-    // Fallback to old API
+    var url="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
+    var r=await fetch(url);
+    if(!r.ok) throw new Error("failed");
+    var d=await r.json();
+    var ts=(d.value&&d.value.timeSeries)||[];
+    if(ts.length>0) return d;
+    throw new Error("empty");
+  }catch(err){
+    // Try wider area
+    var p2=2.5;
+    var bbox2=(lng-p2)+","+(lat-p2)+","+(lng+p2)+","+(lat+p2);
     try{
-      const bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-      const url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
-      const r2=await fetch(url2);
-      if(!r2.ok) throw new Error("old api status "+r2.status);
+      var url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox2+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
+      var r2=await fetch(url2);
+      if(!r2.ok) throw new Error("failed2");
       return r2.json();
-    }catch(err2){
+    }catch(e2){
       return{value:{timeSeries:[]}};
     }
   }
@@ -672,7 +661,7 @@ function App(){
     try{
       const d=await fetchUSGSLive(lat,lng);
       const ts=d.value?.timeSeries??[];
-      if(!ts.length){setGaugeError("No stream gauges found nearby.");return;}
+      if(!ts.length){setGaugeError("No stream gauges found. Try searching for a specific city near the river (e.g. \"Denver, CO\" instead of \"South Platte River\").");return;}
       const parsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
@@ -753,7 +742,7 @@ function App(){
               </div>
               <div className="card">
                 <div className="ctitle">💧 Nearby Stream Gauges<button className="rfsh" onClick={()=>loadConditions(loc)}>↻</button></div>
-                <div className="csub">Live USGS · ~55 mi radius{lastUpd&&` · Updated ${lastUpd}`}</div>
+                <div className="csub">Live USGS · Search by city for best results{lastUpd&&` · Updated ${lastUpd}`}</div>
                 {gaugeLoading&&<div className="loading">Loading gauges…</div>}
                 {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
                 {!gaugeLoading&&gauges.map((g,i)=>(
