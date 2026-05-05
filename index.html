@@ -489,6 +489,55 @@ const HATCH_DETAILS = {
   "Mahogany Dun":{ latin:"Paraleptophlebia spp.", sizes:"#16-18", timing:"Afternoon, overcast days", depth:"Surface", patterns:["Mahogany Dun","Comparadun","Pheasant Tail"], tip:"Fall hatch. Fish slow, flat water with long leaders." },
 };
 
+function MoonCard(){
+  const m = getMoonPhase();
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:8}}>
+        <span style={{fontSize:42}}>{m.emoji}</span>
+        <div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
+          <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div>
+        </div>
+      </div>
+      <div style={{fontSize:13,color:"var(--sky)",fontStyle:"italic",padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10}}>🎣 {m.fishingNote}</div>
+    </div>
+  );
+}
+
+function RegsLink({label}){
+  const url = getStateRegLink(label||"");
+  if(!url) return null;
+  return(
+    <div className="card">
+      <div className="ctitle">📋 Fishing Regulations</div>
+      <a href={url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"rgba(0,0,0,0.2)",borderRadius:12,color:"var(--sky)",textDecoration:"none",fontSize:14}}>
+        🔗 View current regulations for this state
+      </a>
+    </div>
+  );
+}
+
+
+function HatchList({hatches}){
+  const [selHatch, setSelHatch] = useState(null);
+  return(
+    <>
+      {selHatch&&<HatchModal hatch={selHatch} onClose={()=>setSelHatch(null)}/>}
+      {hatches.map(h=>(
+        <div className="hr" key={h.name} style={{cursor:"pointer"}} onClick={()=>setSelHatch(h)}>
+          <span className="hn">{h.name}</span>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span className="ha">{h.a}</span>
+            <span style={{fontSize:11,color:"var(--stone)"}}>ℹ</span>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+
 function HatchModal({hatch, onClose}){
   const d = HATCH_DETAILS[hatch.name] || {};
   return(
@@ -1391,14 +1440,7 @@ function App(){
             </>}
             <div className="card">
               <div className="ctitle">🌙 Moon Phase</div>
-              {(()=>{const m=getMoonPhase();return(<div>
-                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:8}}>
-                  <span style={{fontSize:42}}>{m.emoji}</span>
-                  <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
-                  <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div></div>
-                </div>
-                <div style={{fontSize:13,color:"var(--sky)",fontStyle:"italic",padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10}}>🎣 {m.fishingNote}</div>
-              </div>);})()}
+              <MoonCard/>
             </div>
             {weather&&(
               <div className="card">
@@ -1418,29 +1460,10 @@ function App(){
                 </div>
               </div>
             )}
-            {loc&&(()=>{const url=getStateRegLink(loc.label);return url?(<div className="card">
-              <div className="ctitle">📋 Fishing Regulations</div>
-              <a href={url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"rgba(0,0,0,0.2)",borderRadius:12,color:"var(--sky)",textDecoration:"none",fontSize:14}}>
-                🔗 View current regulations for this state
-              </a>
-            </div>):null;})()}
+            <RegsLink label={loc?.label}/>
             <div className="card">
               <div className="ctitle">🪲 This Month's Hatches</div>
-              {(()=>{
-                const [selHatch,setSelHatch]=React.useState(null);
-                return(<>
-                  {selHatch&&<HatchModal hatch={selHatch} onClose={()=>setSelHatch(null)}/>}
-                  {hatches.map(h=>(
-                    <div className="hr" key={h.name} style={{cursor:"pointer"}} onClick={()=>setSelHatch(h)}>
-                      <span className="hn">{h.name}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span className="ha">{h.a}</span>
-                        <span style={{fontSize:11,color:"var(--stone)"}}>ℹ</span>
-                      </div>
-                    </div>
-                  ))}
-                </>);
-              })()}
+              <HatchList hatches={hatches}/>
             </div>
           </>}
 
