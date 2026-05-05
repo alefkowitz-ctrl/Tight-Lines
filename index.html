@@ -857,8 +857,13 @@ function App(){
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
         const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
-        return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo};
-      }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000)).sort((a,b)=>(b.cfs??-1)-(a.cfs??-1)).slice(0,8);
+        const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+        const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+        const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+        return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist};
+      }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000))
+        .sort((a,b)=>a.dist-b.dist)
+        .slice(0,8);
       // Fetch per-site historical max in parallel, fallback to relative scaling
       const statResults=await Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo)));
       const parsed=rawParsed.map((g,i)=>{
