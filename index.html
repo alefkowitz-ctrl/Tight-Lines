@@ -682,7 +682,7 @@ function TripPlanner({defaultLocation}){
       if(getKey()){
         addStep("Finding top fly shops…","active");
         try{
-          const txt=await askClaude(`Search Google for the best fly fishing shops near ${loc.label}. Return ONLY a JSON array, top 5 by rating × reviews:\n[{"name":"Shop","rating":4.8,"reviews":200,"specialty":"dry fly","address":"City, ST","website":"https://..."}]`,true);
+          const txt=await askClaude(`Best fly fishing shops near ${loc.label}. JSON only: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","website":""}]`,true);
           const d=extractJSON(txt);
           if(Array.isArray(d))setShops(d.slice(0,5));
         }catch{}
@@ -693,7 +693,7 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
-        const txt=await askClaude(`Search for current fishing reports for ${loc.label} around ${ds}. Check fly shop sites, state wildlife agencies, fishing forums.\nReturn ONLY JSON:\n{"overview":"summary","rivers":[{"name":"River","conditions":"text","techniques":"text","flies":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"timing","bestTimes":"best times","tips":"tips","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}\nStream data: ${gs}\nHatches: ${hi}\n2-4 rivers near ${loc.label}. JSON only.`,true,1200);
+        const txt=await askClaude(`Fishing report ${loc.label} ${ds}. Flows:${gs}. Hatches:${hi}. JSON:{"overview":"","rivers":[{"name":"","conditions":"","techniques":"","flies":["p#s","p#s","p#s"]}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":["p#s","p#s","p#s","p#s","p#s","p#s"]}`,true,600);
         const rpt=extractJSON(txt);
         setReport(rpt||{overview:txt,rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
         addStep("Report complete ✓");
