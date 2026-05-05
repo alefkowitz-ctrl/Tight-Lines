@@ -217,30 +217,72 @@ async function fetchWeather(lat,lng){
   return r.json();
 }
 async function fetchUSGSLive(lat,lng){
-  const p=0.8,b=`${lng-p},${lat-p},${lng+p},${lat+p}`;
-  // Try direct first, fall back to cors proxy
-  const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${b}&parameterCd=00060&siteType=ST&siteStatus=active`;
+  const p=0.8;
+  const bbox=lng-p+","+( lat-p)+","+(lng+p)+","+(lat+p);
+  // Try new USGS API first (waterservices.usgs.gov decommissioned Feb 2026)
   try{
+    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+bbox+"&parameter-name=Streamflow&resultType=latest&limit=20";
     const r=await fetch(url);
-    if(!r.ok)throw new Error("direct failed");
-    return r.json();
-  }catch{
-    const r=await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    return r.json();
+    if(!r.ok) throw new Error("new api failed");
+    const d=await r.json();
+    const features=d.features||[];
+    const timeSeries=features.map(function(f){
+      return{
+        sourceInfo:{siteName:f.properties&&(f.properties.monitoring_location_name||f.properties.site_no)||"Unknown"},
+        values:[{value:[{value:String((f.properties&&(f.properties.result||f.properties.value))||0)}]}]
+      };
+    });
+    return{value:{timeSeries:timeSeries}};
+  }catch(e1){
+    // Fallback to old API while it still works
+    try{
+      const url2="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
+      const r2=await fetch(url2);
+      if(!r2.ok) throw new Error("old api failed");
+      return r2.json();
+    }catch(e2){
+      return{value:{timeSeries:[]}};
+    }
   }
 }
 async function fetchUSGSHistory(lat,lng){
-  const p=0.8,b=`${lng-p},${lat-p},${lng+p},${lat+p}`;
-  const e=new Date(),s=new Date();s.setDate(e.getDate()-30);
-  const f=d=>d.toISOString().split("T")[0];
-  const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${b}&parameterCd=00060&siteType=ST&siteStatus=active&startDT=${f(s)}&endDT=${f(e)}`;
+  const p=0.8;
+  const bbox=lng-p+","+( lat-p)+","+(lng+p)+","+(lat+p);
+  const e=new Date(),s=new Date();
+  s.setDate(e.getDate()-30);
+  const fmt=function(d){return d.toISOString().split("T")[0];};
   try{
+    const url="https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&bbox="+bbox+"&parameter-name=Streamflow&datetime="+fmt(s)+"/"+fmt(e)+"&limit=500";
     const r=await fetch(url);
-    if(!r.ok)throw new Error("direct failed");
-    return r.json();
-  }catch{
-    const r=await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    return r.json();
+    if(!r.ok) throw new Error("new api failed");
+    const d=await r.json();
+    const features=d.features||[];
+    if(!features.length) throw new Error("no data");
+    const sites={};
+    features.forEach(function(f){
+      const id=(f.properties&&(f.properties.monitoring_location_id||f.properties.site_no))||"unknown";
+      const name=(f.properties&&f.properties.monitoring_location_name)||id;
+      if(!sites[id]) sites[id]={name:name,values:[]};
+      const val=parseFloat((f.properties&&(f.properties.result||f.properties.value))||0);
+      const t=(f.properties&&(f.properties.time||f.properties.date))||new Date().toISOString();
+      if(!isNaN(val)&&val>=0&&val<500000) sites[id].values.push({t:t,v:val});
+    });
+    const siteArr=Object.values(sites).sort(function(a,b){return b.values.length-a.values.length;});
+    const best=siteArr[0];
+    if(!best||!best.values.length) throw new Error("no usable data");
+    return{value:{timeSeries:[{
+      sourceInfo:{siteName:best.name},
+      values:[{value:best.values.map(function(v){return{dateTime:v.t,value:String(v.v)};})}]
+    }]}};
+  }catch(e1){
+    try{
+      const url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
+      const r2=await fetch(url2);
+      if(!r2.ok) throw new Error("old api failed");
+      return r2.json();
+    }catch(e2){
+      return{value:{timeSeries:[]}};
+    }
   }
 }
 
