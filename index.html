@@ -191,7 +191,7 @@ function getKey(){return localStorage.getItem("anthropic_key")||"";}
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const key=getKey();
   if(!key)throw new Error("NO_KEY");
-  const body={model:"claude-sonnet-4-5",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
+  const body={model:"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
@@ -680,22 +680,19 @@ function TripPlanner({defaultLocation}){
       addStep(`${pg.length} stream gauges loaded ✓`);
 
       if(getKey()){
-        addStep("Finding top fly shops…","active");
-        try{
-          const txt=await askClaude(`Search Google for the best fly fishing shops near ${loc.label}. Return ONLY a JSON array, top 5 by rating × reviews:\n[{"name":"Shop","rating":4.8,"reviews":200,"specialty":"dry fly","address":"City, ST","website":"https://..."}]`,true);
-          const d=extractJSON(txt);
-          if(Array.isArray(d))setShops(d.slice(0,5));
-        }catch{}
-        addStep("Fly shops found ✓");
-
-        addStep("Synthesizing fishing report…","active");
+        addStep("Getting fly shops & fishing report…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
-        const txt=await askClaude(`Search for current fishing reports for ${loc.label} around ${ds}. Check fly shop sites, state wildlife agencies, fishing forums.\nReturn ONLY JSON:\n{"overview":"summary","rivers":[{"name":"River","conditions":"text","techniques":"text","flies":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"timing","bestTimes":"best times","tips":"tips","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}\nStream data: ${gs}\nHatches: ${hi}\n2-4 rivers near ${loc.label}. JSON only.`,true,1200);
-        const rpt=extractJSON(txt);
-        setReport(rpt||{overview:txt,rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
+        try{
+          const combinedTxt=await askClaude(`${loc.label} fishing ${ds}. Flows:${gs}. Hatches:${hi}. JSON:{"shops":[{"name":"","rating":0,"reviews":0,"specialty":"","address":""}],"overview":"","rivers":[{"name":"","conditions":"","techniques":"","flies":["#","#","#"]}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":["#","#","#","#","#"]}`,false,800);
+          const combined=extractJSON(combinedTxt);
+          if(combined){
+            if(Array.isArray(combined.shops))setShops(combined.shops.slice(0,5));
+            setReport({overview:combined.overview||"",rivers:combined.rivers||[],hatches:combined.hatches||"",bestTimes:combined.bestTimes||"",tips:combined.tips||"",flyBoxEssentials:combined.flyBoxEssentials||[]});
+          }
+        }catch(e2){}
         addStep("Report complete ✓");
       }
     }catch(e){
