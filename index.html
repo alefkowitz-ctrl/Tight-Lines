@@ -803,8 +803,8 @@ function GuideBook(){
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:""};
-  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[]};
+  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:"",dietary:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
@@ -920,9 +920,43 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <input className="inp" type="email" placeholder="john@email.com" value={guestForm.email} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
         <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
+        <label className="lbl">Dietary Restrictions</label>
+        <input className="inp" placeholder="e.g. Gluten free, vegetarian, nut allergy…" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Fishing experience, preferences, anything to remember…" value={guestForm.notes} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={saveGuest}>Save Guest</button>
+      </div>
+    </div>
+  );
+
+  // Edit guest
+  if(view==="editGuest"&&selectedGuest) return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>setView("guest")}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Guest</span>
+      </div>
+      <div className="card">
+        <label className="lbl">Full Name *</label>
+        <input className="inp" value={guestForm.name||""} onChange={e=>setGuestForm(f=>({...f,name:e.target.value}))}/>
+        <label className="lbl">Birthday</label>
+        <input className="inp" type="date" value={guestForm.birthday||""} onChange={e=>setGuestForm(f=>({...f,birthday:e.target.value}))}/>
+        <label className="lbl">Address</label>
+        <input className="inp" value={guestForm.address||""} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <label className="lbl">Email</label>
+        <input className="inp" type="email" value={guestForm.email||""} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
+        <label className="lbl">Phone</label>
+        <input className="inp" type="tel" value={guestForm.phone||""} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
+        <label className="lbl">Dietary Restrictions</label>
+        <input className="inp" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
+        <label className="lbl">Notes</label>
+        <textarea className="inp" rows={3} style={{resize:"none"}} value={guestForm.notes||""} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
+        <button className="btn btnp" onClick={()=>{
+          const updated={...selectedGuest,...guestForm};
+          setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?updated:g));
+          setSelectedGuest(updated);
+          setView("guest");
+        }}>Save Changes</button>
       </div>
     </div>
   );
@@ -940,10 +974,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         {selectedGuest.address&&<div className="hr"><span className="hn">Address</span><span className="ha">{selectedGuest.address}</span></div>}
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
+        {selectedGuest.dietary&&<div className="hr"><span className="hn">🥗 Dietary</span><span className="ha">{selectedGuest.dietary}</span></div>}
         {selectedGuest.notes&&<div style={{marginTop:10,fontSize:13,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
         <div style={{display:"flex",gap:8,marginTop:14}}>
-          <button className="btn" style={{flex:1}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
-          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>Delete</button>
+          <button className="btn" style={{flex:2}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
+          <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest});setView("editGuest");}}>✏️ Edit</button>
+          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
@@ -1005,6 +1041,17 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <input className="inp" placeholder="e.g. 9ft 5wt, floating line" value={tripForm.gear} onChange={e=>setTripForm(f=>({...f,gear:e.target.value}))}/>
         <label className="lbl">Guide Notes</label>
         <textarea className="inp" rows={4} style={{resize:"none"}} placeholder="How did they cast? What did they struggle with? What clicked? Anything to remember for next time…" value={tripForm.guideNotes} onChange={e=>setTripForm(f=>({...f,guideNotes:e.target.value}))}/>
+        <label className="lbl">Trip Cost</label>
+        <div className="frow" style={{marginBottom:12}}>
+          <div style={{position:"relative",flex:1}}>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:15}}>$</span>
+            <input className="inp" type="number" min="0" placeholder="0.00" style={{paddingLeft:24,marginBottom:0}} value={tripForm.tripCost||""} onChange={e=>setTripForm(f=>({...f,tripCost:e.target.value}))}/>
+          </div>
+          <div style={{position:"relative",flex:1}}>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:13}}>Tip $</span>
+            <input className="inp" type="number" min="0" placeholder="0.00" style={{paddingLeft:40,marginBottom:0}} value={tripForm.tipAmount||""} onChange={e=>setTripForm(f=>({...f,tipAmount:e.target.value}))}/>
+          </div>
+        </div>
         <label className="lbl">Photos</label>
         <button className="pbtn" style={{width:"100%",marginBottom:10}} onClick={()=>photoRef.current.click()}>
           <span className="pi">📷</span>Add Photos
@@ -1025,6 +1072,85 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
     </div>
   );
 
+  // Edit trip
+  if(view==="editTrip"&&selectedTrip) return(
+    <div>
+      <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleTripPhoto}/>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>setView("tripDetail")}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Trip</span>
+      </div>
+      <div className="card">
+        <label className="lbl">Date</label>
+        <input className="inp" type="date" value={tripForm.date||""} onChange={e=>setTripForm(f=>({...f,date:e.target.value}))}/>
+        <label className="lbl">Location / River</label>
+        <input className="inp" value={tripForm.location||""} onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
+        <label className="lbl">Trip Type</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {TRIP_TYPES.map(t=>(
+            <button key={t} onClick={()=>setTripForm(f=>({...f,type:t}))}
+              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer"}}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <label className="lbl">Fishing Styles</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {FISHING_STYLES.map(s=>(
+            <button key={s} onClick={()=>toggleStyle(s)}
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles?.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles?.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles?.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer"}}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <label className="lbl">Estimated Catches</label>
+        <input className="inp" type="number" min="0" value={tripForm.catches||0} onChange={e=>setTripForm(f=>({...f,catches:parseInt(e.target.value)||0}))}/>
+        <label className="lbl">Flies That Worked</label>
+        <div className="ftags">{(tripForm.flies||[]).map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>setTripForm(f=>({...f,flies:f.flies.filter((_,j)=>j!==i)}))}>×</button></div>)}</div>
+        <div className="frow">
+          <input className="inp" placeholder="Add a fly…" value={tripForm.flyInput||""} onChange={e=>setTripForm(f=>({...f,flyInput:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addFly()}/>
+          <button className="btn" onClick={addFly}>Add</button>
+        </div>
+        <label className="lbl">Gear Used</label>
+        <input className="inp" value={tripForm.gear||""} onChange={e=>setTripForm(f=>({...f,gear:e.target.value}))}/>
+        <label className="lbl">Trip Cost / Tip</label>
+        <div className="frow" style={{marginBottom:12}}>
+          <div style={{position:"relative",flex:1}}>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:15}}>$</span>
+            <input className="inp" type="number" min="0" style={{paddingLeft:24,marginBottom:0}} value={tripForm.tripCost||""} onChange={e=>setTripForm(f=>({...f,tripCost:e.target.value}))}/>
+          </div>
+          <div style={{position:"relative",flex:1}}>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:13}}>Tip $</span>
+            <input className="inp" type="number" min="0" style={{paddingLeft:40,marginBottom:0}} value={tripForm.tipAmount||""} onChange={e=>setTripForm(f=>({...f,tipAmount:e.target.value}))}/>
+          </div>
+        </div>
+        <label className="lbl">Guide Notes</label>
+        <textarea className="inp" rows={4} style={{resize:"none"}} value={tripForm.guideNotes||""} onChange={e=>setTripForm(f=>({...f,guideNotes:e.target.value}))}/>
+        <label className="lbl">Photos</label>
+        <button className="pbtn" style={{width:"100%",marginBottom:10}} onClick={()=>photoRef.current.click()}>
+          <span className="pi">📷</span>Add More Photos
+        </button>
+        {(tripForm.photos||[]).length>0&&(
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+            {(tripForm.photos||[]).map((p,i)=>(
+              <div key={i} style={{position:"relative"}}>
+                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
+                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button className="btn btnp" onClick={()=>{
+          const updated={...selectedTrip,...tripForm};
+          setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?{...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?updated:t)}:g));
+          setSelectedTrip(updated);
+          setView("tripDetail");
+        }}>Save Changes</button>
+      </div>
+    </div>
+  );
+
   // Trip detail + report
   if(view==="tripDetail"&&selectedTrip) return(
     <div>
@@ -1041,6 +1167,8 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <div className="hr"><span className="hn">Catches</span><span className="ha">~{selectedTrip.catches} fish</span></div>
         {selectedTrip.styles.length>0&&<div className="hr"><span className="hn">Styles</span><span className="ha">{selectedTrip.styles.join(", ")}</span></div>}
         {selectedTrip.gear&&<div className="hr"><span className="hn">Gear</span><span className="ha">{selectedTrip.gear}</span></div>}
+        {selectedTrip.tripCost&&<div className="hr"><span className="hn">Trip Cost</span><span className="ha" style={{color:"var(--gold)"}}>$ {selectedTrip.tripCost}</span></div>}
+        {selectedTrip.tipAmount&&<div className="hr"><span className="hn">Tip</span><span className="ha" style={{color:"#9cd47a"}}>$ {selectedTrip.tipAmount}</span></div>}
         {selectedTrip.flies.length>0&&(
           <div style={{marginTop:10}}>
             <div className="lbl" style={{marginBottom:6}}>Flies That Worked</div>
@@ -1065,22 +1193,40 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <button className="gen" style={{flex:1}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
             {generating?"Generating…":"✦ Generate Client Report"}
           </button>
+          <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{setTripForm({...selectedTrip});setView("editTrip");}}>✏️</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);setView("guest");}}>🗑</button>
         </div>
       </div>
-      {report&&(
+      {report!==null&&(
         <div className="card">
           <div className="ctitle">📄 Client Report</div>
-          <div className="csub">Ready to share with {selectedGuest.name}</div>
-          <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{report}</p>
-          <button className="btn" style={{marginTop:14,width:"100%"}}
-            onClick={()=>{
-              const txt = `Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n${report}`;
-              if(navigator.share){navigator.share({title:"Your Fishing Report",text:txt});}
-              else{navigator.clipboard.writeText(txt).then(()=>alert("Report copied to clipboard!"));}
-            }}>
-            📤 Share Report
-          </button>
+          <div className="csub">Tap to edit before sharing</div>
+          {selectedTrip.photos&&selectedTrip.photos.length>0&&(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:"calc(50% - 4px)",height:140,objectFit:"cover",borderRadius:10}} alt="trip"/>)}
+            </div>
+          )}
+          <textarea
+            className="inp"
+            rows={12}
+            style={{resize:"vertical",fontSize:13,lineHeight:1.7}}
+            value={report}
+            onChange={e=>setReport(e.target.value)}
+          />
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button className="gen" style={{flex:1,padding:12,fontSize:15}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
+              {generating?"Regenerating…":"↺ Regenerate"}
+            </button>
+            <button className="btn" style={{flex:2,padding:12,fontSize:15}}
+              onClick={()=>{
+                const header=`Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n`;
+                const txt=header+report;
+                if(navigator.share){navigator.share({title:"Your Fishing Trip Report",text:txt});}
+                else{navigator.clipboard.writeText(txt).then(()=>alert("Copied to clipboard! Paste into email or text."));}
+              }}>
+              📤 Share Report
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1507,6 +1653,10 @@ function App(){
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
                   {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
                   <div className="cgps">📍 {c.gps}</div>
+                  <button onClick={()=>setCatches(cs=>cs.filter(x=>x.id!==c.id))}
+                    style={{marginTop:8,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"4px 12px",color:"var(--red)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                    Delete Catch
+                  </button>
                 </div>
               </div>
             ))}
