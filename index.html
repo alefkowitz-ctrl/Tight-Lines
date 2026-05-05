@@ -695,7 +695,7 @@ function TripPlanner({defaultLocation}){
           // Two separate smaller calls to stay under rate limit
           let shopData=[];
           try{
-            const shopTxt=await askClaude(`List 4 real fly fishing shops nearest to ${loc.label}, sorted by proximity (closest first). Include only shops within reasonable driving distance. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0}]`,false,400);
+            const shopTxt=await askClaude(`List 4 real fly fishing shops nearest to ${loc.label}, sorted by proximity (closest first). Include only shops within reasonable driving distance. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,false,450);
             const sd=extractJSON(shopTxt);
             if(Array.isArray(sd))shopData=sd.slice(0,4);
             setShops(shopData);
@@ -790,7 +790,10 @@ function TripPlanner({defaultLocation}){
                 {s.address&&<span>{s.address}</span>}
               </div>
               {s.specialty&&<div style={{fontSize:12,color:"var(--sky)",marginTop:4,fontStyle:"italic"}}>{s.specialty}</div>}
-              {s.website&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",display:"block",marginTop:4}}>{s.website.replace(/^https?:\/\//,"").split("/")[0]}</a>}
+              <div style={{display:"flex",gap:10,marginTop:6,flexWrap:"wrap"}}>
+                {s.website&&s.website!=="https://"&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>🌐 Visit Website</a>}
+                <a href={`https://www.google.com/maps/search/${encodeURIComponent((s.name||"")+" "+(s.address||""))}`} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--sky)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>📍 Maps</a>
+              </div>
             </div>
           ))}
         </div>
@@ -807,14 +810,14 @@ function TripPlanner({defaultLocation}){
                 <div className="rriver">🏞 {r.name}</div>
                 <div className="rbody">{r.conditions}</div>
                 {r.techniques&&<div className="rtech">{r.techniques}</div>}
-                {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><span className="chip" key={j}>🪶 {f}</span>)}</div>}
+                {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
               </div>
             ))}
           </>}
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
           {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
-          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><span className="chip" key={i}>🪶 {f}</span>)}</div></>}
+          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></>}
         </div>
       )}
     </div>
@@ -972,7 +975,7 @@ function App(){
                     {c.length&&<span className="cmi">📏 {c.length}"</span>}
                     <span className="cmi">🕐 {c.time}</span>
                   </div>
-                  {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><span className="cfly" key={i}>🪶 {f}</span>)}</div>}
+                  {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
                   {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
                   <div className="cgps">📍 {c.gps}</div>
                 </div>
