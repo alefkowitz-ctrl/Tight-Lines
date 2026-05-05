@@ -149,6 +149,19 @@ select.inp{-webkit-appearance:none;}
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback } = React;
 
+function useLocalStorage(key, initial){
+  const [val, setVal] = useState(()=>{
+    try{ const s=localStorage.getItem(key); return s?JSON.parse(s):initial; }
+    catch{ return initial; }
+  });
+  function set(v){
+    const next = typeof v==="function"?v(val):v;
+    setVal(next);
+    try{ localStorage.setItem(key, JSON.stringify(next)); }catch{}
+  }
+  return [val, set];
+}
+
 // ── Data ──────────────────────────────────────────────────────────────────────
 const HATCHES = {
   0:[{name:"Midge",a:"Heavy"},{name:"Blue Winged Olive",a:"Light"}],
@@ -614,6 +627,303 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
   );
 }
 
+
+// ── Guide Book ────────────────────────────────────────────────────────────────
+const FISHING_STYLES = ["Nymphing","Dry Fly","Streamer","Wet Fly","Euro Nymphing","Indicator","Sight Fishing"];
+const TRIP_TYPES = ["Wade","Float","Boat","Stillwater"];
+
+function GuideBook(){
+  const [guests, setGuests] = useLocalStorage("guide_guests", []);
+  const [view, setView] = useState("list"); // list | guest | addGuest | addTrip | report
+  const [selectedGuest, setSelectedGuest] = useState(null);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+
+  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[]};
+  const [guestForm, setGuestForm] = useState(guestForm0);
+  const [tripForm, setTripForm] = useState(tripForm0);
+  const [generating, setGenerating] = useState(false);
+  const [report, setReport] = useState(null);
+  const photoRef = useRef();
+
+  function saveGuest(){
+    if(!guestForm.name.trim()) return;
+    const g = {...guestForm, id: Date.now(), trips:[]};
+    setGuests(gs => [...gs, g]);
+    setGuestForm(guestForm0);
+    setView("list");
+  }
+
+  function saveTrip(){
+    const trip = {...tripForm, id: Date.now()};
+    setGuests(gs => gs.map(g => g.id===selectedGuest.id
+      ? {...g, trips:[...(g.trips||[]), trip]}
+      : g
+    ));
+    const updated = guests.find(g=>g.id===selectedGuest.id);
+    setSelectedGuest(g => ({...g, trips:[...(g.trips||[]), trip]}));
+    setTripForm(tripForm0);
+    setView("guest");
+  }
+
+  function handleTripPhoto(e){
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => setTripForm(f => ({...f, photos:[...f.photos, ev.target.result]}));
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  }
+
+  function toggleStyle(s){
+    setTripForm(f => ({...f, styles: f.styles.includes(s) ? f.styles.filter(x=>x!==s) : [...f.styles, s]}));
+  }
+
+  function addFly(){ if(!tripForm.flyInput.trim()) return; setTripForm(f=>({...f, flies:[...f.flies, f.flyInput.trim()], flyInput:""})); }
+
+  async function generateReport(guest, trip){
+    setGenerating(true); setReport(null);
+    try{
+      const txt = await askClaude(`You are a fly fishing guide writing a trip summary for a client.
+Client: ${guest.name}
+Date: ${trip.date}
+Location: ${trip.location||"Not specified"}
+Trip type: ${trip.type}
+Fishing styles: ${trip.styles.join(", ")||"Not specified"}
+Estimated catches: ${trip.catches}
+Flies that worked: ${trip.flies.join(", ")||"Not specified"}
+Gear used: ${trip.gear||"Not specified"}
+Guide notes: ${trip.guideNotes||"None"}
+
+Write a warm, encouraging 3-4 paragraph trip report the guide can share with the client. Include:
+1. A highlight of how the day went
+2. What was working and why (flies, techniques, conditions)
+3. 2-3 specific, kind suggestions for improvement framed positively
+4. An encouraging closing note
+
+Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 600);
+      setReport(txt);
+    }catch(e){ setReport("Could not generate report. " + e.message); }
+    finally{ setGenerating(false); }
+  }
+
+  function deleteGuest(id){ setGuests(gs => gs.filter(g=>g.id!==id)); setView("list"); }
+  function deleteTrip(guestId, tripId){
+    setGuests(gs => gs.map(g => g.id===guestId ? {...g, trips:(g.trips||[]).filter(t=>t.id!==tripId)} : g));
+    setSelectedGuest(g => ({...g, trips:(g.trips||[]).filter(t=>t.id!==tripId)}));
+  }
+
+  // Guest list
+  if(view==="list") return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
+        <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
+      </div>
+      {guests.length===0&&<div className="empty"><div className="ei">🧑‍✈️</div><p>No guests yet.<br/>Add your first client to get started.</p></div>}
+      {guests.map(g=>(
+        <div className="cc" key={g.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedGuest(g);setView("guest");}}>
+          <div className="cb">
+            <div className="csp">{g.name}</div>
+            <div className="cm">
+              {g.email&&<span className="cmi">✉️ {g.email}</span>}
+              {g.phone&&<span className="cmi">📱 {g.phone}</span>}
+            </div>
+            <div style={{fontSize:12,color:"var(--stone)",marginTop:4}}>{(g.trips||[]).length} trip{(g.trips||[]).length!==1?"s":""} on record</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Add guest form
+  if(view==="addGuest") return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>setView("list")}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Guest</span>
+      </div>
+      <div className="card">
+        <label className="lbl">Full Name *</label>
+        <input className="inp" placeholder="John Smith" value={guestForm.name} onChange={e=>setGuestForm(f=>({...f,name:e.target.value}))}/>
+        <label className="lbl">Birthday</label>
+        <input className="inp" type="date" value={guestForm.birthday} onChange={e=>setGuestForm(f=>({...f,birthday:e.target.value}))}/>
+        <label className="lbl">Address</label>
+        <input className="inp" placeholder="123 Main St, City, ST" value={guestForm.address} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <label className="lbl">Email</label>
+        <input className="inp" type="email" placeholder="john@email.com" value={guestForm.email} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
+        <label className="lbl">Phone</label>
+        <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
+        <label className="lbl">Notes</label>
+        <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Fishing experience, preferences, anything to remember…" value={guestForm.notes} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
+        <button className="btn btnp" onClick={saveGuest}>Save Guest</button>
+      </div>
+    </div>
+  );
+
+  // Guest detail
+  if(view==="guest"&&selectedGuest) return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>setView("list")}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>{selectedGuest.name}</span>
+      </div>
+      <div className="card">
+        <div className="ctitle">👤 Guest Info</div>
+        {selectedGuest.birthday&&<div className="hr"><span className="hn">Birthday</span><span className="ha">{new Date(selectedGuest.birthday+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>}
+        {selectedGuest.address&&<div className="hr"><span className="hn">Address</span><span className="ha">{selectedGuest.address}</span></div>}
+        {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
+        {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
+        {selectedGuest.notes&&<div style={{marginTop:10,fontSize:13,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <button className="btn" style={{flex:1}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
+          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>Delete</button>
+        </div>
+      </div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
+      {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
+      {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
+        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");}}>
+          <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
+          {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
+            <span>🐟 ~{trip.catches} catches</span>
+            {trip.styles.length>0&&<span>🎣 {trip.styles.join(", ")}</span>}
+            {trip.photos.length>0&&<span>📷 {trip.photos.length} photo{trip.photos.length!==1?"s":""}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Add trip form
+  if(view==="addTrip") return(
+    <div>
+      <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleTripPhoto}/>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>setView("guest")}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Trip</span>
+      </div>
+      <div className="card">
+        <label className="lbl">Date</label>
+        <input className="inp" type="date" value={tripForm.date} onChange={e=>setTripForm(f=>({...f,date:e.target.value}))}/>
+        <label className="lbl">Location / River</label>
+        <input className="inp" placeholder="e.g. South Platte at Deckers" value={tripForm.location} onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
+        <label className="lbl">Trip Type</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {TRIP_TYPES.map(t=>(
+            <button key={t} onClick={()=>setTripForm(f=>({...f,type:t}))}
+              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer"}}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <label className="lbl">Fishing Styles</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {FISHING_STYLES.map(s=>(
+            <button key={s} onClick={()=>toggleStyle(s)}
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer"}}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <label className="lbl">Estimated Catches</label>
+        <input className="inp" type="number" min="0" placeholder="0" value={tripForm.catches} onChange={e=>setTripForm(f=>({...f,catches:parseInt(e.target.value)||0}))}/>
+        <label className="lbl">Flies That Worked</label>
+        <div className="ftags">{tripForm.flies.map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>setTripForm(f=>({...f,flies:f.flies.filter((_,j)=>j!==i)}))}>×</button></div>)}</div>
+        <div className="frow">
+          <input className="inp" placeholder="e.g. Elk Hair Caddis #14" value={tripForm.flyInput} onChange={e=>setTripForm(f=>({...f,flyInput:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addFly()}/>
+          <button className="btn" onClick={addFly}>Add</button>
+        </div>
+        <label className="lbl">Gear Used</label>
+        <input className="inp" placeholder="e.g. 9ft 5wt, floating line" value={tripForm.gear} onChange={e=>setTripForm(f=>({...f,gear:e.target.value}))}/>
+        <label className="lbl">Guide Notes</label>
+        <textarea className="inp" rows={4} style={{resize:"none"}} placeholder="How did they cast? What did they struggle with? What clicked? Anything to remember for next time…" value={tripForm.guideNotes} onChange={e=>setTripForm(f=>({...f,guideNotes:e.target.value}))}/>
+        <label className="lbl">Photos</label>
+        <button className="pbtn" style={{width:"100%",marginBottom:10}} onClick={()=>photoRef.current.click()}>
+          <span className="pi">📷</span>Add Photos
+        </button>
+        {tripForm.photos.length>0&&(
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+            {tripForm.photos.map((p,i)=>(
+              <div key={i} style={{position:"relative"}}>
+                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
+                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button className="btn btnp" onClick={saveTrip}>Save Trip</button>
+      </div>
+    </div>
+  );
+
+  // Trip detail + report
+  if(view==="tripDetail"&&selectedTrip) return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="back" onClick={()=>{setView("guest");setReport(null);}}>← Back</button>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>
+          {new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
+        </span>
+      </div>
+      <div className="card">
+        <div className="ctitle">📋 Trip Summary</div>
+        {selectedTrip.location&&<div className="hr"><span className="hn">Location</span><span className="ha">{selectedTrip.location}</span></div>}
+        <div className="hr"><span className="hn">Type</span><span className="ha">{selectedTrip.type}</span></div>
+        <div className="hr"><span className="hn">Catches</span><span className="ha">~{selectedTrip.catches} fish</span></div>
+        {selectedTrip.styles.length>0&&<div className="hr"><span className="hn">Styles</span><span className="ha">{selectedTrip.styles.join(", ")}</span></div>}
+        {selectedTrip.gear&&<div className="hr"><span className="hn">Gear</span><span className="ha">{selectedTrip.gear}</span></div>}
+        {selectedTrip.flies.length>0&&(
+          <div style={{marginTop:10}}>
+            <div className="lbl" style={{marginBottom:6}}>Flies That Worked</div>
+            <div className="chips">{selectedTrip.flies.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>🪶 {f}</a>)}</div>
+          </div>
+        )}
+        {selectedTrip.guideNotes&&(
+          <div style={{marginTop:12,padding:"10px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,borderLeft:"3px solid var(--water)"}}>
+            <div className="lbl" style={{marginBottom:4}}>Guide Notes</div>
+            <p style={{fontSize:13,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
+          </div>
+        )}
+        {selectedTrip.photos.length>0&&(
+          <div style={{marginTop:12}}>
+            <div className="lbl" style={{marginBottom:8}}>Photos</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:100,height:100,objectFit:"cover",borderRadius:10}} alt="catch"/>)}
+            </div>
+          </div>
+        )}
+        <div style={{marginTop:14,display:"flex",gap:8}}>
+          <button className="gen" style={{flex:1}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
+            {generating?"Generating…":"✦ Generate Client Report"}
+          </button>
+          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);setView("guest");}}>🗑</button>
+        </div>
+      </div>
+      {report&&(
+        <div className="card">
+          <div className="ctitle">📄 Client Report</div>
+          <div className="csub">Ready to share with {selectedGuest.name}</div>
+          <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{report}</p>
+          <button className="btn" style={{marginTop:14,width:"100%"}}
+            onClick={()=>{
+              const txt = `Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n${report}`;
+              if(navigator.share){navigator.share({title:"Your Fishing Report",text:txt});}
+              else{navigator.clipboard.writeText(txt).then(()=>alert("Report copied to clipboard!"));}
+            }}>
+            📤 Share Report
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  return null;
+}
+
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
@@ -925,7 +1235,7 @@ function App(){
         </div>
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"}].map(t=>(
+          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🧑‍✈️",label:"Guide"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
@@ -984,6 +1294,7 @@ function App(){
           </>}
 
           {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
+          {tab==="guide"&&<GuideBook/>}
         </div>
 
         {tab==="log"&&(
