@@ -1537,7 +1537,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
               {g.email&&<span className="cmi">✉️ {g.email}</span>}
               {g.phone&&<span className="cmi">📱 {g.phone}</span>}
             </div>
-            <div style={{fontSize:12,color:"var(--stone)",marginTop:4}}>{(g.trips||[]).length} trip{(g.trips||[]).length!==1?"s":""} on record</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
+              <span style={{fontSize:12,color:"var(--stone)"}}>{(g.trips||[]).length} trip{(g.trips||[]).length!==1?"s":""} on record</span>
+              {(g.skillLevel||g.skill_level)&&<span style={{fontSize:11,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"1px 8px",color:"var(--sky)"}}>
+                {(g.skillLevel||g.skill_level)==="Beginner"?"🌱":( g.skillLevel||g.skill_level)==="Intermediate"?"🎣":"🏆"} {g.skillLevel||g.skill_level}
+              </span>}
+            </div>
           </div>
         </div>
       ))}
@@ -1636,12 +1641,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         {selectedGuest.address&&<div className="hr"><span className="hn">Address</span><span className="ha">{selectedGuest.address}</span></div>}
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
-        {selectedGuest.skillLevel&&<div className="hr"><span className="hn">Skill Level</span><span className="ha">{selectedGuest.skillLevel==="Beginner"?"🌱":selectedGuest.skillLevel==="Intermediate"?"🎣":"🏆"} {selectedGuest.skillLevel}</span></div>}
+        {(selectedGuest.skillLevel||selectedGuest.skill_level)&&(()=>{const sl=selectedGuest.skillLevel||selectedGuest.skill_level;return(<div className="hr"><span className="hn">Skill Level</span><span className="ha">{sl==="Beginner"?"🌱 Beginner":sl==="Intermediate"?"🎣 Intermediate":"🏆 Expert"}</span></div>);})()}
         {selectedGuest.dietary&&<div className="hr"><span className="hn">🥗 Dietary</span><span className="ha">{selectedGuest.dietary}</span></div>}
         {selectedGuest.notes&&<div style={{marginTop:10,fontSize:13,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
         <div style={{display:"flex",gap:8,marginTop:14}}>
           <button className="btn" style={{flex:2}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
-          <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest});setView("editGuest");}}>✏️ Edit</button>
+          <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest, skillLevel:selectedGuest.skillLevel||selectedGuest.skill_level||""});setView("editGuest");}}>✏️ Edit</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
