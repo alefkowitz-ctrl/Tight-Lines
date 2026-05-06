@@ -994,6 +994,172 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
 
 
 
+
+// ── Trip Report PDF Generator ─────────────────────────────────────────────────
+function generateTripReportPDF(guest, trip, reportText){
+  const date = new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+
+  // Build photo grid HTML
+  const photoGrid = (trip.photos||[]).length > 0 ? `
+    <div class="photo-grid">
+      ${(trip.photos||[]).map(p=>`<div class="photo-wrap"><img src="${p}" class="photo-img"/></div>`).join("")}
+    </div>
+  ` : `<div class="no-photos">No photos recorded for this trip</div>`;
+
+  // Build conditions row
+  const conditionItems = [];
+  if(trip.weatherConditions) conditionItems.push(`<div class="cond-item"><span class="cond-icon">${trip.weatherConditions.split(" ")[0]}</span><span class="cond-val">${trip.weatherConditions.replace(/^[^\s]+\s/,"")}</span><span class="cond-lbl">Sky</span></div>`);
+  if(trip.airTemp) conditionItems.push(`<div class="cond-item"><span class="cond-icon">🌡</span><span class="cond-val">${trip.airTemp}°F</span><span class="cond-lbl">Air Temp</span></div>`);
+  if(trip.waterTemp) conditionItems.push(`<div class="cond-item"><span class="cond-icon">💧</span><span class="cond-val">${trip.waterTemp}°F</span><span class="cond-lbl">Water Temp</span></div>`);
+  if(trip.windSpeed) conditionItems.push(`<div class="cond-item"><span class="cond-icon">💨</span><span class="cond-val">${trip.windSpeed} mph ${trip.windDir||""}</span><span class="cond-lbl">Wind</span></div>`);
+  if(trip.pressure) conditionItems.push(`<div class="cond-item"><span class="cond-icon">📊</span><span class="cond-val">${trip.pressure}"</span><span class="cond-lbl">Pressure ${trip.pressureTrend||""}</span></div>`);
+  if(trip.streamCFS) conditionItems.push(`<div class="cond-item"><span class="cond-icon">🌊</span><span class="cond-val">${Number(trip.streamCFS).toLocaleString()} CFS</span><span class="cond-lbl">${trip.streamCondition||"Flow"}</span></div>`);
+
+  // Build flies list
+  const fliesList = (trip.flies||[]).length > 0
+    ? `<div class="flies-row">${(trip.flies||[]).map(f=>`<span class="fly-tag">🪶 ${f}</span>`).join("")}</div>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>Trip Report — ${guest.name}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Crimson Pro',serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
+  @media print{body{width:100%;}@page{margin:0;size:letter;}}
+
+  /* Header band */
+  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#e8dfc8;padding:32px 40px 24px;position:relative;}
+  .brand{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
+  .report-title{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#e8dfc8;margin-bottom:4px;}
+  .report-title span{color:#c8a84b;font-style:italic;}
+  .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
+  .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#c8a84b,transparent);margin:0;}
+
+  /* Conditions section */
+  .section{padding:24px 40px;}
+  .section-title{font-family:'Playfair Display',serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
+  .conditions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;}
+  .cond-item{background:#f0f5f7;border-radius:10px;padding:12px 8px;text-align:center;border:1px solid #d0dfe3;}
+  .cond-icon{display:block;font-size:20px;margin-bottom:4px;}
+  .cond-val{display:block;font-family:'Playfair Display',serif;font-size:15px;color:#1a3a45;font-weight:700;}
+  .cond-lbl{display:block;font-size:10px;color:#6a8a94;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+  .stream-bar{background:#e8f0f3;border-radius:10px;padding:12px 16px;margin-top:12px;display:flex;align-items:center;gap:12px;border-left:4px solid #2c5f6e;}
+  .stream-name{font-family:'Playfair Display',serif;font-size:14px;color:#1a3a45;font-style:italic;}
+  .stream-stats{font-size:13px;color:#2c5f6e;margin-left:auto;}
+
+  /* Trip stats bar */
+  .stats-bar{background:#1a3a45;padding:14px 40px;display:flex;gap:32px;align-items:center;}
+  .stat{text-align:center;}
+  .stat-val{font-family:'Playfair Display',serif;font-size:20px;color:#c8a84b;}
+  .stat-lbl{font-size:10px;color:#b8d4dc;text-transform:uppercase;letter-spacing:1px;}
+  .stat-div{width:1px;height:32px;background:rgba(255,255,255,0.15);}
+
+  /* Photos section */
+  .photo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .photo-wrap{border-radius:10px;overflow:hidden;aspect-ratio:4/3;}
+  .photo-img{width:100%;height:100%;object-fit:cover;display:block;}
+  .no-photos{padding:32px;text-align:center;color:#8a9a9e;font-style:italic;background:#f5f8f9;border-radius:10px;border:1px dashed #c0cfd3;}
+
+  /* Flies */
+  .flies-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+  .fly-tag{background:#e8f0f3;border:1px solid #b8d4dc;border-radius:20px;padding:4px 12px;font-size:12px;color:#2c5f6e;}
+
+  /* Report text */
+  .report-text{font-size:15px;line-height:1.9;color:#1a2e35;white-space:pre-wrap;}
+
+  /* Footer */
+  .footer{background:#f0f5f7;border-top:1px solid #d0dfe3;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;}
+  .footer-brand{font-family:'Playfair Display',serif;font-size:14px;color:#2c5f6e;}
+  .footer-brand span{color:#c8a84b;font-style:italic;}
+  .footer-note{font-size:11px;color:#8a9a9e;font-style:italic;}
+
+  .section-bg{background:#f8fbfc;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="brand">Tight Lines · Fly Fishing Journal</div>
+  <div class="report-title">Trip Report · <span>${guest.name}</span></div>
+  <div class="report-meta">
+    📅 ${date}
+    ${trip.location ? ` &nbsp;·&nbsp; 📍 ${trip.location}` : ""}
+    ${trip.type ? ` &nbsp;·&nbsp; ${trip.type} Trip` : ""}
+    ${guest.skillLevel ? ` &nbsp;·&nbsp; ${guest.skillLevel==="Beginner"?"🌱":guest.skillLevel==="Intermediate"?"🎣":"🏆"} ${guest.skillLevel}` : ""}
+  </div>
+  <div class="header-accent">🎣</div>
+</div>
+<div class="divider-gold"></div>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="stat"><div class="stat-val">~${trip.catches||0}</div><div class="stat-lbl">Fish Caught</div></div>
+  ${(trip.styles||[]).length>0?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${(trip.styles||[]).join(", ")}</div><div class="stat-lbl">Techniques</div></div>`:""}
+  ${(trip.gear)?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${trip.gear}</div><div class="stat-lbl">Gear</div></div>`:""}
+  ${(trip.tripCost)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">$${trip.tripCost}</div><div class="stat-lbl">Trip Rate</div></div>`:""}
+</div>
+
+<!-- CONDITIONS -->
+${conditionItems.length>0?`
+<div class="section">
+  <div class="section-title">Conditions on the Water</div>
+  <div class="conditions-grid">${conditionItems.join("")}</div>
+  ${trip.streamGaugeName?`<div class="stream-bar"><div>🏞 <span class="stream-name">${trip.streamGaugeName}</span></div>${trip.streamCFS?`<div class="stream-stats">${Number(trip.streamCFS).toLocaleString()} CFS · ${trip.streamCondition||""}</div>`:""}</div>`:""}
+</div>
+<div style="height:1px;background:#e0ebee;margin:0 40px;"></div>
+`:""}
+
+<!-- FLIES -->
+${(trip.flies||[]).length>0?`
+<div class="section">
+  <div class="section-title">Flies That Worked</div>
+  ${fliesList}
+</div>
+<div style="height:1px;background:#e0ebee;margin:0 40px;"></div>
+`:""}
+
+<!-- PHOTOS -->
+<div class="section section-bg">
+  <div class="section-title">On the Water</div>
+  ${photoGrid}
+</div>
+<div style="height:1px;background:#e0ebee;margin:0 40px;"></div>
+
+<!-- REPORT -->
+${reportText?`
+<div class="section">
+  <div class="section-title">Guide's Trip Report</div>
+  <div class="report-text">${reportText.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
+</div>
+`:""}
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-brand">Tight <span>Lines</span> · Fly Fishing Journal</div>
+  <div class="footer-note">Generated ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+</div>
+
+</body>
+</html>`;
+
+  // Open in new window and trigger print to PDF
+  const win = window.open("","_blank","width=900,height=700");
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => {
+    setTimeout(()=>{
+      win.focus();
+      win.print();
+    }, 800);
+  };
+}
+
 // ── Trip Location + Weather Auto-Fetch ───────────────────────────────────────
 function TripLocationWeather({tripForm, setTripForm}){
   const [wxLoading, setWxLoading] = useState(false);
@@ -1708,6 +1874,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{setTripForm({...selectedTrip});setView("editTrip");}}>✏️</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);setView("guest");}}>🗑</button>
         </div>
+        {(selectedTrip.photos?.length>0||report)&&(
+          <button className="btn" style={{width:"100%",marginTop:8,padding:12,fontSize:15,background:"linear-gradient(135deg,#1a3a45,#2c5f6e)"}}
+            onClick={()=>generateTripReportPDF(selectedGuest,selectedTrip,report||"")}>
+            📄 Export PDF Report
+          </button>
+        )}
       </div>
       {report!==null&&(
         <div className="card">
@@ -1729,16 +1901,20 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             <button className="gen" style={{flex:1,padding:12,fontSize:15}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
               {generating?"Regenerating…":"↺ Regenerate"}
             </button>
-            <button className="btn" style={{flex:2,padding:12,fontSize:15}}
-              onClick={()=>{
-                const header=`Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n`;
-                const txt=header+report;
-                if(navigator.share){navigator.share({title:"Your Fishing Trip Report",text:txt});}
-                else{navigator.clipboard.writeText(txt).then(()=>alert("Copied to clipboard! Paste into email or text."));}
-              }}>
-              📤 Share Report
+            <button className="btn" style={{flex:2,padding:12,fontSize:15,background:"linear-gradient(135deg,#2c5f6e,#5a7a4a)"}}
+              onClick={()=>generateTripReportPDF(selectedGuest,selectedTrip,report)}>
+              📄 Export PDF
             </button>
           </div>
+          <button className="btn" style={{width:"100%",marginTop:8,padding:12,fontSize:14,background:"rgba(0,0,0,0.2)"}}
+            onClick={()=>{
+              const header=`Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n`;
+              const txt=header+report;
+              if(navigator.share){navigator.share({title:"Your Fishing Trip Report",text:txt});}
+              else{navigator.clipboard.writeText(txt).then(()=>alert("Copied to clipboard!"));}
+            }}>
+            📤 Share as Text
+          </button>
         </div>
       )}
     </div>
