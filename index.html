@@ -152,8 +152,8 @@ const { useState, useRef, useEffect, useCallback } = React;
 
 // ── Supabase Config ───────────────────────────────────────────────────────────
 // Replace these with your actual Supabase project URL and anon key
-const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
+const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
@@ -321,9 +321,35 @@ async function reverseGeocode(lat,lng){
   return r.json();
 }
 async function fetchWeather(lat,lng){
-  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`);
+  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`);
   return r.json();
 }
+
+function windDir(deg){
+  if(deg==null) return "";
+  const dirs=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  return dirs[Math.round(deg/22.5)%16];
+}
+
+function pressureTrend(current, prev){
+  if(!current||!prev) return {icon:"→",label:"Steady",color:"var(--stone)"};
+  const diff=current-prev;
+  if(diff>1.5) return {icon:"↑↑",label:"Rising Fast",color:"#9cd47a"};
+  if(diff>0.3) return {icon:"↑",label:"Rising",color:"#9cd47a"};
+  if(diff<-1.5) return {icon:"↓↓",label:"Falling Fast",color:"var(--red)"};
+  if(diff<-0.3) return {icon:"↓",label:"Falling",color:"var(--gold)"};
+  return {icon:"→",label:"Steady",color:"var(--stone)"};
+}
+
+function fishingPressureNote(pressure){
+  if(!pressure) return null;
+  const p=parseFloat(pressure);
+  if(p>30.2) return "High pressure — fish active near surface, dry fly conditions good";
+  if(p>29.9) return "Normal pressure — stable feeding, all techniques productive";
+  if(p>29.5) return "Low pressure — fish moving to deeper water, nymphs & streamers best";
+  return "Very low pressure — storm incoming, fish feeding aggressively before front";
+}
+
 function getMoonPhase(date){
   const d = date || new Date();
   const year = d.getFullYear(), month = d.getMonth()+1, day = d.getDate();
@@ -1548,6 +1574,8 @@ function TripPlanner({defaultLocation}){
                   <div className="fcic">{WX_EMOJI[wxData.daily.weather_code?.[i]]||"🌡"}</div>
                   <div className="fchi">{Math.round(wxData.daily.temperature_2m_max?.[i])}°</div>
                   <div className="fclo">{Math.round(wxData.daily.temperature_2m_min?.[i])}°</div>
+                  {wxData.daily.wind_speed_10m_max?.[i]&&<div style={{fontSize:9,color:"var(--sky)",marginTop:2}}>💨{Math.round(wxData.daily.wind_speed_10m_max[i])}</div>}
+                  {wxData.daily.surface_pressure_mean?.[i]&&<div style={{fontSize:9,color:"var(--stone)",marginTop:1}}>{(wxData.daily.surface_pressure_mean[i]*0.02953).toFixed(2)}"</div>}
                 </div>
               );
             })}
@@ -1659,7 +1687,20 @@ function App({user}){
     try{
       const d=await fetchWeather(lat,lng);
       const c=d.current;
-      setWeather({temp:Math.round(c.temperature_2m),humidity:c.relative_humidity_2m,wind:Math.round(c.wind_speed_10m),pressure:(c.surface_pressure*0.02953).toFixed(2),uv:Math.round(c.uv_index??0),desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()});
+      const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
+      const prevPressure=wxForecast?.current?.surface_pressure?(wxForecast.current.surface_pressure*0.02953):null;
+      const trend=pressureTrend(parseFloat(pressureInHg), prevPressure);
+      setWeather({
+        temp:Math.round(c.temperature_2m),
+        humidity:c.relative_humidity_2m,
+        wind:Math.round(c.wind_speed_10m),
+        windDir:windDir(c.wind_direction_10m),
+        pressure:pressureInHg,
+        pressureTrend:trend,
+        pressureNote:fishingPressureNote(pressureInHg),
+        uv:Math.round(c.uv_index??0),
+        desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()
+      });
       setWxForecast(d);
     }catch{setWxError("Weather unavailable.");}
     finally{setWxLoading(false);}
@@ -1765,10 +1806,30 @@ function App({user}){
                 {weather&&!wxLoading&&<>
                   <div className="wx-main"><div><div className="wx-temp">{weather.temp}°F</div><div className="wx-desc">{weather.desc}</div></div></div>
                   <div className="wx-grid">
-                    {[["💨",`${weather.wind} mph`,"Wind"],["💧",`${weather.humidity}%`,"Humidity"],["☀️",String(weather.uv),"UV Index"],["🔵",`${weather.pressure} in`,"Pressure"]].map(([ic,val,lbl])=>(
-                      <div className="wx-item" key={lbl}><div className="wx-val">{ic} {val}</div><div className="wx-lbl">{lbl}</div></div>
-                    ))}
+                    <div className="wx-item">
+                      <div className="wx-val">💨 {weather.wind} mph</div>
+                      <div className="wx-lbl">Wind {weather.windDir}</div>
+                    </div>
+                    <div className="wx-item">
+                      <div className="wx-val">💧 {weather.humidity}%</div>
+                      <div className="wx-lbl">Humidity</div>
+                    </div>
+                    <div className="wx-item">
+                      <div className="wx-val">☀️ {weather.uv}</div>
+                      <div className="wx-lbl">UV Index</div>
+                    </div>
+                    <div className="wx-item">
+                      <div className="wx-val" style={{color:weather.pressureTrend?.color}}>
+                        {weather.pressureTrend?.icon} {weather.pressure} in
+                      </div>
+                      <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
+                    </div>
                   </div>
+                  {weather.pressureNote&&(
+                    <div style={{marginTop:10,padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>
+                      🎣 {weather.pressureNote}
+                    </div>
+                  )}
                 </>}
               </div>
               <div className="card">
@@ -1795,6 +1856,8 @@ function App({user}){
                         <div className="fcic">{WX_EMOJI[wxForecast.daily.weather_code?.[i]]||"🌡"}</div>
                         <div className="fchi">{Math.round(wxForecast.daily.temperature_2m_max?.[i])}°</div>
                         <div className="fclo">{Math.round(wxForecast.daily.temperature_2m_min?.[i])}°</div>
+                        {wxForecast.daily.wind_speed_10m_max?.[i]&&<div style={{fontSize:9,color:"var(--sky)",marginTop:2}}>💨{Math.round(wxForecast.daily.wind_speed_10m_max[i])}</div>}
+                        {wxForecast.daily.surface_pressure_mean?.[i]&&<div style={{fontSize:9,color:"var(--stone)",marginTop:1}}>{(wxForecast.daily.surface_pressure_mean[i]*0.02953).toFixed(2)}"</div>}
                       </div>
                     );
                   })}
