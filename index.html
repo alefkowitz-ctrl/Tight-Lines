@@ -156,8 +156,8 @@ const { useState, useRef, useEffect, useCallback } = React;
 
 // ── Supabase Config ───────────────────────────────────────────────────────────
 // Replace these with your actual Supabase project URL and anon key
-const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
+const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("REPLACE_WITH");
 const sb = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
@@ -993,6 +993,174 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
 }
 
 
+
+// ── Trip Location + Weather Auto-Fetch ───────────────────────────────────────
+function TripLocationWeather({tripForm, setTripForm}){
+  const [wxLoading, setWxLoading] = useState(false);
+  const [wxFetched, setWxFetched] = useState(false);
+  const [nearbyGauges, setNearbyGauges] = useState([]);
+
+  async function fetchTripWeather(location){
+    if(!location.trim()) return;
+    setWxLoading(true);
+    try{
+      const geoData = await geocode(location);
+      if(!geoData.length){ setWxLoading(false); return; }
+      const lat=parseFloat(geoData[0].lat), lng=parseFloat(geoData[0].lon);
+      const wx = await fetchWeather(lat, lng);
+      const c = wx.current;
+      const presInHg = (c.surface_pressure*0.02953).toFixed(2);
+      const presNum = parseFloat(presInHg);
+      // Determine sky condition from weather code
+      const code = c.weather_code;
+      let sky = "☀️ Sunny";
+      if(code>=95) sky="⛈ Thunderstorm";
+      else if(code>=80) sky="🌧 Rainy";
+      else if(code>=71) sky="❄️ Snowing";
+      else if(code>=61) sky="🌧 Rainy";
+      else if(code>=51) sky="🌧 Rainy";
+      else if(code>=45) sky="🌫 Foggy";
+      else if(code>=3)  sky="☁️ Overcast";
+      else if(code>=2)  sky="🌤 Partly Cloudy";
+      else if(code>=1)  sky="🌤 Partly Cloudy";
+      // Determine pressure trend
+      let pTrend = "Steady";
+      // Check daily pressure for trend
+      const daily = wx.daily?.surface_pressure_mean;
+      if(daily&&daily.length>=2){
+        const diff = (daily[0]-daily[1])*0.02953;
+        if(diff>1.5) pTrend="Rising Fast";
+        else if(diff>0.3) pTrend="Rising";
+        else if(diff<-1.5) pTrend="Falling Fast";
+        else if(diff<-0.3) pTrend="Falling";
+      }
+      setTripForm(f=>({
+        ...f,
+        airTemp: String(Math.round(c.temperature_2m)),
+        windSpeed: String(Math.round(c.wind_speed_10m)),
+        windDir: windDir(c.wind_direction_10m),
+        pressure: presInHg,
+        pressureTrend: pTrend,
+        weatherConditions: sky,
+      }));
+      // Also fetch stream gauges for the location
+      try{
+        const gaugeData = await fetchUSGSLive(lat, lng);
+        const ts = gaugeData.value?.timeSeries||[];
+        if(ts.length>0){
+          // Sort by distance and take top 5
+          const gauges = ts.map(t=>{
+            const raw=t.values?.[0]?.value?.[0]?.value;
+            const cfs=raw!=null?parseFloat(raw):null;
+            const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+            const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+            const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
+            const {label}=cfsLabel(cfs);
+            return{name:t.sourceInfo?.siteName||"Unknown",cfs,label,dist,siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||""};
+          }).filter(g=>g.cfs!=null&&g.cfs>=0&&g.cfs<500000).sort((a,b)=>a.dist-b.dist).slice(0,5);
+          setNearbyGauges(gauges);
+          // Auto-select closest gauge
+          if(gauges.length>0){
+            setTripForm(f=>({...f, streamCFS:String(Math.round(gauges[0].cfs)), streamCondition:gauges[0].label, streamGaugeName:gauges[0].name}));
+          }
+        }
+      }catch(e2){ console.error("Stream fetch failed:", e2); }
+      setWxFetched(true);
+    }catch(e){ console.error("Weather fetch failed:", e); }
+    finally{ setWxLoading(false); }
+  }
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input className="inp" style={{marginBottom:0,flex:1}} placeholder="e.g. South Platte at Deckers"
+          value={tripForm.location}
+          onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
+        <button className="btn" style={{whiteSpace:"nowrap",padding:"0 12px"}} disabled={wxLoading}
+          onClick={()=>fetchTripWeather(tripForm.location)}>
+          {wxLoading?"⏳ Fetching…":"🌤 Get Conditions"}
+        </button>
+      </div>
+      {wxFetched&&<div style={{fontSize:11,color:"#9cd47a",marginBottom:8,fontStyle:"italic"}}>✓ Conditions auto-populated — adjust below if needed</div>}
+      {nearbyGauges.length>0&&(
+        <div style={{marginBottom:12}}>
+          <div className="lbl" style={{marginBottom:6}}>Select Body of Water Being Fished</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {nearbyGauges.map((g,i)=>(
+              <button key={i} onClick={()=>setTripForm(f=>({...f,streamCFS:String(Math.round(g.cfs)),streamCondition:g.label,streamGaugeName:g.name}))}
+                style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+(tripForm.streamGaugeName===g.name?"var(--water)":"rgba(255,255,255,0.1)"),background:tripForm.streamGaugeName===g.name?"rgba(44,95,110,0.5)":"rgba(0,0,0,0.2)",color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span>{g.name}</span>
+                <span style={{fontSize:11,color:"var(--sky)"}}>{Number(g.cfs).toLocaleString()} CFS · {g.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <label className="lbl">Weather Conditions</label>
+      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
+            <input className="inp" style={{marginBottom:0}} type="number" placeholder="65"
+              value={tripForm.airTemp||""}
+              onChange={e=>setTripForm(f=>({...f,airTemp:e.target.value}))}/>
+          </div>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Water Temp (°F)</div>
+            <input className="inp" style={{marginBottom:0}} type="number" placeholder="52"
+              value={tripForm.waterTemp||""}
+              onChange={e=>setTripForm(f=>({...f,waterTemp:e.target.value}))}/>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
+            <input className="inp" style={{marginBottom:0}} type="number" placeholder="8"
+              value={tripForm.windSpeed||""}
+              onChange={e=>setTripForm(f=>({...f,windSpeed:e.target.value}))}/>
+          </div>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Wind Direction</div>
+            <input className="inp" style={{marginBottom:0}} placeholder="SW"
+              value={tripForm.windDir||""}
+              onChange={e=>setTripForm(f=>({...f,windDir:e.target.value}))}/>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Pressure (inHg)</div>
+            <input className="inp" style={{marginBottom:0}} placeholder="29.92"
+              value={tripForm.pressure||""}
+              onChange={e=>setTripForm(f=>({...f,pressure:e.target.value}))}/>
+          </div>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Pressure Trend</div>
+            <select className="inp" style={{marginBottom:0}}
+              value={tripForm.pressureTrend||""}
+              onChange={e=>setTripForm(f=>({...f,pressureTrend:e.target.value}))}>
+              <option value="">Select…</option>
+              <option value="Rising Fast">↑↑ Rising Fast</option>
+              <option value="Rising">↑ Rising</option>
+              <option value="Steady">→ Steady</option>
+              <option value="Falling">↓ Falling</option>
+              <option value="Falling Fast">↓↓ Falling Fast</option>
+            </select>
+          </div>
+        </div>
+        <div className="lbl" style={{marginBottom:4}}>Sky / Conditions</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
+            <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Guide Book ────────────────────────────────────────────────────────────────
 const FISHING_STYLES = ["Nymphing","Dry Fly","Streamer","Wet Fly","Euro Nymphing","Indicator","Sight Fishing"];
 const TRIP_TYPES = ["Wade","Float","Boat","Stillwater"];
@@ -1004,19 +1172,29 @@ function GuideBook({user}){
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:"",dietary:""};
+  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
 
   // Load guests + trips from Supabase
   useEffect(()=>{
     if(!user) return;
     async function load(){
-      if(!sb){ setGuestsLoading(false); return; }
+      // Load from localStorage first (always available)
+      const localGuests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
+      const localTrips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+
+      if(!sb || String(user?.id).startsWith("local")){
+        const withTrips = localGuests.map(g=>({...g, trips:localTrips.filter(t=>t.guest_id===g.id)}));
+        setGuests(withTrips);
+        setGuestsLoading(false);
+        return;
+      }
       const {data:gData}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
       if(!gData){ setGuestsLoading(false); return; }
       const {data:tData}=await sb.from("trips").select("*").eq("user_id",user.id).order("date",{ascending:false});
       const trips=tData||[];
       const guestsWithTrips=gData.map(g=>({
         ...g,
+        skillLevel:g.skill_level,
         trips:trips.filter(t=>t.guest_id===g.id).map(t=>({
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
@@ -1031,10 +1209,18 @@ function GuideBook({user}){
   },[user]);
 
   async function saveGuestToDb(guestData){
-    if(!user?.id){ alert("Not logged in. Please refresh and sign in again."); return null; }
-    const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
-    if(error){ console.error("Save guest error:",error); alert("Could not save guest: "+error.message); return null; }
-    return data;
+    // Try Supabase first if configured and user is real (not local)
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
+      if(!error && data) return data;
+      console.error("Supabase save failed:", error?.message, "— using local storage");
+    }
+    // Fallback: save to localStorage
+    const localId = "local-"+Date.now();
+    const existing = JSON.parse(localStorage.getItem("tl_guests")||"[]");
+    const guest = {id:localId,...guestData};
+    localStorage.setItem("tl_guests", JSON.stringify([...existing, guest]));
+    return guest;
   }
 
   async function updateGuestInDb(id, updates){
@@ -1046,8 +1232,8 @@ function GuideBook({user}){
   }
 
   async function saveTripToDb(guestId, tripData){
-    if(!user?.id) return null;
-    const {data,error}=await sb.from("trips").insert({
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      const {data,error}=await sb.from("trips").insert({
       user_id:user.id, guest_id:guestId,
       date:tripData.date, location:tripData.location, type:tripData.type,
       styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
@@ -1055,10 +1241,18 @@ function GuideBook({user}){
       trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
       air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend
+      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
     }).select().single();
-    if(error){ console.error("Save trip error:",error); return null; }
-    return data;
+      if(!error && data) return data;
+      console.error("Supabase trip save failed:", error?.message);
+    }
+    // Fallback: localStorage
+    const localId = "local-"+Date.now();
+    const existing = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+    const trip = {id:localId, guest_id:guestId, ...tripData};
+    localStorage.setItem("tl_trips", JSON.stringify([...existing, trip]));
+    return {id:localId};
   }
 
   async function updateTripInDb(id, tripData){
@@ -1069,14 +1263,15 @@ function GuideBook({user}){
       trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
       air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend
+      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
     }).eq("id",id);
   }
 
   async function deleteTripFromDb(id){
     await sb.from("trips").delete().eq("id",id);
   }
-  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
@@ -1085,8 +1280,8 @@ function GuideBook({user}){
 
   async function saveGuest(){
     if(!guestForm.name.trim()) return;
-    const {name,birthday,address,email,phone,notes,dietary}=guestForm;
-    const data=await saveGuestToDb({name,birthday,address,email,phone,notes,dietary});
+    const {name,birthday,address,email,phone,notes,dietary,skillLevel}=guestForm;
+    const data=await saveGuestToDb({name,birthday,address,email,phone,notes,dietary,skill_level:skillLevel});
     // Use returned DB data or create local record as fallback
     const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
     setGuests(gs=>[...gs,{...guest,trips:[]}]);
@@ -1203,6 +1398,15 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
         <label className="lbl">Dietary Restrictions</label>
         <input className="inp" placeholder="e.g. Gluten free, vegetarian, nut allergy…" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
+        <label className="lbl">Fishing Skill Level</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {["Beginner","Intermediate","Expert"].map(lvl=>(
+            <button key={lvl} onClick={()=>setGuestForm(f=>({...f,skillLevel:lvl}))}
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              {lvl==="Beginner"?"🌱":lvl==="Intermediate"?"🎣":"🏆"} {lvl}
+            </button>
+          ))}
+        </div>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Fishing experience, preferences, anything to remember…" value={guestForm.notes} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={saveGuest}>Save Guest</button>
@@ -1230,12 +1434,21 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <input className="inp" type="tel" value={guestForm.phone||""} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
         <label className="lbl">Dietary Restrictions</label>
         <input className="inp" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
+        <label className="lbl">Fishing Skill Level</label>
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          {["Beginner","Intermediate","Expert"].map(lvl=>(
+            <button key={lvl} onClick={()=>setGuestForm(f=>({...f,skillLevel:lvl}))}
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              {lvl==="Beginner"?"🌱":lvl==="Intermediate"?"🎣":"🏆"} {lvl}
+            </button>
+          ))}
+        </div>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} value={guestForm.notes||""} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={async()=>{
-          const{name,birthday,address,email,phone,notes,dietary}=guestForm;
-          await updateGuestInDb(selectedGuest.id,{name,birthday,address,email,phone,notes,dietary});
-          const updated={...selectedGuest,name,birthday,address,email,phone,notes,dietary};
+          const{name,birthday,address,email,phone,notes,dietary,skillLevel}=guestForm;
+          await updateGuestInDb(selectedGuest.id,{name,birthday,address,email,phone,notes,dietary,skill_level:skillLevel});
+          const updated={...selectedGuest,name,birthday,address,email,phone,notes,dietary,skillLevel};
           setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?updated:g));
           setSelectedGuest(updated);
           setView("guest");
@@ -1257,6 +1470,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         {selectedGuest.address&&<div className="hr"><span className="hn">Address</span><span className="ha">{selectedGuest.address}</span></div>}
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
+        {selectedGuest.skillLevel&&<div className="hr"><span className="hn">Skill Level</span><span className="ha">{selectedGuest.skillLevel==="Beginner"?"🌱":selectedGuest.skillLevel==="Intermediate"?"🎣":"🏆"} {selectedGuest.skillLevel}</span></div>}
         {selectedGuest.dietary&&<div className="hr"><span className="hn">🥗 Dietary</span><span className="ha">{selectedGuest.dietary}</span></div>}
         {selectedGuest.notes&&<div style={{marginTop:10,fontSize:13,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
         <div style={{display:"flex",gap:8,marginTop:14}}>
@@ -1293,56 +1507,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <label className="lbl">Date</label>
         <input className="inp" type="date" value={tripForm.date} onChange={e=>setTripForm(f=>({...f,date:e.target.value}))}/>
         <label className="lbl">Location / River</label>
-        <input className="inp" placeholder="e.g. South Platte at Deckers" value={tripForm.location} onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
-        <label className="lbl">Weather Conditions</label>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
-              <input className="inp" style={{marginBottom:0}} type="number" placeholder="65" value={tripForm.airTemp||""} onChange={e=>setTripForm(f=>({...f,airTemp:e.target.value}))}/>
-            </div>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Water Temp (°F)</div>
-              <input className="inp" style={{marginBottom:0}} type="number" placeholder="52" value={tripForm.waterTemp||""} onChange={e=>setTripForm(f=>({...f,waterTemp:e.target.value}))}/>
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
-              <input className="inp" style={{marginBottom:0}} type="number" placeholder="8" value={tripForm.windSpeed||""} onChange={e=>setTripForm(f=>({...f,windSpeed:e.target.value}))}/>
-            </div>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Wind Direction</div>
-              <input className="inp" style={{marginBottom:0}} placeholder="SW" value={tripForm.windDir||""} onChange={e=>setTripForm(f=>({...f,windDir:e.target.value}))}/>
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Pressure (inHg)</div>
-              <input className="inp" style={{marginBottom:0}} placeholder="29.92" value={tripForm.pressure||""} onChange={e=>setTripForm(f=>({...f,pressure:e.target.value}))}/>
-            </div>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Pressure Trend</div>
-              <select className="inp" style={{marginBottom:0}} value={tripForm.pressureTrend||""} onChange={e=>setTripForm(f=>({...f,pressureTrend:e.target.value}))}>
-                <option value="">Select…</option>
-                <option value="Rising Fast">↑↑ Rising Fast</option>
-                <option value="Rising">↑ Rising</option>
-                <option value="Steady">→ Steady</option>
-                <option value="Falling">↓ Falling</option>
-                <option value="Falling Fast">↓↓ Falling Fast</option>
-              </select>
-            </div>
-          </div>
-          <div className="lbl" style={{marginBottom:4}}>Sky / Conditions</div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
-              <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
-                style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
+        <TripLocationWeather tripForm={tripForm} setTripForm={setTripForm}/>
         <label className="lbl">Trip Type</label>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {TRIP_TYPES.map(t=>(
@@ -1500,13 +1665,15 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <div className="hr"><span className="hn">Catches</span><span className="ha">~{selectedTrip.catches} fish</span></div>
         {selectedTrip.styles.length>0&&<div className="hr"><span className="hn">Styles</span><span className="ha">{selectedTrip.styles.join(", ")}</span></div>}
         {selectedTrip.gear&&<div className="hr"><span className="hn">Gear</span><span className="ha">{selectedTrip.gear}</span></div>}
-        {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions)&&(
+        {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions||selectedTrip.streamCFS)&&(
           <div style={{marginTop:10,marginBottom:4}}>
-            <div className="lbl" style={{marginBottom:6}}>Weather on the Water</div>
+            <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
+            {selectedTrip.streamGaugeName&&<div style={{fontSize:13,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {selectedTrip.streamGaugeName}</div>}
             <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:13,color:"var(--sky)"}}>
+              {selectedTrip.streamCFS&&<span>💧 {Number(selectedTrip.streamCFS).toLocaleString()} CFS · {selectedTrip.streamCondition}</span>}
+              {selectedTrip.waterTemp&&<span>🌡 Water: {selectedTrip.waterTemp}°F</span>}
               {selectedTrip.weatherConditions&&<span>{selectedTrip.weatherConditions}</span>}
               {selectedTrip.airTemp&&<span>🌡 Air: {selectedTrip.airTemp}°F</span>}
-              {selectedTrip.waterTemp&&<span>💧 Water: {selectedTrip.waterTemp}°F</span>}
               {selectedTrip.windSpeed&&<span>💨 {selectedTrip.windSpeed} mph {selectedTrip.windDir}</span>}
               {selectedTrip.pressure&&<span>📊 {selectedTrip.pressure}" {selectedTrip.pressureTrend}</span>}
             </div>
