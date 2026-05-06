@@ -156,15 +156,17 @@ const { useState, useRef, useEffect, useCallback } = React;
 
 // ── Supabase Config ───────────────────────────────────────────────────────────
 // Replace these with your actual Supabase project URL and anon key
-const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
+const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("REPLACE_WITH");
+const sb = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
 function useAuth(){
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(()=>{
+    if(!sb){ setLoading(false); return; }
     sb.auth.getSession().then(({data:{session}})=>{
       setUser(session?.user ?? null);
       setLoading(false);
@@ -190,6 +192,7 @@ function AuthScreen(){
   async function handleSubmit(){
     setError(""); setSuccess(""); setLoading(true);
     try{
+      if(!sb){ setError("Supabase not configured. Add your project URL and anon key to the app."); setLoading(false); return; }
       if(mode==="signup"){
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
         if(e) throw e;
@@ -1007,6 +1010,7 @@ function GuideBook({user}){
   useEffect(()=>{
     if(!user) return;
     async function load(){
+      if(!sb){ setGuestsLoading(false); return; }
       const {data:gData}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
       if(!gData){ setGuestsLoading(false); return; }
       const {data:tData}=await sb.from("trips").select("*").eq("user_id",user.id).order("date",{ascending:false});
@@ -1793,6 +1797,7 @@ function App({user}){
   // Load catches from Supabase on mount
   useEffect(()=>{
     if(!user) return;
+    if(!sb){ setCatchesLoading(false); return; }
     sb.from("catches").select("*").eq("user_id",user.id).order("created_at",{ascending:false})
       .then(({data,error})=>{
         if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species,length:r.length,flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes})));
@@ -1801,12 +1806,13 @@ function App({user}){
   },[user]);
 
   async function addCatch(catchData){
+    if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
     const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
     if(!error&&data) setCatches(c=>[{id:data.id,...catchData},...c]);
   }
 
   async function deleteCatch(id){
-    await sb.from("catches").delete().eq("id",id);
+    if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
   const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null};
@@ -1903,7 +1909,7 @@ function App({user}){
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
           <div style={{position:"absolute",top:14,right:16,zIndex:10}}>
-            <button onClick={()=>sb.auth.signOut()}
+            <button onClick={()=>sb?sb.auth.signOut():null}
               style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               Sign Out
             </button>
@@ -2106,6 +2112,8 @@ function Root(){
       </div>
     </div>
   );
+  // If Supabase not configured yet, run app without auth
+  if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}}/>;
   if(!user) return <AuthScreen/>;
   return <App user={user}/>;
 }
