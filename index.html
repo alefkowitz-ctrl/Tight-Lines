@@ -119,13 +119,17 @@ select.inp{-webkit-appearance:none;}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--stone);flex-shrink:0;}
 .step.done .dot{background:var(--moss);}
 .step.active .dot{background:var(--gold);animation:pulse 1s infinite;}
-.fcgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
-.fcd{background:rgba(0,0,0,0.2);border-radius:10px;padding:8px 4px;text-align:center;}
+.fcgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;overflow-x:auto;}
+.fcd{background:rgba(0,0,0,0.2);border-radius:10px;padding:6px 3px;text-align:center;min-width:44px;}
 .fcd.hi{border:1px solid var(--gold);background:rgba(200,168,75,0.1);}
-.fcdn{font-size:10px;color:var(--stone);text-transform:uppercase;}
-.fcic{font-size:20px;margin:4px 0;}
-.fchi{font-family:'Playfair Display',serif;font-size:16px;color:var(--foam);}
-.fclo{font-size:12px;color:var(--stone);}
+.fcdn{font-size:9px;color:var(--stone);text-transform:uppercase;letter-spacing:.5px;}
+.fcic{font-size:18px;margin:3px 0;}
+.fchi{font-family:'Playfair Display',serif;font-size:14px;color:var(--foam);}
+.fclo{font-size:11px;color:var(--stone);}
+.fcwind{font-size:9px;color:var(--sky);margin-top:3px;}
+.fcpres{font-size:8px;color:var(--stone);margin-top:1px;}
+.fcday-expanded{background:rgba(0,0,0,0.15);border-radius:12px;padding:10px;margin-bottom:8px;display:flex;align-items:center;gap:12px;}
+.fcday-info{flex:1;}
 .scard{background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
 .sname{font-size:14px;color:var(--foam);font-weight:600;margin-bottom:3px;}
 .smeta{font-size:12px;color:var(--stone);display:flex;gap:8px;flex-wrap:wrap;}
@@ -688,6 +692,78 @@ function HatchModal({hatch, onClose}){
   );
 }
 
+
+// ── Week Forecast Component ───────────────────────────────────────────────────
+function WeekForecast({data, highlightDay}){
+  const [selDay, setSelDay] = useState(highlightDay||0);
+  if(!data?.daily?.time) return null;
+  const d = data.daily;
+
+  const sel = selDay < d.time.length ? selDay : 0;
+  const selDate = new Date(d.time[sel]+"T12:00:00");
+  const selWind = d.wind_speed_10m_max?.[sel];
+  const selGust = d.wind_gusts_10m_max?.[sel];
+  const selWindDir = d.wind_direction_10m_dominant?.[sel];
+  const selPres = d.surface_pressure_mean?.[sel];
+  const selPresInHg = selPres ? (selPres*0.02953).toFixed(2) : null;
+
+  // Pressure trend vs previous day
+  const prevPres = sel>0 && d.surface_pressure_mean?.[sel-1];
+  const trend = selPresInHg&&prevPres ? pressureTrend(parseFloat(selPresInHg),(prevPres*0.02953)) : null;
+
+  return(
+    <div>
+      {/* 7-day strip */}
+      <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:4,marginBottom:10}}>
+        {d.time.slice(0,7).map((date,i)=>{
+          const dt=new Date(date+"T12:00:00");
+          const isHi = i===(highlightDay??-1);
+          const isSel = i===sel;
+          return(
+            <div key={i} onClick={()=>setSelDay(i)}
+              style={{flex:"0 0 auto",width:44,background:isSel?"var(--water)":isHi?"rgba(200,168,75,0.15)":"rgba(0,0,0,0.2)",
+                border:`1px solid ${isSel?"var(--water)":isHi?"var(--gold)":"rgba(255,255,255,0.08)"}`,
+                borderRadius:10,padding:"6px 3px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
+              <div style={{fontSize:9,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
+              <div style={{fontSize:18,margin:"3px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
+              <div style={{fontSize:10,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Selected day detail */}
+      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px"}}>
+        <div style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
+          {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
+          {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
+            <div style={{fontSize:12,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Wind</div>
+            <div style={{fontSize:15,color:"var(--foam)"}}>💨 {selWind?Math.round(selWind):"—"} mph</div>
+            {selGust&&<div style={{fontSize:11,color:"var(--stone)"}}>Gusts {Math.round(selGust)}</div>}
+            {selWindDir!=null&&<div style={{fontSize:11,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
+            <div style={{fontSize:14,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
+            {trend&&<div style={{fontSize:11,color:trend.color}}>{trend.icon} {trend.label}</div>}
+          </div>
+        </div>
+        {selPresInHg&&<div style={{marginTop:8,fontSize:12,color:"var(--sky)",fontStyle:"italic",padding:"6px 10px",background:"rgba(44,95,110,0.15)",borderRadius:8}}>
+          🎣 {fishingPressureNote(selPresInHg)}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
 // ── Gauge Chart ──────────────────────────────────────────────────────────────
 const TIMEFRAMES = [
   {label:"7D",  days:7},
@@ -951,8 +1027,9 @@ function GuideBook({user}){
   },[user]);
 
   async function saveGuestToDb(guestData){
+    if(!user?.id){ alert("Not logged in. Please refresh and sign in again."); return null; }
     const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
-    if(error||!data) return null;
+    if(error){ console.error("Save guest error:",error); alert("Could not save guest: "+error.message); return null; }
     return data;
   }
 
@@ -965,14 +1042,18 @@ function GuideBook({user}){
   }
 
   async function saveTripToDb(guestId, tripData){
+    if(!user?.id) return null;
     const {data,error}=await sb.from("trips").insert({
       user_id:user.id, guest_id:guestId,
       date:tripData.date, location:tripData.location, type:tripData.type,
       styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
       gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
-      trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText
+      trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+      air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+      weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend
     }).select().single();
-    if(error||!data) return null;
+    if(error){ console.error("Save trip error:",error); return null; }
     return data;
   }
 
@@ -981,14 +1062,17 @@ function GuideBook({user}){
       date:tripData.date, location:tripData.location, type:tripData.type,
       styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
       gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
-      trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText
+      trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+      air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+      weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend
     }).eq("id",id);
   }
 
   async function deleteTripFromDb(id){
     await sb.from("trips").delete().eq("id",id);
   }
-  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
@@ -999,7 +1083,9 @@ function GuideBook({user}){
     if(!guestForm.name.trim()) return;
     const {name,birthday,address,email,phone,notes,dietary}=guestForm;
     const data=await saveGuestToDb({name,birthday,address,email,phone,notes,dietary});
-    if(data) setGuests(gs=>[...gs,{...data,trips:[]}]);
+    // Use returned DB data or create local record as fallback
+    const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
+    setGuests(gs=>[...gs,{...guest,trips:[]}]);
     setGuestForm(guestForm0);
     setView("list");
   }
@@ -1204,6 +1290,55 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <input className="inp" type="date" value={tripForm.date} onChange={e=>setTripForm(f=>({...f,date:e.target.value}))}/>
         <label className="lbl">Location / River</label>
         <input className="inp" placeholder="e.g. South Platte at Deckers" value={tripForm.location} onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
+        <label className="lbl">Weather Conditions</label>
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
+              <input className="inp" style={{marginBottom:0}} type="number" placeholder="65" value={tripForm.airTemp||""} onChange={e=>setTripForm(f=>({...f,airTemp:e.target.value}))}/>
+            </div>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Water Temp (°F)</div>
+              <input className="inp" style={{marginBottom:0}} type="number" placeholder="52" value={tripForm.waterTemp||""} onChange={e=>setTripForm(f=>({...f,waterTemp:e.target.value}))}/>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
+              <input className="inp" style={{marginBottom:0}} type="number" placeholder="8" value={tripForm.windSpeed||""} onChange={e=>setTripForm(f=>({...f,windSpeed:e.target.value}))}/>
+            </div>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Wind Direction</div>
+              <input className="inp" style={{marginBottom:0}} placeholder="SW" value={tripForm.windDir||""} onChange={e=>setTripForm(f=>({...f,windDir:e.target.value}))}/>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Pressure (inHg)</div>
+              <input className="inp" style={{marginBottom:0}} placeholder="29.92" value={tripForm.pressure||""} onChange={e=>setTripForm(f=>({...f,pressure:e.target.value}))}/>
+            </div>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Pressure Trend</div>
+              <select className="inp" style={{marginBottom:0}} value={tripForm.pressureTrend||""} onChange={e=>setTripForm(f=>({...f,pressureTrend:e.target.value}))}>
+                <option value="">Select…</option>
+                <option value="Rising Fast">↑↑ Rising Fast</option>
+                <option value="Rising">↑ Rising</option>
+                <option value="Steady">→ Steady</option>
+                <option value="Falling">↓ Falling</option>
+                <option value="Falling Fast">↓↓ Falling Fast</option>
+              </select>
+            </div>
+          </div>
+          <div className="lbl" style={{marginBottom:4}}>Sky / Conditions</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
+              <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
+                style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="lbl">Trip Type</label>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {TRIP_TYPES.map(t=>(
@@ -1361,6 +1496,18 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <div className="hr"><span className="hn">Catches</span><span className="ha">~{selectedTrip.catches} fish</span></div>
         {selectedTrip.styles.length>0&&<div className="hr"><span className="hn">Styles</span><span className="ha">{selectedTrip.styles.join(", ")}</span></div>}
         {selectedTrip.gear&&<div className="hr"><span className="hn">Gear</span><span className="ha">{selectedTrip.gear}</span></div>}
+        {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions)&&(
+          <div style={{marginTop:10,marginBottom:4}}>
+            <div className="lbl" style={{marginBottom:6}}>Weather on the Water</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:13,color:"var(--sky)"}}>
+              {selectedTrip.weatherConditions&&<span>{selectedTrip.weatherConditions}</span>}
+              {selectedTrip.airTemp&&<span>🌡 Air: {selectedTrip.airTemp}°F</span>}
+              {selectedTrip.waterTemp&&<span>💧 Water: {selectedTrip.waterTemp}°F</span>}
+              {selectedTrip.windSpeed&&<span>💨 {selectedTrip.windSpeed} mph {selectedTrip.windDir}</span>}
+              {selectedTrip.pressure&&<span>📊 {selectedTrip.pressure}" {selectedTrip.pressureTrend}</span>}
+            </div>
+          </div>
+        )}
         {selectedTrip.tripCost&&<div className="hr"><span className="hn">Trip Cost</span><span className="ha" style={{color:"var(--gold)"}}>$ {selectedTrip.tripCost}</span></div>}
         {selectedTrip.tipAmount&&<div className="hr"><span className="hn">Tip</span><span className="ha" style={{color:"#9cd47a"}}>$ {selectedTrip.tipAmount}</span></div>}
         {selectedTrip.flies.length>0&&(
@@ -1565,21 +1712,7 @@ function TripPlanner({defaultLocation}){
       {wxData?.daily&&!busy&&(
         <div className="card">
           <div className="ctitle">🌤 7-Day Forecast</div>
-          <div className="fcgrid">
-            {wxData.daily.time?.slice(0,7).map((d,i)=>{
-              const dt=new Date(d+"T12:00:00");
-              return(
-                <div key={i} className={`fcd${i===daysOut?" hi":""}`}>
-                  <div className="fcdn">{DAYS[dt.getDay()]}</div>
-                  <div className="fcic">{WX_EMOJI[wxData.daily.weather_code?.[i]]||"🌡"}</div>
-                  <div className="fchi">{Math.round(wxData.daily.temperature_2m_max?.[i])}°</div>
-                  <div className="fclo">{Math.round(wxData.daily.temperature_2m_min?.[i])}°</div>
-                  {wxData.daily.wind_speed_10m_max?.[i]&&<div style={{fontSize:9,color:"var(--sky)",marginTop:2}}>💨{Math.round(wxData.daily.wind_speed_10m_max[i])}</div>}
-                  {wxData.daily.surface_pressure_mean?.[i]&&<div style={{fontSize:9,color:"var(--stone)",marginTop:1}}>{(wxData.daily.surface_pressure_mean[i]*0.02953).toFixed(2)}"</div>}
-                </div>
-              );
-            })}
-          </div>
+          <WeekForecast data={wxData} highlightDay={daysOut}/>
         </div>
       )}
 
@@ -1847,21 +1980,7 @@ function App({user}){
             {weather&&(
               <div className="card">
                 <div className="ctitle">🌤 7-Day Forecast</div>
-                <div className="fcgrid">
-                  {wxForecast&&wxForecast.daily?.time?.slice(0,7).map((d,i)=>{
-                    const dt=new Date(d+"T12:00:00");
-                    return(
-                      <div key={i} className="fcd">
-                        <div className="fcdn">{DAYS[dt.getDay()]}</div>
-                        <div className="fcic">{WX_EMOJI[wxForecast.daily.weather_code?.[i]]||"🌡"}</div>
-                        <div className="fchi">{Math.round(wxForecast.daily.temperature_2m_max?.[i])}°</div>
-                        <div className="fclo">{Math.round(wxForecast.daily.temperature_2m_min?.[i])}°</div>
-                        {wxForecast.daily.wind_speed_10m_max?.[i]&&<div style={{fontSize:9,color:"var(--sky)",marginTop:2}}>💨{Math.round(wxForecast.daily.wind_speed_10m_max[i])}</div>}
-                        {wxForecast.daily.surface_pressure_mean?.[i]&&<div style={{fontSize:9,color:"var(--stone)",marginTop:1}}>{(wxForecast.daily.surface_pressure_mean[i]*0.02953).toFixed(2)}"</div>}
-                      </div>
-                    );
-                  })}
-                </div>
+                <WeekForecast data={wxForecast}/>
               </div>
             )}
             <RegsLink label={loc?.label}/>
