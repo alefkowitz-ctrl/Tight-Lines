@@ -2062,22 +2062,25 @@ function TripPlanner({defaultLocation}){
           }catch(e){ console.log("Shop search failed:",e.message); }
 
           const riverNames=pg.map(g=>g.name).join(", ");
-          const reportTxt=await askClaude(`You are a fly fishing guide near ${loc.label} on ${ds}. I have USGS stream gauge data for these specific waters: ${gs}. Search the web for current fly fishing reports on these exact waters. You MUST include a section in the "rivers" array for EVERY one of these streams: ${riverNames}. For each river discuss current conditions, whether it is fishable, and what techniques work. Active hatches: ${hi}. Reply with ONLY valid JSON, no markdown, no text outside the JSON:
-{"overview":"overall conditions summary mentioning multiple waters","recommendation":"which specific water is fishing best today and exactly why","rivers":[{"name":"EXACT gauge name from the list above","cfs":"current CFS from gauge data","conditions":"is it fishable? why or why not","techniques":"what techniques work at this flow","flies":["Pattern #size","Pattern #size"]}],"hatches":"current hatches","bestTimes":"best times","tips":"local tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}`,true,1000);
-          // Try to parse, handle various response formats
+          const reportTxt=await askClaude(`Search web for current fly fishing conditions near ${loc.label}. USGS flows: ${gs}. Hatches: ${hi}. CRITICAL: respond with ONLY the JSON below, zero other text, no explanation, no preamble, no markdown fences. Start your response with { and end with }. Include every stream listed: ${riverNames}.
+{"overview":"conditions across all waters","recommendation":"best water today and why","rivers":[{"name":"stream name","cfs":"X CFS","conditions":"fishable or not and why","techniques":"what works","flies":["Fly #size","Fly #size"]}],"hatches":"active hatches","bestTimes":"best times","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,1000);
           let rpt=null;
-          try{
-            // Direct parse first
-            rpt=JSON.parse(reportTxt.trim());
-          }catch{
-            // Try extractJSON
-            rpt=extractJSON(reportTxt);
-          }
+          try{ rpt=JSON.parse(reportTxt.trim()); }catch{}
+          if(!rpt) rpt=extractJSON(reportTxt);
           if(rpt&&(rpt.overview||rpt.rivers)){
-            setReport({overview:rpt.overview||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
+            setReport({
+              overview:rpt.overview||"",
+              recommendation:rpt.recommendation||"",
+              rivers:rpt.rivers||[],
+              hatches:rpt.hatches||"",
+              bestTimes:rpt.bestTimes||"",
+              tips:rpt.tips||"",
+              flyBoxEssentials:rpt.flyBoxEssentials||[]
+            });
           } else {
-            // Show raw text
-            setReport({overview:reportTxt||"Report unavailable",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
+            // Last resort: try to find JSON anywhere in response
+            const jsonMatch = reportTxt.match(/\{[\s\S]*"overview"[\s\S]*\}/);
+            if(jsonMatch){ try{ const r=JSON.parse(jsonMatch[0]); setReport({overview:r.overview||"",recommendation:r.recommendation||"",rivers:r.rivers||[],hatches:r.hatches||"",bestTimes:r.bestTimes||"",tips:r.tips||"",flyBoxEssentials:r.flyBoxEssentials||[]}); }catch{} }
           }
         }catch(e2){}
         addStep("Report complete ✓");
