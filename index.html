@@ -1976,6 +1976,7 @@ function TripPlanner({defaultLocation}){
   const [flowPts,setFlowPts]=useState([]);
   const [flowLabel,setFlowLabel]=useState("");
   const [gauges,setGauges]=useState([]);
+
   const [shops,setShops]=useState([]);
   const [report,setReport]=useState(null);
   const [hasKey,setHasKey]=useState(!!getKey());
@@ -2037,23 +2038,22 @@ function TripPlanner({defaultLocation}){
       addStep(`${pg.length} stream gauges loaded ✓`);
 
       if(getKey()){
-        addStep("Getting fly shops & fishing report…","active");
+        addStep("Finding fly shops & fishing report…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
         try{
           // Two separate smaller calls to stay under rate limit
-          let shopData=[];
+          // Fetch real shops using web search
           try{
-            const shopTxt=await askClaude(`List 4 real fly fishing shops nearest to ${loc.label}, sorted by proximity (closest first). Include only shops within reasonable driving distance. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,false,450);
+            const shopTxt=await askClaude(`Search the web and find 4 real fly fishing shops currently open near ${loc.label}. Use web search to find actual shops with real websites. JSON array only: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,true,500);
             const sd=extractJSON(shopTxt);
-            if(Array.isArray(sd))shopData=sd.slice(0,4);
-            setShops(shopData);
-          }catch(e){}
+            if(Array.isArray(sd)&&sd.length>0) setShops(sd.slice(0,4));
+          }catch(e){ console.log("Shop search failed:",e.message); }
 
-          const reportTxt=await askClaude(`You are a fly fishing guide. Give a fishing report for ${loc.label} on ${ds}. Stream flows: ${gs}. Hatches: ${hi}. Reply with ONLY a JSON object, no markdown, no explanation:
-{"overview":"current conditions in 2-3 sentences","rivers":[{"name":"river name","conditions":"water conditions","techniques":"what is working","flies":["Pattern Name #size","Pattern Name #size","Pattern Name #size"]}],"hatches":"what is hatching","bestTimes":"best times of day","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}`,false,700);
+          const reportTxt=await askClaude(`You are a fly fishing guide. Search the web for current fishing reports for ${loc.label}. Give a fishing report for ${loc.label} on ${ds}. Stream flows: ${gs}. Hatches: ${hi}. Reply with ONLY a JSON object, no markdown, no explanation:
+{"overview":"current conditions in 2-3 sentences","rivers":[{"name":"river name","conditions":"water conditions","techniques":"what is working","flies":["Pattern Name #size","Pattern Name #size","Pattern Name #size"]}],"hatches":"what is hatching","bestTimes":"best times of day","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}`,true,700);
           // Try to parse, handle various response formats
           let rpt=null;
           try{
@@ -2118,7 +2118,7 @@ function TripPlanner({defaultLocation}){
       {shops.length>0&&!busy&&(
         <div className="card">
           <div className="ctitle">🪝 Top Fly Shops</div>
-          <div className="csub">Ranked by rating × review count</div>
+          <div className="csub">Sourced from current web results · sorted by proximity</div>
           {shops.map((s,i)=>(
             <div className="scard" key={i}>
               <div className="sname">{i+1}. {s.name}</div>
