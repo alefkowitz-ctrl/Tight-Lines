@@ -284,11 +284,20 @@ const WX_DESC={0:"Clear",1:"Mainly Clear",2:"Partly Cloudy",3:"Overcast",45:"Fog
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
 
-function cfsLabel(cfs){
+function cfsLabel(cfs, pct){
   if(!cfs||isNaN(cfs))return{label:"No Data",cls:"fair"};
-  if(cfs<50)return{label:"Very Low",cls:"low"};
-  if(cfs<200)return{label:"Low",cls:"low"};
-  if(cfs<800)return{label:"Good",cls:"good"};
+  // If we have historical pct, use it for labeling
+  if(pct!=null){
+    if(pct<10)return{label:"Very Low",cls:"low"};
+    if(pct<30)return{label:"Low",cls:"low"};
+    if(pct<70)return{label:"Good",cls:"good"};
+    if(pct<90)return{label:"High",cls:"fair"};
+    return{label:"Flood Risk",cls:"high"};
+  }
+  // Fallback to absolute thresholds
+  if(cfs<10)return{label:"Very Low",cls:"low"};
+  if(cfs<50)return{label:"Low",cls:"low"};
+  if(cfs<500)return{label:"Good",cls:"good"};
   if(cfs<2000)return{label:"High",cls:"fair"};
   return{label:"Flood Risk",cls:"high"};
 }
@@ -2042,18 +2051,19 @@ function TripPlanner({defaultLocation}){
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
-        const gs=pg.slice(0,3).map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
+        const gs=pg.map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No data";
         try{
           // Two separate smaller calls to stay under rate limit
           // Fetch real shops using web search
           try{
-            const shopTxt=await askClaude(`Search the web and find 4 real fly fishing shops currently open near ${loc.label}. Use web search to find actual shops with real websites. JSON array only: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,true,500);
+            const shopTxt=await askClaude(`Search the web for fly fishing specialty shops near ${loc.label}. Only include dedicated fly fishing retailers or outfitters that sell fly fishing gear, flies, and equipment. Do NOT include hardware stores, sporting goods chains like Bass Pro or Cabelas, or general outdoor stores. Only real shops you can verify exist with working websites. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,true,500);
             const sd=extractJSON(shopTxt);
             if(Array.isArray(sd)&&sd.length>0) setShops(sd.slice(0,4));
           }catch(e){ console.log("Shop search failed:",e.message); }
 
-          const reportTxt=await askClaude(`You are a fly fishing guide. Search the web for current fishing reports for ${loc.label}. Give a fishing report for ${loc.label} on ${ds}. Stream flows: ${gs}. Hatches: ${hi}. Reply with ONLY a JSON object, no markdown, no explanation:
-{"overview":"current conditions in 2-3 sentences","rivers":[{"name":"river name","conditions":"water conditions","techniques":"what is working","flies":["Pattern Name #size","Pattern Name #size","Pattern Name #size"]}],"hatches":"what is hatching","bestTimes":"best times of day","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}`,true,700);
+          const riverNames=pg.map(g=>g.name).join(", ");
+          const reportTxt=await askClaude(`You are a fly fishing guide near ${loc.label} on ${ds}. I have USGS stream gauge data for these specific waters: ${gs}. Search the web for current fly fishing reports on these exact waters. You MUST include a section in the "rivers" array for EVERY one of these streams: ${riverNames}. For each river discuss current conditions, whether it is fishable, and what techniques work. Active hatches: ${hi}. Reply with ONLY valid JSON, no markdown, no text outside the JSON:
+{"overview":"overall conditions summary mentioning multiple waters","recommendation":"which specific water is fishing best today and exactly why","rivers":[{"name":"EXACT gauge name from the list above","cfs":"current CFS from gauge data","conditions":"is it fishable? why or why not","techniques":"what techniques work at this flow","flies":["Pattern #size","Pattern #size"]}],"hatches":"current hatches","bestTimes":"best times","tips":"local tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}`,true,1000);
           // Try to parse, handle various response formats
           let rpt=null;
           try{
@@ -2143,6 +2153,15 @@ function TripPlanner({defaultLocation}){
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">Synthesized from current web reports</div>
           <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.overview}</p>
+          {report.recommendation&&(
+            <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:20,flexShrink:0}}>🏆</span>
+              <div>
+                <div style={{fontSize:11,color:"#9cd47a",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Best Bet Today</div>
+                <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.6}}>{report.recommendation}</p>
+              </div>
+            </div>
+          )}
           {report.rivers?.length>0&&<><div className="divider"/>
             {report.rivers.map((r,i)=>(
               <div className="rb" key={i}>
@@ -2253,7 +2272,9 @@ function App({user}){
         const histMax=statResults[i];
         const waterTempF=tempResults[i];
         const pct=g.cfs!=null?(histMax?Math.min(Math.round((g.cfs/histMax)*100),100):Math.min(Math.round((g.cfs/Math.max(...rawParsed.map(x=>x.cfs||0),1))*95),100)):0;
-        return{...g,pct,histMax,waterTempF};
+        // Re-label using historical pct now that we have it
+        const{label,cls}=cfsLabel(g.cfs, histMax?pct:null);
+        return{...g,pct,histMax,waterTempF,label,cls};
       });
       setGauges(parsed);
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
