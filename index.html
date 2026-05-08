@@ -1390,7 +1390,14 @@ function GuideBook({user}){
   }
 
   async function updateGuestInDb(id, updates){
-    await sb.from("guests").update(updates).eq("id",id);
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      await sb.from("guests").update(updates).eq("id",id);
+      return;
+    }
+    // localStorage fallback
+    const guests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
+    const updated = guests.map(g => g.id===id ? {...g,...updates} : g);
+    localStorage.setItem("tl_guests", JSON.stringify(updated));
   }
 
   async function deletGuestFromDb(id){
@@ -1422,16 +1429,23 @@ function GuideBook({user}){
   }
 
   async function updateTripInDb(id, tripData){
-    await sb.from("trips").update({
-      date:tripData.date, location:tripData.location, type:tripData.type,
-      styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-      gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
-      trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
-      air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
-      weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-      wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
-    }).eq("id",id);
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      await sb.from("trips").update({
+        date:tripData.date, location:tripData.location, type:tripData.type,
+        styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
+        gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+        trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+        air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+        weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+        wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+        stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
+      }).eq("id",id);
+      return;
+    }
+    // localStorage fallback
+    const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+    const updated = trips.map(t => t.id===id ? {...t,...tripData} : t);
+    localStorage.setItem("tl_trips", JSON.stringify(updated));
   }
 
   async function deleteTripFromDb(id){
@@ -1514,9 +1528,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
     finally{ setGenerating(false); }
   }
 
-  async function deleteGuest(id){ await deletGuestFromDb(id); setGuests(gs=>gs.filter(g=>g.id!==id)); setView("list"); }
+  async function deleteGuest(id){ await deletGuestFromDb(id); setGuests(gs=>gs.filter(g=>g.id!==id)); const stored=JSON.parse(localStorage.getItem("tl_guests")||"[]"); localStorage.setItem("tl_guests",JSON.stringify(stored.filter(g=>g.id!==id))); setView("list"); }
   async function deleteTrip(guestId, tripId){
     await deleteTripFromDb(tripId);
+    const stored=JSON.parse(localStorage.getItem("tl_trips")||"[]"); localStorage.setItem("tl_trips",JSON.stringify(stored.filter(t=>t.id!==tripId)));
     setGuests(gs=>gs.map(g=>g.id===guestId?{...g,trips:(g.trips||[]).filter(t=>t.id!==tripId)}:g));
     setSelectedGuest(g=>({...g,trips:(g.trips||[]).filter(t=>t.id!==tripId)}));
   }
@@ -1752,7 +1767,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <label className="lbl">Date</label>
         <input className="inp" type="date" value={tripForm.date||""} onChange={e=>setTripForm(f=>({...f,date:e.target.value}))}/>
         <label className="lbl">Location / River</label>
-        <input className="inp" value={tripForm.location||""} onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
+        <TripLocationWeather tripForm={tripForm} setTripForm={setTripForm}/>
         <label className="lbl">Trip Type</label>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {TRIP_TYPES.map(t=>(
@@ -1876,7 +1891,29 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <button className="gen" style={{flex:1}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
             {generating?"Generating…":"✦ Generate Client Report"}
           </button>
-          <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{setTripForm({...selectedTrip});setView("editTrip");}}>✏️</button>
+          <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{
+  setTripForm({
+    ...tripForm0,
+    ...selectedTrip,
+    styles:selectedTrip.styles||[],
+    flies:selectedTrip.flies||[],
+    photos:selectedTrip.photos||[],
+    flyInput:"",
+    airTemp:selectedTrip.airTemp||selectedTrip.air_temp||"",
+    waterTemp:selectedTrip.waterTemp||selectedTrip.water_temp||"",
+    weatherConditions:selectedTrip.weatherConditions||selectedTrip.weather_conditions||"",
+    windSpeed:selectedTrip.windSpeed||selectedTrip.wind_speed||"",
+    windDir:selectedTrip.windDir||selectedTrip.wind_dir||"",
+    pressure:selectedTrip.pressure||"",
+    pressureTrend:selectedTrip.pressureTrend||selectedTrip.pressure_trend||"",
+    streamCFS:selectedTrip.streamCFS||selectedTrip.stream_cfs||"",
+    streamCondition:selectedTrip.streamCondition||selectedTrip.stream_condition||"",
+    streamGaugeName:selectedTrip.streamGaugeName||selectedTrip.stream_gauge_name||"",
+    tripCost:selectedTrip.tripCost||selectedTrip.trip_cost||"",
+    tipAmount:selectedTrip.tipAmount||selectedTrip.tip_amount||"",
+  });
+  setView("editTrip");
+}}>✏️</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);setView("guest");}}>🗑</button>
         </div>
         {(selectedTrip.photos?.length>0||report)&&(
