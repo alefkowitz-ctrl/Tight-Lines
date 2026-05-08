@@ -2062,11 +2062,19 @@ function TripPlanner({defaultLocation}){
           }catch(e){ console.log("Shop search failed:",e.message); }
 
           const riverNames=pg.map(g=>g.name).join(", ");
-          const reportTxt=await askClaude(`Search web for current fly fishing conditions near ${loc.label}. USGS flows: ${gs}. Hatches: ${hi}. CRITICAL: respond with ONLY the JSON below, zero other text, no explanation, no preamble, no markdown fences. Start your response with { and end with }. Include every stream listed: ${riverNames}.
-{"overview":"conditions across all waters","recommendation":"best water today and why","rivers":[{"name":"stream name","cfs":"X CFS","conditions":"fishable or not and why","techniques":"what works","flies":["Fly #size","Fly #size"]}],"hatches":"active hatches","bestTimes":"best times","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,1000);
+          const reportTxt=await askClaude(`Search web for current fly fishing reports near ${loc.label} on ${ds}. Current USGS stream flows: ${gs}. Active hatches this time of year: ${hi}. Respond with ONLY raw JSON (no markdown, no explanation, start with {): {"overview":"2-3 sentence summary of all waters","recommendation":"best water to fish today and why","rivers":[{"name":"stream name","cfs":"flow","conditions":"fishable? why","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatching now","bestTimes":"best times of day","tips":"local tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,1200);
           let rpt=null;
+          // Try direct parse
           try{ rpt=JSON.parse(reportTxt.trim()); }catch{}
+          // Try extractJSON helper
           if(!rpt) rpt=extractJSON(reportTxt);
+          // Try finding JSON block manually with regex
+          if(!rpt){
+            try{
+              const m=reportTxt.match(/\{[^]*\}/);
+              if(m) rpt=JSON.parse(m[0]);
+            }catch{}
+          }
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({
               overview:rpt.overview||"",
@@ -2078,9 +2086,9 @@ function TripPlanner({defaultLocation}){
               flyBoxEssentials:rpt.flyBoxEssentials||[]
             });
           } else {
-            // Last resort: try to find JSON anywhere in response
-            const jsonMatch = reportTxt.match(/\{[\s\S]*"overview"[\s\S]*\}/);
-            if(jsonMatch){ try{ const r=JSON.parse(jsonMatch[0]); setReport({overview:r.overview||"",recommendation:r.recommendation||"",rivers:r.rivers||[],hatches:r.hatches||"",bestTimes:r.bestTimes||"",tips:r.tips||"",flyBoxEssentials:r.flyBoxEssentials||[]}); }catch{} }
+            // Show raw text stripped of JSON fences as fallback
+            const cleaned=reportTxt.replace(/```json|```/g,"").replace(/^\s*\{[\s\S]*\}\s*$/,"").trim();
+            setReport({overview:cleaned||reportTxt,recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
           }
         }catch(e2){}
         addStep("Report complete ✓");
