@@ -2413,8 +2413,70 @@ function App({user}){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
     reader.onload=async ev=>{
-      const now=new Date();
-      const t=now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      // Try to extract EXIF date taken from the raw binary
+      function getExifDate(arrayBuffer){
+        try{
+          const view=new DataView(arrayBuffer);
+          // Must start with JPEG SOI marker
+          if(view.getUint16(0)!==0xFFD8) return null;
+          let offset=2;
+          while(offset<view.byteLength-2){
+            const marker=view.getUint16(offset);
+            const segLen=view.getUint16(offset+2);
+            if(marker===0xFFE1){
+              // APP1 segment — look for Exif header
+              const exifHeader=String.fromCharCode(
+                view.getUint8(offset+4),view.getUint8(offset+5),
+                view.getUint8(offset+6),view.getUint8(offset+7)
+              );
+              if(exifHeader==="Exif"){
+                const tiffStart=offset+10;
+                const littleEndian=view.getUint16(tiffStart)===0x4949;
+                const getU16=(o)=>view.getUint16(tiffStart+o,littleEndian);
+                const getU32=(o)=>view.getUint32(tiffStart+o,littleEndian);
+                const ifdOffset=getU32(4);
+                const numEntries=getU16(ifdOffset);
+                for(let i=0;i<numEntries;i++){
+                  const entryOffset=ifdOffset+2+(i*12);
+                  const tag=getU16(entryOffset);
+                  // Tag 0x9003 = DateTimeOriginal
+                  if(tag===0x9003){
+                    const valOffset=getU32(entryOffset+8);
+                    let str="";
+                    for(let j=0;j<19;j++){
+                      const c=view.getUint8(tiffStart+valOffset+j);
+                      if(c===0) break;
+                      str+=String.fromCharCode(c);
+                    }
+                    // EXIF format: "YYYY:MM:DD HH:MM:SS"
+                    const m=str.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+                    if(m){
+                      const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
+                      return d.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+                    }
+                  }
+                }
+              }
+            }
+            offset+=2+segLen;
+          }
+        }catch(ex){}
+        return null;
+      }
+      // Read file as ArrayBuffer for EXIF, fall back to file.lastModified, then now
+      let photoTime=null;
+      try{
+        const abuf=await file.arrayBuffer();
+        photoTime=getExifDate(abuf);
+      }catch{}
+      if(!photoTime && file.lastModified){
+        const lm=new Date(file.lastModified);
+        // Only trust lastModified if it's not suspiciously recent (within 5 seconds of now)
+        if(Date.now()-lm.getTime()>5000){
+          photoTime=lm.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+        }
+      }
+      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       const g=loc?fmtCoord(loc.lat,loc.lng):"Location unavailable";
       setForm(f=>({...f,photo:ev.target.result,gps:g,time:t}));
       // Auto-estimate fish size from photo using Claude vision
