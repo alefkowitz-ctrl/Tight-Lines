@@ -1114,6 +1114,9 @@ function generateTripReportPDF(guest, trip, reportText){
   <div class="stat"><div class="stat-val">~${trip.catches||0}</div><div class="stat-lbl">Fish Caught</div></div>
   ${(trip.styles||[]).length>0?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${(trip.styles||[]).join(", ")}</div><div class="stat-lbl">Techniques</div></div>`:""}
   ${(trip.gear)?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${trip.gear}</div><div class="stat-lbl">Gear</div></div>`:""}
+  ${(trip.streamCFS)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${Number(trip.streamCFS).toLocaleString()}</div><div class="stat-lbl">CFS · ${trip.streamCondition||"Flow"}</div></div>`:""}
+  ${(trip.airTemp)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${trip.airTemp}°F</div><div class="stat-lbl">Air Temp</div></div>`:""}
+  ${(trip.waterTemp)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${trip.waterTemp}°F</div><div class="stat-lbl">Water Temp</div></div>`:""}
 
 </div>
 
@@ -2320,14 +2323,22 @@ function App({user}){
     if(!sb){ setCatchesLoading(false); return; }
     sb.from("catches").select("*").eq("user_id",user.id).order("created_at",{ascending:false})
       .then(({data,error})=>{
-        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species,length:r.length,flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes})));
+        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species,length:r.length,flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp,weatherDesc:r.weather_desc,windSpeed:r.wind_speed,windDir:r.wind_dir,pressure:r.pressure,streamCFS:r.stream_cfs,streamCondition:r.stream_condition,streamGaugeName:r.stream_gauge_name})));
         setCatchesLoading(false);
       });
   },[user]);
 
   async function addCatch(catchData){
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
-    const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
+    const{data,error}=await sb.from("catches").insert({
+      user_id:user.id,
+      species:catchData.species, length:catchData.length, flies:catchData.flies,
+      photo:catchData.photo, gps:catchData.gps, time:catchData.time, notes:catchData.notes,
+      air_temp:catchData.air_temp, weather_desc:catchData.weather_desc,
+      wind_speed:catchData.wind_speed, wind_dir:catchData.wind_dir, pressure:catchData.pressure,
+      stream_cfs:catchData.stream_cfs, stream_condition:catchData.stream_condition,
+      stream_gauge_name:catchData.stream_gauge_name
+    }).select().single();
     if(!error&&data) setCatches(c=>[{id:data.id,...catchData},...c]);
   }
 
@@ -2335,7 +2346,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null};
+  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null,sizeEstimating:false,sizeEstimated:false};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -2401,11 +2412,41 @@ function App({user}){
   function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=ev=>{
+    reader.onload=async ev=>{
       const now=new Date();
       const t=now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       const g=loc?fmtCoord(loc.lat,loc.lng):"Location unavailable";
       setForm(f=>({...f,photo:ev.target.result,gps:g,time:t}));
+      // Auto-estimate fish size from photo using Claude vision
+      const key=getKey();
+      if(!key) return;
+      try{
+        setForm(f=>({...f,sizeEstimating:true}));
+        const base64=ev.target.result.split(",")[1];
+        const mediaType=file.type||"image/jpeg";
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",
+          headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          body:JSON.stringify({
+            model:"claude-sonnet-4-20250514",
+            max_tokens:100,
+            messages:[{role:"user",content:[
+              {type:"image",source:{type:"base64",media_type:mediaType,data:base64}},
+              {type:"text",text:"This is a photo of a fish catch. Estimate the fish length in inches based on visual cues like the angler's hands, rod, reel, net, or any visible reference objects. Reply with ONLY a single number (the estimated inches). If you truly cannot estimate, reply with just the word 'unknown'."}
+            ]}]
+          })
+        });
+        const d=await res.json();
+        const txt=((d.content||[])[0]?.text||"").trim();
+        const num=parseFloat(txt);
+        if(!isNaN(num)&&num>0&&num<100){
+          setForm(f=>({...f,length:String(Math.round(num)),sizeEstimating:false,sizeEstimated:true}));
+        } else {
+          setForm(f=>({...f,sizeEstimating:false}));
+        }
+      }catch(err){
+        setForm(f=>({...f,sizeEstimating:false}));
+      }
     };
     reader.readAsDataURL(file);e.target.value="";
   }
@@ -2415,7 +2456,20 @@ function App({user}){
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes};
+    // Auto-attach current conditions snapshot
+    const topGauge=gauges[0]||null;
+    const catchData={
+      species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,
+      gps:form.gps||"Location not recorded",time:t,notes:form.notes,
+      air_temp:weather?String(weather.temp):"",
+      weather_desc:weather?weather.desc:"",
+      wind_speed:weather?String(weather.wind):"",
+      wind_dir:weather?weather.windDir:"",
+      pressure:weather?String(weather.pressure):"",
+      stream_cfs:topGauge?String(Math.round(topGauge.cfs||0)):"",
+      stream_condition:topGauge?topGauge.label:"",
+      stream_gauge_name:topGauge?topGauge.name:""
+    };
     addCatch(catchData);
     setForm(blank);setAddOpen(false);
   }
@@ -2523,7 +2577,7 @@ function App({user}){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
                 <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
-                  const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
+                  const rows=[["Species","Length","Flies","GPS","Date","Notes","Air Temp (F)","Weather","Wind","Pressure (inHg)","Stream CFS","Stream Condition","Gauge Name"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes,c.airTemp||"",c.weatherDesc||"",c.windSpeed?(c.windSpeed+" mph "+(c.windDir||"")):"",c.pressure||"",c.streamCFS||"",c.streamCondition||"",c.streamGaugeName||""])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
@@ -2557,6 +2611,14 @@ function App({user}){
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
                   {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
+                  {(c.airTemp||c.streamCFS||c.weatherDesc)&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6,fontSize:11,color:"var(--stone)"}}>
+                      {c.weatherDesc&&<span>{c.weatherDesc}</span>}
+                      {c.airTemp&&<span>🌡 {c.airTemp}°F</span>}
+                      {c.windSpeed&&<span>💨 {c.windSpeed} mph {c.windDir}</span>}
+                      {c.streamCFS&&<span>💧 {Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span>}
+                    </div>
+                  )}
                   <div className="cgps">📍 {c.gps}</div>
                   <button onClick={()=>deleteCatch(c.id)}
                     style={{marginTop:8,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"4px 12px",color:"var(--red)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
@@ -2604,8 +2666,13 @@ function App({user}){
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
-          <label className="lbl">Length (inches)</label>
-          <input className="inp" type="number" placeholder="e.g. 18" value={form.length} onChange={e=>setForm(f=>({...f,length:e.target.value}))}/>
+          <label className="lbl">Length (inches)
+            {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
+            {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ estimated — adjust if needed</span>}
+          </label>
+          <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
+            onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
+            style={form.sizeEstimated?{borderColor:"rgba(90,122,74,0.6)",background:"rgba(90,122,74,0.1)"}:{}}/>
           <label className="lbl">Flies Used</label>
           <div className="ftags">{form.flies.map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>removeFly(i)}>×</button></div>)}</div>
           <div className="frow">
