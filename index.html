@@ -1659,17 +1659,17 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:12}}>
           <input className="inp" style={{marginBottom:0}} placeholder="City" value={guestForm.city||""} onChange={e=>setGuestForm(f=>({...f,city:e.target.value}))}/>
           <input className="inp" style={{marginBottom:0}} placeholder="State" maxLength={2} value={guestForm.state||""} onChange={e=>setGuestForm(f=>({...f,state:e.target.value.toUpperCase()}))}/>
-          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/\D/g,"")}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/[^0-9]/g,"")}))}/>
         </div>
         <label className="lbl">Email</label>
         <input className="inp" type="email" placeholder="john@email.com" value={guestForm.email} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
         <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>{
-          const digits=e.target.value.replace(/\D/g,"").slice(0,10);
+          const digits=e.target.value.replace(/[^0-9]/g,"").slice(0,10);
           let fmt=digits;
-          if(digits.length>=7) fmt=`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
-          else if(digits.length>=4) fmt=`(${digits.slice(0,3)}) ${digits.slice(3)}`;
-          else if(digits.length>=1) fmt=`(${digits}`;
+          if(digits.length>=7) fmt="("+digits.slice(0,3)+") "+digits.slice(3,6)+"-"+digits.slice(6);
+          else if(digits.length>=4) fmt="("+digits.slice(0,3)+") "+digits.slice(3);
+          else if(digits.length>=1) fmt="("+digits;
           setGuestForm(f=>({...f,phone:fmt}));
         }}/>
         <label className="lbl">Dietary Restrictions</label>
@@ -1708,17 +1708,17 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:12}}>
           <input className="inp" style={{marginBottom:0}} placeholder="City" value={guestForm.city||""} onChange={e=>setGuestForm(f=>({...f,city:e.target.value}))}/>
           <input className="inp" style={{marginBottom:0}} placeholder="State" maxLength={2} value={guestForm.state||""} onChange={e=>setGuestForm(f=>({...f,state:e.target.value.toUpperCase()}))}/>
-          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/\D/g,"")}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/[^0-9]/g,"")}))}/>
         </div>
         <label className="lbl">Email</label>
         <input className="inp" type="email" value={guestForm.email||""} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
         <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone||""} onChange={e=>{
-          const digits=e.target.value.replace(/\D/g,"").slice(0,10);
+          const digits=e.target.value.replace(/[^0-9]/g,"").slice(0,10);
           let fmt=digits;
-          if(digits.length>=7) fmt=`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
-          else if(digits.length>=4) fmt=`(${digits.slice(0,3)}) ${digits.slice(3)}`;
-          else if(digits.length>=1) fmt=`(${digits}`;
+          if(digits.length>=7) fmt="("+digits.slice(0,3)+") "+digits.slice(3,6)+"-"+digits.slice(6);
+          else if(digits.length>=4) fmt="("+digits.slice(0,3)+") "+digits.slice(3);
+          else if(digits.length>=1) fmt="("+digits;
           setGuestForm(f=>({...f,phone:fmt}));
         }}/>
         <label className="lbl">Dietary Restrictions</label>
@@ -1756,10 +1756,17 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
       <div className="card">
         <div className="ctitle">👤 Guest Info</div>
         {selectedGuest.birthday&&<div className="hr"><span className="hn">Birthday</span><span className="ha">{new Date(selectedGuest.birthday+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>}
-        {(selectedGuest.address||selectedGuest.city)&&<div className="hr"><span className="hn">Address</span><span className="ha" style={{textAlign:"right",maxWidth:"60%"}}>
-  {selectedGuest.address}{selectedGuest.address2?`, ${selectedGuest.address2}`:""}
-  {(selectedGuest.city||selectedGuest.state||selectedGuest.zip)?<><br/>{[selectedGuest.city,selectedGuest.state,selectedGuest.zip].filter(Boolean).join(" ")}</>:""}
-</span></div>}
+        {(selectedGuest.address||selectedGuest.city)&&(
+  <div className="hr">
+    <span className="hn">Address</span>
+    <span className="ha" style={{textAlign:"right",maxWidth:"60%",lineHeight:1.5}}>
+      {selectedGuest.address}{selectedGuest.address2?" "+selectedGuest.address2:""}
+      {(selectedGuest.city||selectedGuest.state||selectedGuest.zip)&&(
+        <><br/>{[selectedGuest.city,selectedGuest.state,selectedGuest.zip].filter(Boolean).join(" ")}</>
+      )}
+    </span>
+  </div>
+)}
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
         {(selectedGuest.skillLevel||selectedGuest.skill_level)&&(()=>{const sl=selectedGuest.skillLevel||selectedGuest.skill_level;return(<div className="hr"><span className="hn">Skill Level</span><span className="ha">{sl==="Beginner"?"🌱 Beginner":sl==="Intermediate"?"🎣 Intermediate":"🏆 Expert"}</span></div>);})()}
