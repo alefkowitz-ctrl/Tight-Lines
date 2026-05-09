@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="theme-color" content="#1a3a45"/>
-<title>Tight Lines 🎣</title>
+<title>Guide's Choice 🎣</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
@@ -15,12 +15,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-:root{--water:#2c5f6e;--deep:#1a3a45;--foam:#e8dfc8;--moss:#5a7a4a;--stone:#8a8a7a;--sky:#b8d4dc;--gold:#c8a84b;--red:#e07070;}
+:root{--water:#1e5c4a;--deep:#0f2d1f;--foam:#e8dfc8;--moss:#4a7a3a;--stone:#7a8a72;--sky:#a8c8b4;--gold:#c8a84b;--red:#e07070;}
 html,body{height:100%;overflow:hidden;}
 body{font-family:'Crimson Pro',serif;background:var(--deep);color:var(--foam);}
 #root{height:100%;display:flex;justify-content:center;}
 .app{width:100%;max-width:430px;height:100%;background:var(--deep);position:relative;overflow:hidden;}
-.bgbar{position:absolute;top:0;left:0;right:0;height:200px;background:linear-gradient(180deg,var(--water),var(--deep));z-index:0;pointer-events:none;}
+.bgbar{position:absolute;top:0;left:0;right:0;height:200px;background:linear-gradient(180deg,#1e5c4a,#0f2d1f);z-index:0;pointer-events:none;}
 .main{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;transition:transform .3s cubic-bezier(.4,0,.2,1);}
 .main.off{transform:translateX(-100%);}
 .slide{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--deep);transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);z-index:20;}
@@ -219,7 +219,7 @@ function AuthScreen(){
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:40}}>
           <div style={{fontSize:48,marginBottom:12}}>🎣</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--foam)"}}>Tight <span style={{color:"var(--gold)",fontStyle:"italic"}}>Lines</span></div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--foam)"}}>Guide's <span style={{color:"var(--gold)",fontStyle:"italic"}}>Choice</span></div>
           <div style={{fontSize:12,color:"var(--sky)",letterSpacing:2.5,textTransform:"uppercase",marginTop:4}}>Fly Fishing Journal</div>
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
@@ -1097,7 +1097,7 @@ function generateTripReportPDF(guest, trip, reportText){
 
 <!-- HEADER -->
 <div class="header">
-  <div class="brand">Tight Lines · Fly Fishing Journal</div>
+  <div class="brand">Guide's Choice · Fly Fishing Journal</div>
   <div class="report-title">Trip Report · <span>${guest.name}</span></div>
   <div class="report-meta">
     📅 ${date}
@@ -1153,7 +1153,7 @@ ${reportText?`
 
 <!-- FOOTER -->
 <div class="footer">
-  <div class="footer-brand">Tight <span>Lines</span> · Fly Fishing Journal</div>
+  <div class="footer-brand">Guide's <span>Choice</span> · Fly Fishing Journal</div>
   <div class="footer-note">Generated ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
 </div>
 
@@ -1350,7 +1350,7 @@ function GuideBook({user}){
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  const guestForm0 = {name:"",birthday:"",address:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
+  const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
 
   // Load guests + trips from Supabase
   useEffect(()=>{
@@ -1399,18 +1399,34 @@ function GuideBook({user}){
   },[user]);
 
   async function saveGuestToDb(guestData){
-    // Try Supabase first if configured and user is real (not local)
-    if(sb && user?.id && !String(user.id).startsWith("local")){
-      const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
-      if(!error && data) return data;
-      console.error("Supabase save failed:", error?.message, "— using local storage");
-    }
-    // Fallback: save to localStorage
+    // Always try localStorage as immediate save
     const localId = "local-"+Date.now();
     const existing = JSON.parse(localStorage.getItem("tl_guests")||"[]");
-    const guest = {id:localId,...guestData};
-    localStorage.setItem("tl_guests", JSON.stringify([...existing, guest]));
-    return guest;
+    const localGuest = {id:localId,...guestData};
+    localStorage.setItem("tl_guests", JSON.stringify([...existing, localGuest]));
+
+    // Then try Supabase if logged in
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      try{
+        const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
+        if(error){
+          alert("Supabase error: "+error.message+"
+Code: "+error.code+"
+Guest saved locally only.");
+          return localGuest;
+        }
+        if(data){
+          // Update localStorage with real Supabase ID
+          const updated = JSON.parse(localStorage.getItem("tl_guests")||"[]").map(g=>g.id===localId?{...g,id:data.id}:g);
+          localStorage.setItem("tl_guests", JSON.stringify(updated));
+          return data;
+        }
+      }catch(e){
+        alert("Connection error: "+e.message);
+        return localGuest;
+      }
+    }
+    return localGuest;
   }
 
   async function updateGuestInDb(id, updates){
@@ -1484,8 +1500,8 @@ function GuideBook({user}){
 
   async function saveGuest(){
     if(!guestForm.name.trim()) return;
-    const {name,birthday,address,email,phone,notes,dietary,skillLevel}=guestForm;
-    const data=await saveGuestToDb({name,birthday,address,email,phone,notes,dietary,skill_level:skillLevel});
+    const {name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel}=guestForm;
+    const data=await saveGuestToDb({name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel});
     // Use returned DB data or create local record as fallback
     const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
     setGuests(gs=>[...gs,{...guest,trips:[]}]);
@@ -1604,7 +1620,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
       </div>
       {guestsLoading&&<div className="loading">Loading guests…</div>}
-      {!guestsLoading&&guests.length===0&&<div className="empty"><div className="ei">🧑‍✈️</div><p>No guests yet.<br/>Add your first client to get started.</p></div>}
+      {!guestsLoading&&guests.length===0&&<div className="empty"><div className="ei">🎣</div><p>No guests yet.<br/>Add your first client to get started.</p></div>}
       {guests.map(g=>(
         <div className="cc" key={g.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedGuest(g);setView("guest");}}>
           <div className="cb">
@@ -1638,11 +1654,24 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <label className="lbl">Birthday</label>
         <input className="inp" type="date" value={guestForm.birthday} onChange={e=>setGuestForm(f=>({...f,birthday:e.target.value}))}/>
         <label className="lbl">Address</label>
-        <input className="inp" placeholder="123 Main St, City, ST" value={guestForm.address} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <input className="inp" placeholder="Street Address" value={guestForm.address||""} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <input className="inp" placeholder="Apt, Suite, Unit (optional)" value={guestForm.address2||""} onChange={e=>setGuestForm(f=>({...f,address2:e.target.value}))}/>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:12}}>
+          <input className="inp" style={{marginBottom:0}} placeholder="City" value={guestForm.city||""} onChange={e=>setGuestForm(f=>({...f,city:e.target.value}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="State" maxLength={2} value={guestForm.state||""} onChange={e=>setGuestForm(f=>({...f,state:e.target.value.toUpperCase()}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/\D/g,"")}))}/>
+        </div>
         <label className="lbl">Email</label>
         <input className="inp" type="email" placeholder="john@email.com" value={guestForm.email} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
-        <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
+        <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>{
+          const digits=e.target.value.replace(/\D/g,"").slice(0,10);
+          let fmt=digits;
+          if(digits.length>=7) fmt=`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+          else if(digits.length>=4) fmt=`(${digits.slice(0,3)}) ${digits.slice(3)}`;
+          else if(digits.length>=1) fmt=`(${digits}`;
+          setGuestForm(f=>({...f,phone:fmt}));
+        }}/>
         <label className="lbl">Dietary Restrictions</label>
         <input className="inp" placeholder="e.g. Gluten free, vegetarian, nut allergy…" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
         <label className="lbl">Fishing Skill Level</label>
@@ -1674,11 +1703,24 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <label className="lbl">Birthday</label>
         <input className="inp" type="date" value={guestForm.birthday||""} onChange={e=>setGuestForm(f=>({...f,birthday:e.target.value}))}/>
         <label className="lbl">Address</label>
-        <input className="inp" value={guestForm.address||""} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <input className="inp" placeholder="Street Address" value={guestForm.address||""} onChange={e=>setGuestForm(f=>({...f,address:e.target.value}))}/>
+        <input className="inp" placeholder="Apt, Suite, Unit (optional)" value={guestForm.address2||""} onChange={e=>setGuestForm(f=>({...f,address2:e.target.value}))}/>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:12}}>
+          <input className="inp" style={{marginBottom:0}} placeholder="City" value={guestForm.city||""} onChange={e=>setGuestForm(f=>({...f,city:e.target.value}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="State" maxLength={2} value={guestForm.state||""} onChange={e=>setGuestForm(f=>({...f,state:e.target.value.toUpperCase()}))}/>
+          <input className="inp" style={{marginBottom:0}} placeholder="ZIP" maxLength={5} value={guestForm.zip||""} onChange={e=>setGuestForm(f=>({...f,zip:e.target.value.replace(/\D/g,"")}))}/>
+        </div>
         <label className="lbl">Email</label>
         <input className="inp" type="email" value={guestForm.email||""} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
-        <input className="inp" type="tel" value={guestForm.phone||""} onChange={e=>setGuestForm(f=>({...f,phone:e.target.value}))}/>
+        <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone||""} onChange={e=>{
+          const digits=e.target.value.replace(/\D/g,"").slice(0,10);
+          let fmt=digits;
+          if(digits.length>=7) fmt=`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+          else if(digits.length>=4) fmt=`(${digits.slice(0,3)}) ${digits.slice(3)}`;
+          else if(digits.length>=1) fmt=`(${digits}`;
+          setGuestForm(f=>({...f,phone:fmt}));
+        }}/>
         <label className="lbl">Dietary Restrictions</label>
         <input className="inp" value={guestForm.dietary||""} onChange={e=>setGuestForm(f=>({...f,dietary:e.target.value}))}/>
         <label className="lbl">Fishing Skill Level</label>
@@ -1714,7 +1756,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
       <div className="card">
         <div className="ctitle">👤 Guest Info</div>
         {selectedGuest.birthday&&<div className="hr"><span className="hn">Birthday</span><span className="ha">{new Date(selectedGuest.birthday+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>}
-        {selectedGuest.address&&<div className="hr"><span className="hn">Address</span><span className="ha">{selectedGuest.address}</span></div>}
+        {(selectedGuest.address||selectedGuest.city)&&<div className="hr"><span className="hn">Address</span><span className="ha" style={{textAlign:"right",maxWidth:"60%"}}>
+  {selectedGuest.address}{selectedGuest.address2?`, ${selectedGuest.address2}`:""}
+  {(selectedGuest.city||selectedGuest.state||selectedGuest.zip)?<><br/>{[selectedGuest.city,selectedGuest.state,selectedGuest.zip].filter(Boolean).join(" ")}</>:""}
+</span></div>}
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
         {(selectedGuest.skillLevel||selectedGuest.skill_level)&&(()=>{const sl=selectedGuest.skillLevel||selectedGuest.skill_level;return(<div className="hr"><span className="hn">Skill Level</span><span className="ha">{sl==="Beginner"?"🌱 Beginner":sl==="Intermediate"?"🎣 Intermediate":"🏆 Expert"}</span></div>);})()}
@@ -2013,7 +2058,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             onClick={()=>{
               const header=`Trip Report — ${selectedGuest.name}\n${new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}\n\n`;
               const txt=header+report;
-              if(navigator.share){navigator.share({title:"Your Fishing Trip Report",text:txt});}
+              if(navigator.share){navigator.share({title:"Your Fishing Report",text:txt});}
               else{navigator.clipboard.writeText(txt).then(()=>alert("Copied to clipboard!"));}
             }}>
             📤 Share as Text
@@ -2383,9 +2428,9 @@ function App({user}){
               Sign Out
             </button>
           </div>
-          <div className="title">Tight <span>Lines</span></div>
+          <div className="title">Guide's <span>Choice</span></div>
           <div className="sub">Fly Fishing Journal</div>
-          {user&&<div style={{fontSize:11,color:"var(--stone)",marginTop:4,fontStyle:"italic"}}>{user.email}</div>}
+          {user&&<div style={{fontSize:11,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
         <div className="search-wrap">
@@ -2396,7 +2441,7 @@ function App({user}){
         </div>
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🧑‍✈️",label:"Guide"}].map(t=>(
+          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🏕",label:"Guide"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
