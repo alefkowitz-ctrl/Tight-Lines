@@ -167,14 +167,17 @@ function useAuth(){
   const [loading, setLoading] = useState(true);
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
+    // Add timeout in case Supabase is slow on mobile
+    const timeout = setTimeout(()=>setLoading(false), 5000);
     sb.auth.getSession().then(({data:{session}})=>{
+      clearTimeout(timeout);
       setUser(session?.user ?? null);
       setLoading(false);
-    });
+    }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
     const {data:{subscription}} = sb.auth.onAuthStateChange((_,session)=>{
       setUser(session?.user ?? null);
     });
-    return ()=>subscription.unsubscribe();
+    return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
   return {user, loading};
 }
@@ -1111,7 +1114,7 @@ function generateTripReportPDF(guest, trip, reportText){
   <div class="stat"><div class="stat-val">~${trip.catches||0}</div><div class="stat-lbl">Fish Caught</div></div>
   ${(trip.styles||[]).length>0?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${(trip.styles||[]).join(", ")}</div><div class="stat-lbl">Techniques</div></div>`:""}
   ${(trip.gear)?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${trip.gear}</div><div class="stat-lbl">Gear</div></div>`:""}
-  ${(trip.tripCost)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">$${trip.tripCost}</div><div class="stat-lbl">Trip Rate</div></div>`:""}
+
 </div>
 
 <!-- CONDITIONS -->
@@ -1353,17 +1356,29 @@ function GuideBook({user}){
   useEffect(()=>{
     if(!user) return;
     async function load(){
-      // Load from localStorage first (always available)
-      const localGuests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
-      const localTrips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+      const isLocalUser = !sb || String(user?.id).startsWith("local");
 
-      if(!sb || String(user?.id).startsWith("local")){
+      if(isLocalUser){
+        // No Supabase - use localStorage only
+        const localGuests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
+        const localTrips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
         const withTrips = localGuests.map(g=>({...g, trips:localTrips.filter(t=>t.guest_id===g.id)}));
         setGuests(withTrips);
         setGuestsLoading(false);
         return;
       }
-      const {data:gData}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
+
+      // Logged in via Supabase - load from cloud (works on any device)
+      const {data:gData, error:gErr}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
+      if(gErr){
+        console.error("Failed to load guests:", gErr.message);
+        // Fall back to localStorage if Supabase fails
+        const localGuests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
+        const localTrips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+        setGuests(localGuests.map(g=>({...g,trips:localTrips.filter(t=>t.guest_id===g.id)})));
+        setGuestsLoading(false);
+        return;
+      }
       if(!gData){ setGuestsLoading(false); return; }
       const {data:tData}=await sb.from("trips").select("*").eq("user_id",user.id).order("date",{ascending:false});
       const trips=tData||[];
@@ -1548,11 +1563,17 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
   // Guest list
   if(view==="list") return(
     <div>
+      {String(user?.id).startsWith("local")&&(
+        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
+          ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only. To access your data on your phone, <strong>sign in with your Supabase account</strong> by adding your credentials to the app.
+        </div>
+      )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
       </div>
-      {guests.length===0&&<div className="empty"><div className="ei">🧑‍✈️</div><p>No guests yet.<br/>Add your first client to get started.</p></div>}
+      {guestsLoading&&<div className="loading">Loading guests…</div>}
+      {!guestsLoading&&guests.length===0&&<div className="empty"><div className="ei">🧑‍✈️</div><p>No guests yet.<br/>Add your first client to get started.</p></div>}
       {guests.map(g=>(
         <div className="cc" key={g.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedGuest(g);setView("guest");}}>
           <div className="cb">
@@ -2529,8 +2550,9 @@ function Root(){
       </div>
     </div>
   );
-  // If Supabase not configured yet, run app without auth
+  // Only bypass auth if Supabase is genuinely not configured
   if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}}/>;
+  // Supabase IS configured - require login
   if(!user) return <AuthScreen/>;
   return <App user={user}/>;
 }
