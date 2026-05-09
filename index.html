@@ -2346,7 +2346,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null,sizeEstimating:false,sizeEstimated:false};
+  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -2503,8 +2503,20 @@ function App({user}){
         photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       }
       const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      const g=photoGps||(loc?fmtCoord(loc.lat,loc.lng):"Location unavailable");
-      setForm(f=>({...f,photo:ev.target.result,gps:g,time:t}));
+      const g=photoGps||(loc?fmtCoord(loc.lat,loc.lng):"");
+      // Pre-fill conditions snapshot from currently loaded weather/gauges
+      const topGauge=gauges[0]||null;
+      setForm(f=>({...f,
+        photo:ev.target.result,gps:g,time:t,
+        airTemp:weather?String(weather.temp):"",
+        weatherDesc:weather?weather.desc:"",
+        windSpeed:weather?String(weather.wind):"",
+        windDir:weather?weather.windDir:"",
+        pressure:weather?String(weather.pressure):"",
+        streamCFS:topGauge?String(Math.round(topGauge.cfs||0)):"",
+        streamCondition:topGauge?topGauge.label:"",
+        streamGaugeName:topGauge?topGauge.name:""
+      }));
       // Auto-estimate fish size from photo using Claude vision
       const key=getKey();
       if(!key) return;
@@ -2544,19 +2556,13 @@ function App({user}){
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    // Auto-attach current conditions snapshot
-    const topGauge=gauges[0]||null;
     const catchData={
       species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,
       gps:form.gps||"Location not recorded",time:t,notes:form.notes,
-      air_temp:weather?String(weather.temp):"",
-      weather_desc:weather?weather.desc:"",
-      wind_speed:weather?String(weather.wind):"",
-      wind_dir:weather?weather.windDir:"",
-      pressure:weather?String(weather.pressure):"",
-      stream_cfs:topGauge?String(Math.round(topGauge.cfs||0)):"",
-      stream_condition:topGauge?topGauge.label:"",
-      stream_gauge_name:topGauge?topGauge.name:""
+      air_temp:form.airTemp,weather_desc:form.weatherDesc,
+      wind_speed:form.windSpeed,wind_dir:form.windDir,pressure:form.pressure,
+      stream_cfs:form.streamCFS,stream_condition:form.streamCondition,
+      stream_gauge_name:form.streamGaugeName
     };
     addCatch(catchData);
     setForm(blank);setAddOpen(false);
@@ -2741,7 +2747,7 @@ function App({user}){
                 {form.gps&&<span className="ptag">📍 {form.gps}</span>}
                 {form.time&&<span className="ttag">{form.time}</span>}
               </div>
-              <button className="px" onClick={()=>setForm(f=>({...f,photo:null,gps:null,time:null}))}>✕</button>
+              <button className="px" onClick={()=>setForm(f=>({...f,photo:null,gps:"",time:""}))}>✕</button>
             </div>
           ):(
             <div className="pbtns">
@@ -2749,18 +2755,29 @@ function App({user}){
               <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library</button>
             </div>
           )}
-          <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
+          <p className="hint">Time, GPS & conditions auto-filled from photo — edit if needed.</p>
+
+          <label className="lbl">Date & Time</label>
+          <input className="inp" placeholder="e.g. May 8, 2026 at 7:30 AM" value={form.time}
+            onChange={e=>setForm(f=>({...f,time:e.target.value}))}/>
+
+          <label className="lbl">GPS Location</label>
+          <input className="inp" placeholder="e.g. 39.7392° N, 104.9903° W" value={form.gps}
+            onChange={e=>setForm(f=>({...f,gps:e.target.value}))}/>
+
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
+
           <label className="lbl">Length (inches)
             {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
-            {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ estimated — adjust if needed</span>}
+            {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ AI estimated — adjust if needed</span>}
           </label>
           <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
             onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
             style={form.sizeEstimated?{borderColor:"rgba(90,122,74,0.6)",background:"rgba(90,122,74,0.1)"}:{}}/>
+
           <label className="lbl">Flies Used</label>
           <div className="ftags">{form.flies.map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>removeFly(i)}>×</button></div>)}</div>
           <div className="frow">
@@ -2769,6 +2786,53 @@ function App({user}){
               onKeyDown={e=>e.key==="Enter"&&addFly()}/>
             <button className="btn" onClick={addFly}>Add</button>
           </div>
+
+          <label className="lbl">Conditions Snapshot</label>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="65"
+                  value={form.airTemp} onChange={e=>setForm(f=>({...f,airTemp:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Stream CFS</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="250"
+                  value={form.streamCFS} onChange={e=>setForm(f=>({...f,streamCFS:e.target.value}))}/>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="8"
+                  value={form.windSpeed} onChange={e=>setForm(f=>({...f,windSpeed:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Wind Dir</div>
+                <input className="inp" style={{marginBottom:0}} placeholder="SW"
+                  value={form.windDir} onChange={e=>setForm(f=>({...f,windDir:e.target.value}))}/>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Pressure (inHg)</div>
+                <input className="inp" style={{marginBottom:0}} placeholder="29.92"
+                  value={form.pressure} onChange={e=>setForm(f=>({...f,pressure:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Flow Condition</div>
+                <input className="inp" style={{marginBottom:0}} placeholder="Good"
+                  value={form.streamCondition} onChange={e=>setForm(f=>({...f,streamCondition:e.target.value}))}/>
+              </div>
+            </div>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Sky / Weather</div>
+              <input className="inp" style={{marginBottom:0}} placeholder="e.g. ☀️ Sunny"
+                value={form.weatherDesc} onChange={e=>setForm(f=>({...f,weatherDesc:e.target.value}))}/>
+            </div>
+            {form.streamGaugeName&&<div style={{fontSize:11,color:"var(--stone)",marginTop:6,fontStyle:"italic"}}>📍 Gauge: {form.streamGaugeName}</div>}
+          </div>
+
           <label className="lbl">Notes</label>
           <textarea className="inp" rows={4} style={{resize:"none"}} placeholder="Where, how, conditions…"
             value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
