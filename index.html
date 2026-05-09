@@ -1565,9 +1565,40 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
     <div>
       {String(user?.id).startsWith("local")&&(
         <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
-          ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only. To access your data on your phone, <strong>sign in with your Supabase account</strong> by adding your credentials to the app.
+          ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only.
         </div>
       )}
+      {!String(user?.id).startsWith("local")&&(()=>{
+        const localGuests=JSON.parse(localStorage.getItem("tl_guests")||"[]");
+        const localTrips=JSON.parse(localStorage.getItem("tl_trips")||"[]");
+        if(!localGuests.length) return null;
+        return(
+          <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
+            📦 You have <strong>{localGuests.length} guest{localGuests.length!==1?"s":""}</strong> saved locally from before you logged in.
+            <button className="btn" style={{width:"100%",marginTop:10,background:"rgba(200,168,75,0.3)",color:"var(--gold)",border:"1px solid rgba(200,168,75,0.5)"}}
+              onClick={async()=>{
+                let migrated=0;
+                for(const g of localGuests){
+                  const {id:oldId,...gData}=g;
+                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
+                  if(!error&&newG){
+                    migrated++;
+                    const gTrips=localTrips.filter(t=>t.guest_id===oldId);
+                    for(const t of gTrips){
+                      await sb.from("trips").insert({user_id:user.id,guest_id:newG.id,date:t.date,location:t.location,type:t.type,styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],gear:t.gear,guide_notes:t.guideNotes||t.guide_notes,photos:t.photos||[],trip_cost:t.tripCost||t.trip_cost,tip_amount:t.tipAmount||t.tip_amount,report_text:t.reportText||t.report_text,air_temp:t.airTemp||t.air_temp,water_temp:t.waterTemp||t.water_temp,weather_conditions:t.weatherConditions||t.weather_conditions,wind_speed:t.windSpeed||t.wind_speed,wind_dir:t.windDir||t.wind_dir,pressure:t.pressure,pressure_trend:t.pressureTrend||t.pressure_trend,stream_cfs:t.streamCFS||t.stream_cfs,stream_condition:t.streamCondition||t.stream_condition,stream_gauge_name:t.streamGaugeName||t.stream_gauge_name});
+                    }
+                  }
+                }
+                localStorage.removeItem("tl_guests");
+                localStorage.removeItem("tl_trips");
+                alert(`Migrated ${migrated} guest${migrated!==1?"s":""} to your account! Refreshing…`);
+                window.location.reload();
+              }}>
+              ☁️ Migrate to My Account
+            </button>
+          </div>
+        );
+      })()}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
