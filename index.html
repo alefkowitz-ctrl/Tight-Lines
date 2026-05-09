@@ -159,7 +159,7 @@ const { useState, useRef, useEffect, useCallback } = React;
 const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("REPLACE_WITH");
-const sb = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const sb = (SUPABASE_CONFIGURED && typeof supabase !== "undefined") ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
 function useAuth(){
@@ -1389,7 +1389,10 @@ function GuideBook({user}){
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
           gear:t.gear,guideNotes:t.guide_notes,photos:t.photos||[],
-          tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text
+          tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text,
+          airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
+          windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
+          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name
         }))
       }));
       setGuests(guestsWithTrips);
@@ -1441,7 +1444,7 @@ Guest saved locally only.");
   }
 
   async function deletGuestFromDb(id){
-    await sb.from("guests").delete().eq("id",id);
+    if(sb && !String(id).startsWith("local")) await sb.from("guests").delete().eq("id",id);
   }
 
   async function saveTripToDb(guestId, tripData){
@@ -1489,7 +1492,7 @@ Guest saved locally only.");
   }
 
   async function deleteTripFromDb(id){
-    await sb.from("trips").delete().eq("id",id);
+    if(sb && !String(id).startsWith("local")) await sb.from("trips").delete().eq("id",id);
   }
   const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
@@ -1540,7 +1543,7 @@ Guest saved locally only.");
     setGenerating(true); setReport(null);
     // Save report to DB when generated
     async function saveReport(txt){
-      await sb.from("trips").update({report_text:txt}).eq("id",trip.id);
+      if(sb && !String(trip.id).startsWith("local")) await sb.from("trips").update({report_text:txt}).eq("id",trip.id);
       setGuests(gs=>gs.map(g=>g.id===guest.id?{...g,trips:(g.trips||[]).map(t=>t.id===trip.id?{...t,reportText:txt}:t)}:g));
     }
     try{
@@ -1596,7 +1599,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 let migrated=0;
                 for(const g of localGuests){
                   const {id:oldId,...gData}=g;
-                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
+                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,address2:gData.address2,city:gData.city,state:gData.state,zip:gData.zip,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
                   if(!error&&newG){
                     migrated++;
                     const gTrips=localTrips.filter(t=>t.guest_id===oldId);
@@ -1735,9 +1738,9 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} value={guestForm.notes||""} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={async()=>{
-          const{name,birthday,address,email,phone,notes,dietary,skillLevel}=guestForm;
-          await updateGuestInDb(selectedGuest.id,{name,birthday,address,email,phone,notes,dietary,skill_level:skillLevel});
-          const updated={...selectedGuest,name,birthday,address,email,phone,notes,dietary,skillLevel};
+          const{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel}=guestForm;
+          await updateGuestInDb(selectedGuest.id,{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel});
+          const updated={...selectedGuest,name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel};
           setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?updated:g));
           setSelectedGuest(updated);
           setView("guest");
