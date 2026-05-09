@@ -2449,7 +2449,7 @@ function App({user}){
         </div>
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🏕",label:"Guide"}].map(t=>(
+          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
