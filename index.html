@@ -1401,6 +1401,10 @@ function GuideBook({user}){
       }));
       setGuests(guestsWithTrips);
       setGuestsLoading(false);
+      // Clear localStorage guests now that we have the canonical Supabase data
+      // This prevents duplicates when both sources are present
+      localStorage.removeItem("tl_guests");
+      localStorage.removeItem("tl_trips");
     }
     load();
   },[user]);
@@ -2701,12 +2705,14 @@ function App({user}){
           {user&&<div style={{fontSize:11,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
+        {tab==="conditions"&&<>
         <div className="search-wrap">
           <LocationSearch placeholder="Search river, city, or state…" initialValue={loc?.label||""} onSelect={loadConditions}/>
         </div>
         <div className="loc-hint">
           {loc?`📌 ${loc.label}`:"Type a location · suggestions appear as you type · 📍 for GPS"}
         </div>
+        </>}
 
         <div className="nav">
           {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
