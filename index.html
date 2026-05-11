@@ -320,13 +320,11 @@ function extractJSON(text){
 function getKey(){return localStorage.getItem("anthropic_key")||"";}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
-  const key=getKey();
-  if(!key)throw new Error("NO_KEY");
   const body={model:"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
-  const res=await fetch("https://api.anthropic.com/v1/messages",{
+  const res=await fetch("/api/claude",{
     method:"POST",
-    headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)
   });
   let d;
@@ -1793,7 +1791,7 @@ function GuideBook({user}){
           const base64=dataUrl.split(",")[1];
           const mediaType=file.type||"image/jpeg";
           const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-          const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
           const rd=await res.json();
           const txt=((rd.content||[])[0]?.text||"").trim();
           const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
@@ -2352,16 +2350,16 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                     }catch{}
                   }
                   // Claude vision
-                  if(key){
-                    try{
+                  try{
+                    {
                       const base64=p.split(",")[1];
-                      const res3=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
+                      const res3=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
                       const rd=await res3.json();
                       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                       if(parsed.species) details[i].species=parsed.species;
                       if(parsed.length!=null) details[i].length=String(Math.round(parsed.length));
-                    }catch{}
-                  }
+                    }
+                  }catch{}
                   details[i].analyzing=false;
                   setSelectedTrip(st=>({...st,catchDetails:[...details]}));
                 }
@@ -2764,7 +2762,7 @@ function TripPlanner({defaultLocation}){
         addStep("Report complete ✓");
       }
     }catch(e){
-      if(e.message==="NO_KEY"){setError("Add your Anthropic API key above to get AI fishing reports.");}
+      if(e.message==="NO_KEY"||e.message?.includes("API key")){setError("AI service unavailable. Please try again.");}
       else setError(e.message||"Something went wrong.");
     }finally{setBusy(false);}
   }
@@ -2774,7 +2772,7 @@ function TripPlanner({defaultLocation}){
 
   return(
     <div>
-      {!hasKey&&<ApiKeySetup onSave={()=>setHasKey(true)}/>}
+
       <div className="card">
         <div className="ctitle">🗓 Plan Your Trip</div>
         <label className="lbl">Destination</label>
@@ -3167,14 +3165,14 @@ function App({user}){
 
       // Auto-estimate fish size from photo using Claude vision
       const key=getKey();
-      if(!key){ console.log("No API key found for fish ID"); setForm(f=>({...f,sizeEstimating:false,sizeNoKey:true})); return; }
+      // No key check needed — proxy handles auth server-side
       try{
         const base64=ev.target.result.split(",")[1];
         const mediaType=file.type||"image/jpeg";
         const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-        const res=await fetch("https://api.anthropic.com/v1/messages",{
+        const res=await fetch("/api/claude",{
           method:"POST",
-          headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          headers:{"Content-Type":"application/json"},
           body:JSON.stringify({
             model:"claude-sonnet-4-6",
             max_tokens:150,
@@ -3561,7 +3559,6 @@ If you cannot estimate length, use null for length.`}
           <label className="lbl">Length (inches)
             {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
             {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ AI estimated — adjust if needed</span>}
-            {form.sizeNoKey&&<span style={{marginLeft:8,fontSize:11,color:"var(--gold)",fontStyle:"italic"}}>⚠️ Add API key in Plan Trip to enable AI sizing</span>}
           </label>
           <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
             onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
