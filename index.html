@@ -861,7 +861,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
       <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
         <span style={{fontSize:11,color:"var(--stone)",marginRight:2}}>Show:</span>
         {TIMEFRAMES.map(tf=>(
-          <button key={tf.label} onClick={()=>setDays(tf.days)}
+          <button key={tf.label} onClick={e=>{e.stopPropagation();setDays(tf.days);}}
             style={{
               background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
               border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
@@ -886,18 +886,19 @@ function GaugeList({gauges}){
   return(
     <div>
       {gauges.map((g,i)=>(
-        <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
-          <div className="grow">
-            <span className="gname">{g.name}</span>
-            <span className={`gbadge ${g.cls}`}>{g.label}</span>
+        <div className="gi" key={i}>
+          <div style={{cursor:"pointer",display:"flex",flexDirection:"column",gap:4}} onClick={()=>setExpanded(expanded===i?null:i)}>
+            <div className="grow">
+              <span className="gname">{g.name}</span>
+              <span className={`gbadge ${g.cls}`}>{g.label}</span>
+            </div>
+            <div className="grow">
+              <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
+              {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
+              {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
+              <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ Hide chart":"▼ Show chart"}</span>
+            </div>
           </div>
-          <div className="grow">
-            <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
-            {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
-            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
-            <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲":"▼"}</span>
-          </div>
-          <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
           {expanded===i&&(
             <GaugeChart siteNo={g.siteNo} siteName={g.name} initialCFS={g.cfs}/>
           )}
@@ -2083,6 +2084,58 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
 }
 
 // ── Trip Planner ──────────────────────────────────────────────────────────────
+function ReportMap({rivers, center}){
+  const [pins, setPins] = React.useState([]);
+  const mapRef = React.useRef(null);
+
+  React.useEffect(()=>{
+    if(!rivers||!rivers.length||!center?.label) return;
+    // Geocode each river name near the search location
+    async function geocodeRivers(){
+      const results = [];
+      for(const r of rivers){
+        try{
+          const data = await geocode(`${r.name} near ${center.label}`);
+          if(data&&data.length){
+            results.push({name:r.name, conditions:r.conditions, lat:parseFloat(data[0].lat), lng:parseFloat(data[0].lon)});
+          }
+        }catch{}
+      }
+      setPins(results);
+    }
+    geocodeRivers();
+  },[rivers, center]);
+
+  if(!pins.length) return(
+    <div style={{marginTop:10,padding:"12px",background:"rgba(0,0,0,0.2)",borderRadius:10,fontSize:12,color:"var(--stone)",fontStyle:"italic",textAlign:"center",animation:"pulse 1.5s infinite"}}>📍 Locating rivers on map…</div>
+  );
+
+  // Build OpenStreetMap bbox from pin bounds
+  const lats=pins.map(p=>p.lat), lngs=pins.map(p=>p.lng);
+  const minLat=Math.min(...lats)-0.15, maxLat=Math.max(...lats)+0.15;
+  const minLng=Math.min(...lngs)-0.2, maxLng=Math.max(...lngs)+0.2;
+  const bbox=`${minLng},${minLat},${maxLng},${maxLat}`;
+  const markers=pins.map(p=>`${p.lat},${p.lng}`).join("|");
+  const src=`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${pins[0].lat}%2C${pins[0].lng}`;
+
+  return(
+    <div style={{marginTop:14}}>
+      <div style={{fontSize:11,color:"var(--stone)",marginBottom:6,fontStyle:"italic"}}>📍 Rivers in this report</div>
+      <div style={{borderRadius:12,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
+        <iframe title="Rivers Map" width="100%" height="240" frameBorder="0" style={{display:"block"}} src={src} allowFullScreen/>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+        {pins.map((p,i)=>(
+          <a key={i} href={`https://maps.google.com/?q=${p.lat},${p.lng}`} target="_blank" rel="noreferrer"
+            style={{fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"4px 10px",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
+            📍 {p.name}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
@@ -2290,6 +2343,7 @@ function TripPlanner({defaultLocation}){
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
               </div>
             ))}
+            <ReportMap rivers={report.rivers} center={loc}/>
           </>}
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
