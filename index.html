@@ -484,6 +484,59 @@ async function fetchUSGSTemp(siteNo){
   }catch{ return null; }
 }
 
+async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
+  // dateStr = "YYYY-MM-DD", hourStr = "HH" (24h)
+  const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  try{
+    // Open-Meteo archive API — free, no key needed
+    const url=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+    const r=await fetch(url);
+    if(r.ok){
+      const d=await r.json();
+      const hour=Math.min(parseInt(hourStr)||12, (d.hourly?.time?.length||1)-1);
+      const temp=d.hourly?.temperature_2m?.[hour];
+      const wcode=d.hourly?.weather_code?.[hour];
+      const wind=d.hourly?.wind_speed_10m?.[hour];
+      const wdir=d.hourly?.wind_direction_10m?.[hour];
+      const pres=d.hourly?.surface_pressure?.[hour];
+      if(temp!=null) results.airTemp=String(Math.round(temp));
+      if(wcode!=null) results.weatherDesc=`${WX_EMOJI[wcode]||""} ${WX_DESC[wcode]||""}`.trim();
+      if(wind!=null) results.windSpeed=String(Math.round(wind));
+      if(wdir!=null) results.windDir=windDir(wdir);
+      if(pres!=null) results.pressure=(pres*0.02953).toFixed(2);
+    }
+  }catch(e){ console.log("Historical weather failed:",e); }
+  try{
+    // USGS daily value for that date
+    const sizes=[0.5,1.0,1.5,2.5];
+    for(const p of sizes){
+      const bbox=`${lng-p},${lat-p},${lng+p},${lat+p}`;
+      const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST&siteStatus=all`;
+      const r=await fetch(url);
+      if(!r.ok) continue;
+      const d=await r.json();
+      const ts=(d.value?.timeSeries)??[];
+      if(!ts.length) continue;
+      const parsed=ts.map(t=>{
+        const raw=t.values?.[0]?.value?.[0]?.value;
+        const cfs=raw!=null?parseFloat(raw):null;
+        const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+        const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+        const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+        return{name:t.sourceInfo?.siteName??"",cfs,dist};
+      }).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+      if(parsed.length){
+        const g=parsed[0];
+        results.streamCFS=String(Math.round(g.cfs));
+        results.streamCondition=cfsLabel(g.cfs,null).label;
+        results.streamGaugeName=g.name;
+        break;
+      }
+    }
+  }catch(e){ console.log("Historical USGS failed:",e); }
+  return results;
+}
+
 async function fetchUSGSLive(lat,lng){
   // Try multiple bounding box sizes to find gauges
   const sizes=[0.5, 1.0, 1.5, 2.5];
@@ -2405,7 +2458,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false,sizeNoKey:false};
+  const blank={species:"",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false,sizeNoKey:false};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -2576,43 +2629,61 @@ function App({user}){
       // Set photo + time + gps immediately
       setForm(f=>({...f,photo:ev.target.result,gps:g,time:t,sizeEstimating:true}));
 
-      // Fetch conditions from photo GPS if available, else fall back to loaded conditions
+      // Fetch conditions — use historical API if photo date is in the past, live if today
       const fetchLat=photoLat??loc?.lat??null;
       const fetchLng=photoLng??loc?.lng??null;
       if(fetchLat&&fetchLng){
         try{
-          const [wxData, usgsData] = await Promise.all([
-            fetchWeather(fetchLat, fetchLng),
-            fetchUSGSLive(fetchLat, fetchLng)
-          ]);
-          const c=wxData.current;
-          const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
-          const pTrend=pressureTrend(parseFloat(pressureInHg),null);
-          const wxDesc=`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim();
-          // Parse closest gauge
-          const ts=(usgsData.value?.timeSeries)??[];
-          let topGauge=null;
-          if(ts.length){
-            const parsed=ts.map(t=>{
-              const raw=t.values?.[0]?.value?.[0]?.value;
-              const cfs=raw!=null?parseFloat(raw):null;
-              const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-              const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-              const dist=Math.sqrt(Math.pow(siteLat-fetchLat,2)+Math.pow(siteLng-fetchLng,2));
-              return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
-            }).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-            if(parsed.length) topGauge=parsed[0];
+          // Parse photo date for historical lookup
+          // photoTime format: "April 28, 2026 at 2:57 PM"
+          let dateStr=null, hourStr="12";
+          if(photoTime){
+            const d=new Date(photoTime.replace(" at "," "));
+            if(!isNaN(d)){
+              dateStr=d.toISOString().split("T")[0];
+              hourStr=String(d.getHours()).padStart(2,"0");
+            }
           }
-          setForm(f=>({...f,
-            airTemp:String(Math.round(c.temperature_2m)),
-            weatherDesc:wxDesc,
-            windSpeed:String(Math.round(c.wind_speed_10m)),
-            windDir:windDir(c.wind_direction_10m),
-            pressure:pressureInHg,
-            streamCFS:topGauge?String(Math.round(topGauge.cfs)):"",
-            streamCondition:topGauge?topGauge.label:"",
-            streamGaugeName:topGauge?topGauge.name:""
-          }));
+          const today=new Date().toISOString().split("T")[0];
+          const isHistorical=dateStr&&dateStr<today;
+          let conds;
+          if(isHistorical){
+            // Use archive API for past dates
+            conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
+          } else {
+            // Live fetch for today
+            const [wxData,usgsData]=await Promise.all([
+              fetchWeather(fetchLat,fetchLng),
+              fetchUSGSLive(fetchLat,fetchLng)
+            ]);
+            const c=wxData.current;
+            const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
+            const wxDesc=`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim();
+            const ts=(usgsData.value?.timeSeries)??[];
+            let topGauge=null;
+            if(ts.length){
+              const parsed=ts.map(t=>{
+                const raw=t.values?.[0]?.value?.[0]?.value;
+                const cfs=raw!=null?parseFloat(raw):null;
+                const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+                const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+                const dist=Math.sqrt(Math.pow(siteLat-fetchLat,2)+Math.pow(siteLng-fetchLng,2));
+                return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
+              }).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+              if(parsed.length) topGauge=parsed[0];
+            }
+            conds={
+              airTemp:String(Math.round(c.temperature_2m)),
+              weatherDesc:wxDesc,
+              windSpeed:String(Math.round(c.wind_speed_10m)),
+              windDir:windDir(c.wind_direction_10m),
+              pressure:pressureInHg,
+              streamCFS:topGauge?String(Math.round(topGauge.cfs)):"",
+              streamCondition:topGauge?topGauge.label:"",
+              streamGaugeName:topGauge?topGauge.name:""
+            };
+          }
+          setForm(f=>({...f,...conds}));
         }catch(e){
           // Fall back to currently loaded conditions
           const topGauge=gauges[0]||null;
@@ -2628,7 +2699,7 @@ function App({user}){
           }));
         }
       } else {
-        // No GPS at all — use whatever is loaded on Conditions tab
+        // No GPS — use whatever is loaded on Conditions tab
         const topGauge=gauges[0]||null;
         setForm(f=>({...f,
           airTemp:weather?String(weather.temp):"",
@@ -2648,25 +2719,43 @@ function App({user}){
       try{
         const base64=ev.target.result.split(",")[1];
         const mediaType=file.type||"image/jpeg";
+        const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
         const res=await fetch("https://api.anthropic.com/v1/messages",{
           method:"POST",
           headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
           body:JSON.stringify({
             model:"claude-sonnet-4-20250514",
-            max_tokens:100,
+            max_tokens:150,
             messages:[{role:"user",content:[
               {type:"image",source:{type:"base64",media_type:mediaType,data:base64}},
-              {type:"text",text:"This is a photo of a fish catch. Estimate the fish length in inches based on visual cues like the angler's hands, rod, reel, net, or any visible reference objects. Reply with ONLY a single number (the estimated inches). If you truly cannot estimate, reply with just the word 'unknown'."}
+              {type:"text",text:`This is a photo of a caught fish. Do two things:
+1. Identify the species. Choose the best match from this list: ${SPECIES_LIST.join(", ")}. If unsure, pick the closest match.
+2. Estimate the fish length in inches based on visual cues like the angler's hands, rod, reel, net, or visible reference objects.
+Reply with ONLY a JSON object, no other text: {"species":"Rainbow Trout","length":14}
+If you cannot estimate length, use null for length.`}
             ]}]
           })
         });
         const d=await res.json();
         const txt=((d.content||[])[0]?.text||"").trim();
-        const num=parseFloat(txt);
-        if(!isNaN(num)&&num>0&&num<100){
-          setForm(f=>({...f,length:String(Math.round(num)),sizeEstimating:false,sizeEstimated:true}));
-        } else {
-          setForm(f=>({...f,sizeEstimating:false}));
+        try{
+          const clean=txt.replace(/```json|```/g,"").trim();
+          const parsed=JSON.parse(clean);
+          const updates={sizeEstimating:false};
+          if(parsed.species&&SPECIES_LIST.includes(parsed.species)) updates.species=parsed.species;
+          if(parsed.length!=null&&!isNaN(parsed.length)&&parsed.length>0&&parsed.length<100){
+            updates.length=String(Math.round(parsed.length));
+            updates.sizeEstimated=true;
+          }
+          setForm(f=>({...f,...updates}));
+        }catch{
+          // fallback: try parsing as plain number
+          const num=parseFloat(txt);
+          if(!isNaN(num)&&num>0&&num<100){
+            setForm(f=>({...f,length:String(Math.round(num)),sizeEstimating:false,sizeEstimated:true}));
+          } else {
+            setForm(f=>({...f,sizeEstimating:false}));
+          }
         }
       }catch(err){
         setForm(f=>({...f,sizeEstimating:false}));
@@ -2841,15 +2930,16 @@ function App({user}){
               const maxLat=Math.max(...coords.map(c=>c.lat))+bbox_pad;
               const minLng=Math.min(...coords.map(c=>c.lng))-bbox_pad;
               const maxLng=Math.max(...coords.map(c=>c.lng))+bbox_pad;
+              const markersJS=coords.map((co,i)=>`L.marker([${"{"}co.lat${"}"},${"{"}co.lng${"}"}],{icon:goldIcon}).addTo(map).bindPopup(${JSON.stringify(withGps[i]?.species||"Catch")}${withGps[i]?.length?`+' — '+${JSON.stringify(withGps[i].length)}+'"'`:""});`).join("");
+              const allCatchesMapHTML=`<!DOCTYPE html><html><head><meta charset="utf-8"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style></head><body><div id="map"></div><script>var map=L.map('map',{attributionControl:false}).fitBounds([[${minLat},${minLng}],[${maxLat},${maxLng}]]);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);var goldIcon=L.divIcon({html:'<div style="background:#c8a84b;width:14px;height:14px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5)"></div>',iconSize:[14,14],iconAnchor:[7,14],className:''});${coords.map((co,i)=>`L.marker([${co.lat},${co.lng}],{icon:goldIcon}).addTo(map).bindPopup('${withGps[i]?.species||"Catch"}${withGps[i]?.length?" — "+withGps[i].length+'"':""}');`).join("")}</script></body></html>`;
               return(
                 <div className="card" style={{padding:0,overflow:"hidden"}}>
                   <div style={{padding:"12px 14px 8px",display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations</span>
                     <span style={{fontSize:11,color:"var(--stone)"}}>{coords.length} mapped</span>
                   </div>
-                  <iframe title="Catch Map" width="100%" height="200" frameBorder="0" style={{display:"block"}}
-                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${minLng},${minLat},${maxLng},${maxLat}&layer=mapnik`}
-                    allowFullScreen/>
+                  <iframe title="Catch Map" width="100%" height="220" frameBorder="0" style={{display:"block"}}
+                    srcDoc={allCatchesMapHTML}/>
                   <div style={{padding:"6px 14px 10px",display:"flex",flexWrap:"wrap",gap:6}}>
                     {withGps.slice(0,6).map((c,i)=>{
                       const coord=parseCoord(c.gps);
@@ -2909,9 +2999,9 @@ function App({user}){
                     )}
                     {coord&&(
                       <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
-                        <iframe title="Catch location" width="100%" height="160" frameBorder="0" style={{display:"block"}}
-                          src={`https://www.openstreetmap.org/export/embed.html?bbox=${coord.lng-0.05},${coord.lat-0.04},${coord.lng+0.05},${coord.lat+0.04}&layer=mapnik&marker=${coord.lat},${coord.lng}`}
-                          allowFullScreen/>
+                        <iframe title="Catch location" width="100%" height="180" frameBorder="0" style={{display:"block"}}
+                          srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style></head><body><div id="map"></div><script>var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([${coord.lat},${coord.lng}],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);var icon=L.divIcon({html:'<div style="background:#c8a84b;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>',iconSize:[18,18],iconAnchor:[9,18],className:''});L.marker([${coord.lat},${coord.lng}],{icon:icon}).addTo(map).bindPopup('${c.species}${c.length?' — '+c.length+'"':''}').openPopup();</script></body></html>`}
+                        />
                         <a href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
                           style={{display:"block",padding:"6px 12px",fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",textDecoration:"none",textAlign:"center"}}>
                           Open in Google Maps →
