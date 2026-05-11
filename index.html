@@ -3022,13 +3022,15 @@ If you cannot estimate length, use null for length.`}
                     {(c.airTemp||c.streamCFS||c.weatherDesc||c.pressure||c.windSpeed)&&(
                       <div style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"10px 12px",marginTop:10}}>
                         <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Conditions at time of catch</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}}>
-                          {c.weatherDesc&&<div><span style={{color:"var(--stone)"}}>Sky: </span><span style={{color:"var(--foam)"}}>{c.weatherDesc}</span></div>}
-                          {c.airTemp&&<div><span style={{color:"var(--stone)"}}>Air: </span><span style={{color:"var(--foam)"}}>{c.airTemp}°F</span></div>}
-                          {c.windSpeed&&<div><span style={{color:"var(--stone)"}}>Wind: </span><span style={{color:"var(--foam)"}}>{c.windSpeed} mph {c.windDir}</span></div>}
-                          {c.pressure&&<div><span style={{color:"var(--stone)"}}>Pressure: </span><span style={{color:"var(--foam)"}}>{c.pressure}"</span></div>}
-                          {c.streamCFS&&<div style={{gridColumn:"1/-1"}}><span style={{color:"var(--stone)"}}>Flow: </span><span style={{color:"var(--foam)"}}>{Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span></div>}
-                          {c.streamGaugeName&&<div style={{gridColumn:"1/-1"}}><span style={{color:"var(--stone)"}}>Gauge: </span><span style={{color:"var(--foam)",fontSize:11}}>{c.streamGaugeName}</span></div>}
+                        <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:12}}>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:"4px 16px"}}>
+                            {c.weatherDesc&&<span><span style={{color:"var(--stone)"}}>Sky: </span><span style={{color:"var(--foam)"}}>{c.weatherDesc}</span></span>}
+                            {c.airTemp&&<span><span style={{color:"var(--stone)"}}>Air: </span><span style={{color:"var(--foam)"}}>{c.airTemp}°F</span></span>}
+                            {c.windSpeed&&<span><span style={{color:"var(--stone)"}}>Wind: </span><span style={{color:"var(--foam)"}}>{c.windSpeed} mph {c.windDir}</span></span>}
+                            {c.pressure&&<span><span style={{color:"var(--stone)"}}>Pressure: </span><span style={{color:"var(--foam)"}}>{c.pressure}"</span></span>}
+                          </div>
+                          {c.streamCFS&&<div><span style={{color:"var(--stone)"}}>Flow: </span><span style={{color:"var(--foam)"}}>{Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span></div>}
+                          {c.streamGaugeName&&<div style={{fontSize:11,color:"var(--stone)",fontStyle:"italic"}}>{c.streamGaugeName}</div>}
                         </div>
                       </div>
                     )}
