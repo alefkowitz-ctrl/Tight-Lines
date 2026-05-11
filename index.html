@@ -2935,23 +2935,26 @@ If you cannot estimate length, use null for length.`}
               const maxLat=Math.max(...coords.map(c=>c.lat))+bbox_pad;
               const minLng=Math.min(...coords.map(c=>c.lng))-bbox_pad;
               const maxLng=Math.max(...coords.map(c=>c.lng))+bbox_pad;
-              const markerLines=coords.map((co,i)=>{
-                const sp=(withGps[i]?.species||"Catch").replace(/'/g,"\'");
-                const ln=withGps[i]?.length?(" — "+withGps[i].length+'"'):"";
-                return `L.marker([${co.lat},${co.lng}],{icon:gi}).addTo(map).bindPopup('${sp}${ln}');`;
-              }).join("");
-              const allCatchesMapHTML=[
-                '<!DOCTYPE html><html><head><meta charset="utf-8"/>',
-                '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>',
-                '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>',
-                '<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>',
-                '</head><body><div id="map"></div><script>',
-                `var map=L.map('map',{attributionControl:false}).fitBounds([[${minLat},${minLng}],[${maxLat},${maxLng}]]);`,
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
-                "var gi=L.divIcon({html:'<div style="background:#c8a84b;width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.6)"></div>',iconSize:[16,16],iconAnchor:[8,16],className:''});",
-                markerLines,
-                '<\/script></body></html>'
-              ].join("");
+              const buildAllCatchesMap=(()=>{
+                const iconHtml='<div style="background:#c8a84b;width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.6)"></div>';
+                const parts=[
+                  "<!DOCTYPE html><html><head><meta charset='utf-8'/>",
+                  "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/>",
+                  "<scr"+"ipt src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></scr"+"ipt>",
+                  "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style>",
+                  "</head><body><div id='map'></div><scr"+"ipt>",
+                  "var map=L.map('map',{attributionControl:false}).fitBounds([["+minLat+","+minLng+"],["+maxLat+","+maxLng+"]]);",
+                  "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
+                  "var gi=L.divIcon({html:"+JSON.stringify(iconHtml)+",iconSize:[16,16],iconAnchor:[8,16],className:''});"
+                ];
+                coords.forEach((co,i)=>{
+                  const sp=(withGps[i]?.species||"Catch").replace(/\/g,"\\").replace(/'/g,"\'");
+                  const ln=withGps[i]?.length?(" — "+withGps[i].length+'"'):"";
+                  parts.push("L.marker(["+co.lat+","+co.lng+"],{icon:gi}).addTo(map).bindPopup('"+sp+ln+"');");
+                });
+                parts.push("</scr"+"ipt></body></html>");
+                return parts.join("");
+              })();
               return(
                 <div className="card" style={{padding:0,overflow:"hidden"}}>
                   <div style={{padding:"12px 14px 8px",display:"flex",alignItems:"center",gap:8}}>
@@ -2959,7 +2962,7 @@ If you cannot estimate length, use null for length.`}
                     <span style={{fontSize:11,color:"var(--stone)"}}>{coords.length} mapped</span>
                   </div>
                   <iframe title="Catch Map" width="100%" height="220" frameBorder="0" style={{display:"block"}}
-                    srcDoc={allCatchesMapHTML}/>
+                    srcDoc={buildAllCatchesMap}/>
                   <div style={{padding:"6px 14px 10px",display:"flex",flexWrap:"wrap",gap:6}}>
                     {withGps.slice(0,6).map((c,i)=>{
                       const coord=parseCoord(c.gps);
@@ -3020,18 +3023,22 @@ If you cannot estimate length, use null for length.`}
                     {coord&&(()=>{
                       const sp=(c.species||"Catch").replace(/'/g,"\'");
                       const popupTxt=sp+(c.length?" — "+c.length+'"':"");
-                      const mapHtml=[
-                        '<!DOCTYPE html><html><head><meta charset="utf-8"/>',
-                        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>',
-                        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>',
-                        '<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>',
-                        '</head><body><div id="map"></div><script>',
-                        `var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([${coord.lat},${coord.lng}],14);`,
-                        "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
-                        "var icon=L.divIcon({html:'<div style="background:#c8a84b;width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.6)"></div>',iconSize:[20,20],iconAnchor:[10,20],className:''});",
-                        `L.marker([${coord.lat},${coord.lng}],{icon:icon}).addTo(map).bindPopup('${popupTxt}').openPopup();`,
-                        '<\/script></body></html>'
-                      ].join("");
+                      const iconHtml2='<div style="background:#c8a84b;width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.6)"></div>';
+                      const mapHtml=(()=>{
+                        const p=[
+                          "<!DOCTYPE html><html><head><meta charset='utf-8'/>",
+                          "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/>",
+                          "<scr"+"ipt src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></scr"+"ipt>",
+                          "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style>",
+                          "</head><body><div id='map'></div><scr"+"ipt>",
+                          "var map=L.map('map',{zoomControl:true,attributionControl:false}).setView(["+coord.lat+","+coord.lng+"],14);",
+                          "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
+                          "var icon=L.divIcon({html:"+JSON.stringify(iconHtml2)+",iconSize:[20,20],iconAnchor:[10,20],className:''});",
+                          "L.marker(["+coord.lat+","+coord.lng+"],{icon:icon}).addTo(map).bindPopup("+JSON.stringify(popupTxt)+").openPopup();",
+                          "</scr"+"ipt></body></html>"
+                        ];
+                        return p.join("");
+                      })();
                       return(
                         <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
                           <iframe title="Catch location" width="100%" height="200" frameBorder="0" style={{display:"block"}} srcDoc={mapHtml}/>
