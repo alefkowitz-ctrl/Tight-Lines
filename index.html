@@ -2374,6 +2374,7 @@ function App({user}){
   const [lastUpd,setLastUpd]=useState(null);
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
+  const [selectedCatch,setSelectedCatch]=useState(null);
 
   // Load catches from Supabase on mount
   useEffect(()=>{
@@ -2404,7 +2405,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false};
+  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false,sizeNoKey:false};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -2643,7 +2644,7 @@ function App({user}){
 
       // Auto-estimate fish size from photo using Claude vision
       const key=getKey();
-      if(!key){ setForm(f=>({...f,sizeEstimating:false})); return; }
+      if(!key){ setForm(f=>({...f,sizeEstimating:false,sizeNoKey:true})); return; }
       try{
         const base64=ev.target.result.split(",")[1];
         const mediaType=file.type||"image/jpeg";
@@ -2818,34 +2819,115 @@ function App({user}){
                 </div>);
               })()}
             </div>
+
+            {/* All-catches map */}
+            {catches.length>0&&(()=>{
+              const withGps=catches.filter(c=>c.gps&&c.gps!=="Location not recorded"&&c.gps!=="Location unavailable"&&c.gps.match(/[\d.]+/));
+              if(!withGps.length) return null;
+              // Parse first coord for map center
+              const parseCoord=(gps)=>{
+                const m=gps.match(/([\d.]+)[°\s]*([NS])[,\s]*([\d.]+)[°\s]*([EW])/i);
+                if(!m) return null;
+                const lat=parseFloat(m[1])*(m[2].toUpperCase()==="S"?-1:1);
+                const lng=parseFloat(m[3])*(m[4].toUpperCase()==="W"?-1:1);
+                return{lat,lng};
+              };
+              const coords=withGps.map(c=>parseCoord(c.gps)).filter(Boolean);
+              if(!coords.length) return null;
+              const avgLat=coords.reduce((s,c)=>s+c.lat,0)/coords.length;
+              const avgLng=coords.reduce((s,c)=>s+c.lng,0)/coords.length;
+              const bbox_pad=0.15;
+              const minLat=Math.min(...coords.map(c=>c.lat))-bbox_pad;
+              const maxLat=Math.max(...coords.map(c=>c.lat))+bbox_pad;
+              const minLng=Math.min(...coords.map(c=>c.lng))-bbox_pad;
+              const maxLng=Math.max(...coords.map(c=>c.lng))+bbox_pad;
+              return(
+                <div className="card" style={{padding:0,overflow:"hidden"}}>
+                  <div style={{padding:"12px 14px 8px",display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations</span>
+                    <span style={{fontSize:11,color:"var(--stone)"}}>{coords.length} mapped</span>
+                  </div>
+                  <iframe title="Catch Map" width="100%" height="200" frameBorder="0" style={{display:"block"}}
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${minLng},${minLat},${maxLng},${maxLat}&layer=mapnik`}
+                    allowFullScreen/>
+                  <div style={{padding:"6px 14px 10px",display:"flex",flexWrap:"wrap",gap:6}}>
+                    {withGps.slice(0,6).map((c,i)=>{
+                      const coord=parseCoord(c.gps);
+                      if(!coord) return null;
+                      return(<a key={i} href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
+                        style={{fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"3px 8px",textDecoration:"none"}}>
+                        📍 {c.species}
+                      </a>);
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
-            {catches.map(c=>(
-              <div className="cc" key={c.id}>
+            {catches.map(c=>{
+              const parseCoord=(gps)=>{
+                if(!gps) return null;
+                const m=gps.match(/([\d.]+)[°\s]*([NS])[,\s]*([\d.]+)[°\s]*([EW])/i);
+                if(!m) return null;
+                const lat=parseFloat(m[1])*(m[2].toUpperCase()==="S"?-1:1);
+                const lng=parseFloat(m[3])*(m[4].toUpperCase()==="W"?-1:1);
+                return{lat,lng};
+              };
+              const coord=parseCoord(c.gps);
+              return(
+              <div className="cc" key={c.id} style={{cursor:"pointer"}} onClick={e=>{
+                if(e.target.tagName==="BUTTON"||e.target.tagName==="A") return;
+                setSelectedCatch(selectedCatch===c.id?null:c.id);
+              }}>
                 {c.photo?<img src={c.photo} className="c-img" alt="catch"/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
-                  <div className="csp">{c.species}</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div className="csp">{c.species}</div>
+                    <span style={{fontSize:11,color:"var(--stone)"}}>{selectedCatch===c.id?"▲":"▼"}</span>
+                  </div>
                   <div className="cm">
                     {c.length&&<span className="cmi">📏 {c.length}"</span>}
                     <span className="cmi">🕐 {c.time}</span>
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-                  {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
-                  {(c.airTemp||c.streamCFS||c.weatherDesc)&&(
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6,fontSize:11,color:"var(--stone)"}}>
-                      {c.weatherDesc&&<span>{c.weatherDesc}</span>}
-                      {c.airTemp&&<span>🌡 {c.airTemp}°F</span>}
-                      {c.windSpeed&&<span>💨 {c.windSpeed} mph {c.windDir}</span>}
-                      {c.streamCFS&&<span>💧 {Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span>}
-                    </div>
-                  )}
-                  <div className="cgps">📍 {c.gps}</div>
-                  <button onClick={()=>deleteCatch(c.id)}
-                    style={{marginTop:8,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"4px 12px",color:"var(--red)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                    Delete Catch
-                  </button>
+
+                  {selectedCatch===c.id&&<>
+                    {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic",lineHeight:1.5}}>{c.notes}</p>}
+                    {(c.airTemp||c.streamCFS||c.weatherDesc||c.pressure||c.windSpeed)&&(
+                      <div style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"10px 12px",marginTop:10}}>
+                        <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Conditions at time of catch</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}}>
+                          {c.weatherDesc&&<div><span style={{color:"var(--stone)"}}>Sky: </span><span style={{color:"var(--foam)"}}>{c.weatherDesc}</span></div>}
+                          {c.airTemp&&<div><span style={{color:"var(--stone)"}}>Air: </span><span style={{color:"var(--foam)"}}>{c.airTemp}°F</span></div>}
+                          {c.windSpeed&&<div><span style={{color:"var(--stone)"}}>Wind: </span><span style={{color:"var(--foam)"}}>{c.windSpeed} mph {c.windDir}</span></div>}
+                          {c.pressure&&<div><span style={{color:"var(--stone)"}}>Pressure: </span><span style={{color:"var(--foam)"}}>{c.pressure}"</span></div>}
+                          {c.streamCFS&&<div style={{gridColumn:"1/-1"}}><span style={{color:"var(--stone)"}}>Flow: </span><span style={{color:"var(--foam)"}}>{Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span></div>}
+                          {c.streamGaugeName&&<div style={{gridColumn:"1/-1"}}><span style={{color:"var(--stone)"}}>Gauge: </span><span style={{color:"var(--foam)",fontSize:11}}>{c.streamGaugeName}</span></div>}
+                        </div>
+                      </div>
+                    )}
+                    {coord&&(
+                      <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
+                        <iframe title="Catch location" width="100%" height="160" frameBorder="0" style={{display:"block"}}
+                          src={`https://www.openstreetmap.org/export/embed.html?bbox=${coord.lng-0.05},${coord.lat-0.04},${coord.lng+0.05},${coord.lat+0.04}&layer=mapnik&marker=${coord.lat},${coord.lng}`}
+                          allowFullScreen/>
+                        <a href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
+                          style={{display:"block",padding:"6px 12px",fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",textDecoration:"none",textAlign:"center"}}>
+                          Open in Google Maps →
+                        </a>
+                      </div>
+                    )}
+                    {c.gps&&<div className="cgps" style={{marginTop:6}}>📍 {c.gps}</div>}
+                    <button onClick={()=>{
+                      if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}
+                    }} style={{marginTop:10,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"6px 14px",color:"var(--red)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif",width:"100%"}}>
+                      🗑 Delete Catch
+                    </button>
+                  </>}
                 </div>
               </div>
-            ))}
+            );})}
           </>}
 
           {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
@@ -2898,6 +2980,7 @@ function App({user}){
           <label className="lbl">Length (inches)
             {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
             {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ AI estimated — adjust if needed</span>}
+            {form.sizeNoKey&&<span style={{marginLeft:8,fontSize:11,color:"var(--gold)",fontStyle:"italic"}}>⚠️ Add API key in Plan Trip to enable AI sizing</span>}
           </label>
           <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
             onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
