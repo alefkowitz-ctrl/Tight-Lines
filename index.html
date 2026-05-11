@@ -1422,6 +1422,25 @@ function GuideBook({user}){
   const [view, setView] = useState("list"); // list | guest | addGuest | editGuest | addTrip | editTrip | tripDetail
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [processingPhotos, setProcessingPhotos] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(()=>{
+    const c=JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
+    return Object.values(c).filter(v=>v._pendingSync).length;
+  });
+
+  // Auto-sync when connection restored
+  React.useEffect(()=>{
+    async function onOnline(){
+      const count = await syncPendingTrips();
+      if(count>0) setPendingSyncCount(0);
+    }
+    window.addEventListener("online", onOnline);
+    // Also try on mount in case we just came back online
+    if(navigator.onLine) onOnline();
+    return ()=>window.removeEventListener("online", onOnline);
+  },[user]);
+  const [editingCatchIdx, setEditingCatchIdx] = useState(null);
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(null);
 
   const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
 
@@ -1549,24 +1568,67 @@ function GuideBook({user}){
   }
 
   async function updateTripInDb(id, tripData){
-    if(sb && user?.id && !String(user.id).startsWith("local")){
-      await sb.from("trips").update({
-        date:tripData.date, location:tripData.location, type:tripData.type,
-        styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-        gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
-        trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
-        air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
-        weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-        wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-        stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-        catch_details:tripData.catchDetails||[]
-      }).eq("id",id);
-      return;
+    // Always write to localStorage first as offline cache
+    const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
+    cached[id] = {...tripData, _pendingSync: true, _updatedAt: Date.now()};
+    localStorage.setItem("tl_trip_cache", JSON.stringify(cached));
+
+    if(sb && user?.id && !String(user.id).startsWith("local") && navigator.onLine){
+      try{
+        const {error} = await sb.from("trips").update({
+          date:tripData.date, location:tripData.location, type:tripData.type,
+          styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
+          gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+          trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+          air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+          weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+          wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+          stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+          catch_details:tripData.catchDetails||[]
+        }).eq("id",id);
+        if(!error){
+          // Mark as synced
+          const c2 = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
+          if(c2[id]) { c2[id]._pendingSync=false; localStorage.setItem("tl_trip_cache", JSON.stringify(c2)); }
+        }
+      }catch(e){
+        console.log("Trip save offline — queued for sync:", id);
+      }
     }
-    // localStorage fallback
+    // Also update localStorage trips list
     const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
     const updated = trips.map(t => t.id===id ? {...t,...tripData} : t);
     localStorage.setItem("tl_trips", JSON.stringify(updated));
+  }
+
+  // Sync any pending trip updates when connection is restored
+  async function syncPendingTrips(){
+    if(!sb||!user?.id||String(user.id).startsWith("local")) return;
+    const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
+    const pending = Object.entries(cached).filter(([,v])=>v._pendingSync);
+    if(!pending.length) return;
+    let synced=0;
+    for(const [id, tripData] of pending){
+      try{
+        const {error} = await sb.from("trips").update({
+          date:tripData.date, location:tripData.location, type:tripData.type,
+          styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
+          gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+          trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+          air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+          weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+          wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+          stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+          catch_details:tripData.catchDetails||[]
+        }).eq("id",id);
+        if(!error){ cached[id]._pendingSync=false; synced++; }
+      }catch{}
+    }
+    if(synced>0){
+      localStorage.setItem("tl_trip_cache", JSON.stringify(cached));
+      console.log(`Synced ${synced} pending trip update(s)`);
+    }
+    return synced;
   }
 
   async function deleteTripFromDb(id){
@@ -1928,6 +1990,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
+      {pendingSyncCount>0&&(
+        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,color:"var(--gold)",display:"flex",alignItems:"center",gap:8}}>
+          <span>📡</span>
+          <span>{pendingSyncCount} trip update{pendingSyncCount!==1?"s":""} saved offline — will sync when back online</span>
+        </div>
+      )}
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
@@ -2172,31 +2240,186 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         )}
         {selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
-            <div className="lbl" style={{marginBottom:8}}>Catch Photos</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
+              <button onClick={async()=>{
+                if(processingPhotos) return;
+                setProcessingPhotos(true);
+                const key=getKey();
+                const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+                const details=[...(selectedTrip.catchDetails||[])];
+                // Ensure array is same length as photos
+                while(details.length<selectedTrip.photos.length) details.push({});
+                for(let i=0;i<selectedTrip.photos.length;i++){
+                  const p=selectedTrip.photos[i];
+                  // Skip if already has full data
+                  if(details[i]?.species&&details[i]?.airTemp) continue;
+                  // Convert data URL to blob for EXIF
+                  let photoTime=null,photoGps="",photoLat=null,photoLng=null;
+                  try{
+                    const res2=await fetch(p);
+                    const abuf=await res2.arrayBuffer();
+                    const exif=parseExif(abuf);
+                    photoTime=exif.time; photoGps=exif.gps||""; photoLat=exif.lat??null; photoLng=exif.lng??null;
+                  }catch{}
+                  const t=photoTime||selectedTrip.date||"";
+                  details[i]={...details[i],time:t,gps:photoGps,analyzing:true};
+                  // Update UI immediately
+                  const updDetails=[...details];
+                  setSelectedTrip(st=>({...st,catchDetails:updDetails}));
+                  // Fetch conditions
+                  if(photoLat&&photoLng){
+                    try{
+                      let dateStr=null,hourStr="12";
+                      const d2=new Date((t||"").replace(" at "," "));
+                      if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+                      const today=new Date().toISOString().split("T")[0];
+                      const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
+                      if(conds) Object.assign(details[i],conds);
+                    }catch{}
+                  }
+                  // Claude vision
+                  if(key){
+                    try{
+                      const base64=p.split(",")[1];
+                      const res3=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
+                      const rd=await res3.json();
+                      const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+                      if(parsed.species) details[i].species=parsed.species;
+                      if(parsed.length!=null) details[i].length=String(Math.round(parsed.length));
+                    }catch{}
+                  }
+                  details[i].analyzing=false;
+                  setSelectedTrip(st=>({...st,catchDetails:[...details]}));
+                }
+                // Save to Supabase
+                await updateTripInDb(selectedTrip.id,{...selectedTrip,catchDetails:details});
+                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?{...t,catchDetails:details}:t)})));
+                setProcessingPhotos(false);
+              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                {processingPhotos?"⏳ Processing…":"✦ Analyze Photos"}
+              </button>
+            </div>
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i];
               return(
-                <div key={i} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"flex-start"}}>
-                  <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8,flexShrink:0}} alt="catch"/>
-                  <div style={{flex:1,fontSize:12}}>
-                    {cd&&<>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                        {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14}}>{cd.species}</span>}
-                        {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
-                      </div>
-                      {cd.time&&<div style={{color:"var(--stone)",marginBottom:3}}>{cd.time}</div>}
-                      {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:3}}>📍 {cd.gps}</div>}
-                      {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
-                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11}}>
-                          {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
-                          {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
-                          {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
-                          {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS · {cd.streamCondition}</span>}
-                          {cd.pressure&&<span>📊 {cd.pressure}"</span>}
+                <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
+                  <div style={{display:"flex",gap:10,padding:10,alignItems:"flex-start"}}>
+                    <img src={p} style={{width:90,height:90,objectFit:"cover",borderRadius:8,flexShrink:0,cursor:"pointer"}} alt="catch"
+                      onClick={()=>setSelectedPhotoIdx(selectedPhotoIdx===i?null:i)}/>
+                    <div style={{flex:1,fontSize:12}}>
+                      {cd?.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic",marginBottom:6}}>🔍 Analyzing…</div>}
+                      {(!cd||(!cd.species&&!cd.airTemp&&!cd.analyzing))&&<div style={{color:"var(--stone)",fontStyle:"italic",fontSize:11}}>No data yet — tap "Analyze Photos" above</div>}
+                      {cd&&!cd.analyzing&&(cd.species||cd.airTemp)&&<>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4,alignItems:"center"}}>
+                          {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14}}>{cd.species}</span>}
+                          {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
                         </div>
-                      )}
-                    </>}
+                        {cd.time&&<div style={{color:"var(--stone)",marginBottom:3,fontSize:11}}>{cd.time}</div>}
+                        {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:3}}>📍 {cd.gps}</div>}
+                        {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
+                          <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11,marginBottom:6}}>
+                            {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
+                            {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
+                            {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
+                            {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS</span>}
+                            {cd.pressure&&<span>📊 {cd.pressure}"</span>}
+                          </div>
+                        )}
+                      </>}
+                      <button onClick={()=>setEditingCatchIdx(editingCatchIdx===i?null:i)}
+                        style={{fontSize:11,padding:"3px 10px",background:"rgba(44,95,110,0.4)",border:"1px solid rgba(44,95,110,0.6)",borderRadius:8,color:"var(--sky)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        ✏️ Edit
+                      </button>
+                    </div>
                   </div>
+                  {editingCatchIdx===i&&(()=>{
+                    const cd2=(selectedTrip.catchDetails||[])[i]||{};
+                    const save=(updates)=>{
+                      const newDetails=[...(selectedTrip.catchDetails||[])];
+                      while(newDetails.length<=i) newDetails.push({});
+                      newDetails[i]={...newDetails[i],...updates};
+                      setSelectedTrip(st=>({...st,catchDetails:newDetails}));
+                      updateTripInDb(selectedTrip.id,{...selectedTrip,catchDetails:newDetails});
+                      if(!navigator.onLine) setPendingSyncCount(n=>n+1);
+                      setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?{...t,catchDetails:newDetails}:t)})));
+                    };
+                    return(
+                      <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",padding:"12px 14px",background:"rgba(0,0,0,0.15)"}}>
+                        <div style={{fontSize:11,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
+                            <select className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} value={cd2.species||""}
+                              onChange={e=>save({species:e.target.value})}>
+                              <option value="">Select…</option>
+                              {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (inches)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number" placeholder='e.g. 18"'
+                              value={cd2.length||""} onChange={e=>save({length:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. May 8, 2026 at 2:30 PM"
+                            value={cd2.time||""} onChange={e=>save({time:e.target.value})}/>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS Location</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. 39.6923°N, 106.7450°W"
+                            value={cd2.gps||""} onChange={e=>save({gps:e.target.value})}/>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp (°F)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                              value={cd2.airTemp||""} onChange={e=>save({airTemp:e.target.value})}/>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                              value={cd2.streamCFS||""} onChange={e=>save({streamCFS:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Wind (mph)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                              value={cd2.windSpeed||""} onChange={e=>save({windSpeed:e.target.value})}/>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Wind Dir</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="SW"
+                              value={cd2.windDir||""} onChange={e=>save({windDir:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Pressure (inHg)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                              value={cd2.pressure||""} onChange={e=>save({pressure:e.target.value})}/>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Sky</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. ☀️ Sunny"
+                              value={cd2.weatherDesc||""} onChange={e=>save({weatherDesc:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Flow Condition / Gauge</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. Good — Eagle River at Eagle"
+                            value={cd2.streamGaugeName||""} onChange={e=>save({streamGaugeName:e.target.value})}/>
+                        </div>
+                        <button onClick={()=>setEditingCatchIdx(null)}
+                          style={{marginTop:10,width:"100%",padding:"6px",background:"var(--water)",border:"none",borderRadius:8,color:"var(--foam)",cursor:"pointer",fontFamily:"'Crimson Pro',serif",fontSize:13}}>
+                          ✓ Done
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
