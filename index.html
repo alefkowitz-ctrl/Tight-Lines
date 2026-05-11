@@ -508,35 +508,47 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
     }
   }catch(e){ console.log("Historical weather failed:",e); }
   try{
-    // USGS daily value for that date
+    // USGS historical flow — try daily values first, then instantaneous values
     const sizes=[0.5,1.0,1.5,2.5];
+    let flowFound=false;
     for(const p of sizes){
-      // bbox must be minLng,minLat,maxLng,maxLat — Math.min/max handles negative western longitudes
+      if(flowFound) break;
       const minLng=Math.min(lng-p,lng+p), maxLng=Math.max(lng-p,lng+p);
       const minLat=Math.min(lat-p,lat+p), maxLat=Math.max(lat-p,lat+p);
       const bbox=`${minLng},${minLat},${maxLng},${maxLat}`;
-      const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST&siteStatus=all`;
-      const r=await fetch(url);
-      if(!r.ok) continue;
-      const d=await r.json();
-      const ts=(d.value?.timeSeries)??[];
-      if(!ts.length) continue;
-      const parsed=ts.map(t=>{
-        const raw=t.values?.[0]?.value?.[0]?.value;
-        const cfs=raw!=null?parseFloat(raw):null;
-        const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-        const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-        const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-        return{name:t.sourceInfo?.siteName??"",cfs,dist};
-      }).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-      if(parsed.length){
-        const g=parsed[0];
-        results.streamCFS=String(Math.round(g.cfs));
-        results.streamCondition=cfsLabel(g.cfs,null).label;
-        results.streamGaugeName=g.name;
-        break;
+      // Try daily values (no siteStatus filter — more compatible)
+      const urls=[
+        `https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`,
+        `https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}T${hourStr}:00:00&endDT=${dateStr}T23:59:59&siteType=ST`
+      ];
+      for(const url of urls){
+        if(flowFound) break;
+        try{
+          const r=await fetch(url);
+          if(!r.ok) continue;
+          const d=await r.json();
+          const ts=(d.value?.timeSeries)??[];
+          if(!ts.length) continue;
+          const parsed=ts.map(t=>{
+            const vals=t.values?.[0]?.value||[];
+            const raw=vals[0]?.value;
+            const cfs=raw!=null?parseFloat(raw):null;
+            const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+            const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+            const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+            return{name:t.sourceInfo?.siteName??"",cfs,dist};
+          }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+          if(parsed.length){
+            const g=parsed[0];
+            results.streamCFS=String(Math.round(g.cfs));
+            results.streamCondition=cfsLabel(g.cfs,null).label;
+            results.streamGaugeName=g.name;
+            flowFound=true;
+          }
+        }catch(e2){ console.log("USGS url failed:",e2.message); }
       }
     }
+    if(!flowFound) console.log("Historical USGS: no flow data found for",dateStr,"at",lat,lng);
   }catch(e){ console.log("Historical USGS failed:",e); }
   return results;
 }
