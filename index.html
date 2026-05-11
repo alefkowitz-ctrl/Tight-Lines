@@ -486,6 +486,7 @@ async function fetchUSGSTemp(siteNo){
 
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   // dateStr = "YYYY-MM-DD", hourStr = "HH" (24h)
+  // Ensure bbox is always minLng,minLat,maxLng,maxLat (handles negative western longitudes)
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   try{
     // Open-Meteo archive API — free, no key needed
@@ -510,7 +511,10 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
     // USGS daily value for that date
     const sizes=[0.5,1.0,1.5,2.5];
     for(const p of sizes){
-      const bbox=`${lng-p},${lat-p},${lng+p},${lat+p}`;
+      // bbox must be minLng,minLat,maxLng,maxLat — Math.min/max handles negative western longitudes
+      const minLng=Math.min(lng-p,lng+p), maxLng=Math.max(lng-p,lng+p);
+      const minLat=Math.min(lat-p,lat+p), maxLat=Math.max(lat-p,lat+p);
+      const bbox=`${minLng},${minLat},${maxLng},${maxLat}`;
       const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST&siteStatus=all`;
       const r=await fetch(url);
       if(!r.ok) continue;
@@ -543,7 +547,7 @@ async function fetchUSGSLive(lat,lng){
   var lastStatus="", lastCount=0;
   for(var si=0; si<sizes.length; si++){
     var p=sizes[si];
-    var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
+    var minLng=Math.min(lng-p,lng+p), minLat=Math.min(lat-p,lat+p), maxLng=Math.max(lng-p,lng+p), maxLat=Math.max(lat-p,lat+p);
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
       var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
@@ -2715,7 +2719,7 @@ function App({user}){
 
       // Auto-estimate fish size from photo using Claude vision
       const key=getKey();
-      if(!key){ setForm(f=>({...f,sizeEstimating:false,sizeNoKey:true})); return; }
+      if(!key){ console.log("No API key found for fish ID"); setForm(f=>({...f,sizeEstimating:false,sizeNoKey:true})); return; }
       try{
         const base64=ev.target.result.split(",")[1];
         const mediaType=file.type||"image/jpeg";
@@ -2724,7 +2728,7 @@ function App({user}){
           method:"POST",
           headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
           body:JSON.stringify({
-            model:"claude-sonnet-4-20250514",
+            model:"claude-sonnet-4-6",
             max_tokens:150,
             messages:[{role:"user",content:[
               {type:"image",source:{type:"base64",media_type:mediaType,data:base64}},
@@ -2758,6 +2762,7 @@ If you cannot estimate length, use null for length.`}
           }
         }
       }catch(err){
+        console.error("Fish ID API error:",err);
         setForm(f=>({...f,sizeEstimating:false}));
       }
     };
@@ -2930,8 +2935,23 @@ If you cannot estimate length, use null for length.`}
               const maxLat=Math.max(...coords.map(c=>c.lat))+bbox_pad;
               const minLng=Math.min(...coords.map(c=>c.lng))-bbox_pad;
               const maxLng=Math.max(...coords.map(c=>c.lng))+bbox_pad;
-              const markersJS=coords.map((co,i)=>`L.marker([${"{"}co.lat${"}"},${"{"}co.lng${"}"}],{icon:goldIcon}).addTo(map).bindPopup(${JSON.stringify(withGps[i]?.species||"Catch")}${withGps[i]?.length?`+' — '+${JSON.stringify(withGps[i].length)}+'"'`:""});`).join("");
-              const allCatchesMapHTML=`<!DOCTYPE html><html><head><meta charset="utf-8"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style></head><body><div id="map"></div><script>var map=L.map('map',{attributionControl:false}).fitBounds([[${minLat},${minLng}],[${maxLat},${maxLng}]]);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);var goldIcon=L.divIcon({html:'<div style="background:#c8a84b;width:14px;height:14px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5)"></div>',iconSize:[14,14],iconAnchor:[7,14],className:''});${coords.map((co,i)=>`L.marker([${co.lat},${co.lng}],{icon:goldIcon}).addTo(map).bindPopup('${withGps[i]?.species||"Catch"}${withGps[i]?.length?" — "+withGps[i].length+'"':""}');`).join("")}</script></body></html>`;
+              const markerLines=coords.map((co,i)=>{
+                const sp=(withGps[i]?.species||"Catch").replace(/'/g,"\'");
+                const ln=withGps[i]?.length?(" — "+withGps[i].length+'"'):"";
+                return `L.marker([${co.lat},${co.lng}],{icon:gi}).addTo(map).bindPopup('${sp}${ln}');`;
+              }).join("");
+              const allCatchesMapHTML=[
+                '<!DOCTYPE html><html><head><meta charset="utf-8"/>',
+                '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>',
+                '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>',
+                '<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>',
+                '</head><body><div id="map"></div><script>',
+                `var map=L.map('map',{attributionControl:false}).fitBounds([[${minLat},${minLng}],[${maxLat},${maxLng}]]);`,
+                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
+                "var gi=L.divIcon({html:'<div style="background:#c8a84b;width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.6)"></div>',iconSize:[16,16],iconAnchor:[8,16],className:''});",
+                markerLines,
+                '<\/script></body></html>'
+              ].join("");
               return(
                 <div className="card" style={{padding:0,overflow:"hidden"}}>
                   <div style={{padding:"12px 14px 8px",display:"flex",alignItems:"center",gap:8}}>
@@ -2997,17 +3017,31 @@ If you cannot estimate length, use null for length.`}
                         </div>
                       </div>
                     )}
-                    {coord&&(
-                      <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
-                        <iframe title="Catch location" width="100%" height="180" frameBorder="0" style={{display:"block"}}
-                          srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}</style></head><body><div id="map"></div><script>var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([${coord.lat},${coord.lng}],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);var icon=L.divIcon({html:'<div style="background:#c8a84b;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>',iconSize:[18,18],iconAnchor:[9,18],className:''});L.marker([${coord.lat},${coord.lng}],{icon:icon}).addTo(map).bindPopup('${c.species}${c.length?' — '+c.length+'"':''}').openPopup();</script></body></html>`}
-                        />
-                        <a href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
-                          style={{display:"block",padding:"6px 12px",fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",textDecoration:"none",textAlign:"center"}}>
-                          Open in Google Maps →
-                        </a>
-                      </div>
-                    )}
+                    {coord&&(()=>{
+                      const sp=(c.species||"Catch").replace(/'/g,"\'");
+                      const popupTxt=sp+(c.length?" — "+c.length+'"':"");
+                      const mapHtml=[
+                        '<!DOCTYPE html><html><head><meta charset="utf-8"/>',
+                        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>',
+                        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>',
+                        '<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>',
+                        '</head><body><div id="map"></div><script>',
+                        `var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([${coord.lat},${coord.lng}],14);`,
+                        "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);",
+                        "var icon=L.divIcon({html:'<div style="background:#c8a84b;width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.6)"></div>',iconSize:[20,20],iconAnchor:[10,20],className:''});",
+                        `L.marker([${coord.lat},${coord.lng}],{icon:icon}).addTo(map).bindPopup('${popupTxt}').openPopup();`,
+                        '<\/script></body></html>'
+                      ].join("");
+                      return(
+                        <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
+                          <iframe title="Catch location" width="100%" height="200" frameBorder="0" style={{display:"block"}} srcDoc={mapHtml}/>
+                          <a href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
+                            style={{display:"block",padding:"6px 12px",fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",textDecoration:"none",textAlign:"center"}}>
+                            Open in Google Maps →
+                          </a>
+                        </div>
+                      );
+                    })()}
                     {c.gps&&<div className="cgps" style={{marginTop:6}}>📍 {c.gps}</div>}
                     <button onClick={()=>{
                       if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}
