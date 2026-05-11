@@ -2514,20 +2514,27 @@ function App({user}){
                   }
                   if(subExifOff) readIFD(subExifOff);
                   if(gpsOff){
-                    // Parse GPS IFD
+                    // Parse GPS IFD — short values (<=4 bytes) are stored inline, not as pointers
+                    const TYPE_SIZE={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
                     const gn=u16(gpsOff);
                     let latD=null,latR="N",lngD=null,lngR="E";
                     for(let i=0;i<gn;i++){
                       const e=gpsOff+2+(i*12);
                       const tag=u16(e);
+                      const typ=u16(e+2);
+                      const count=u32(e+4);
                       const valOff=u32(e+8);
-                      if(tag===1) latR=String.fromCharCode(view.getUint8(tiff+valOff));
-                      if(tag===3) lngR=String.fromCharCode(view.getUint8(tiff+valOff));
-                      if(tag===2){
+                      const size=(TYPE_SIZE[typ]||1)*count;
+                      const isInline=size<=4;
+                      // LatRef / LngRef: 2-char ASCII stored inline at entry+8
+                      if(tag===1) latR=String.fromCharCode(view.getUint8(tiff+e+8));
+                      if(tag===3) lngR=String.fromCharCode(view.getUint8(tiff+e+8));
+                      // Lat / Lng: 3 rationals (24 bytes) stored as pointer
+                      if(tag===2&&!isInline){
                         const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
                         latD=deg+min/60+sec/3600;
                       }
-                      if(tag===4){
+                      if(tag===4&&!isInline){
                         const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
                         lngD=deg+min/60+sec/3600;
                       }
