@@ -1422,7 +1422,24 @@ function GuideBook({user}){
   const [view, setView] = useState("list"); // list | guest | addGuest | editGuest | addTrip | editTrip | tripDetail
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  // One-time cleanup of old bloated cache
+  React.useEffect(()=>{
+    try{
+      const c=JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
+      let changed=false;
+      Object.keys(c).forEach(id=>{
+        if(c[id].catchDetails){
+          c[id].catchDetails=c[id].catchDetails.map(({photo:_ph,...rest})=>rest);
+          changed=true;
+        }
+        if(c[id].photos){ delete c[id].photos; changed=true; }
+      });
+      if(changed) localStorage.setItem("tl_trip_cache", JSON.stringify(c));
+    }catch(e){ localStorage.removeItem("tl_trip_cache"); }
+  },[]);
   const [processingPhotos, setProcessingPhotos] = useState(false);
+  // Clear any corrupt cache entries on init
+  React.useMemo(()=>{ try{ const c=localStorage.getItem("tl_trip_cache"); if(c) JSON.parse(c); }catch(e){ localStorage.removeItem("tl_trip_cache"); } },[]);
   const [pendingSyncCount, setPendingSyncCount] = useState(()=>{
     const c=JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
     return Object.values(c).filter(v=>v._pendingSync).length;
@@ -1569,23 +1586,38 @@ function GuideBook({user}){
 
   async function updateTripInDb(id, tripData){
     // Always write to localStorage first as offline cache
+    // Strip photos (base64) to avoid localStorage quota — they're in Supabase already
+    const {photos:_p, ...tripDataNoPhotos} = tripData;
+    // Also strip photos from catchDetails to avoid localStorage quota
+    const safeData = {
+      ...tripDataNoPhotos,
+      catchDetails:(tripDataNoPhotos.catchDetails||[]).map(({photo:_ph,...rest})=>rest),
+      _pendingSync: true,
+      _updatedAt: Date.now()
+    };
     const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-    cached[id] = {...tripData, _pendingSync: true, _updatedAt: Date.now()};
-    localStorage.setItem("tl_trip_cache", JSON.stringify(cached));
+    cached[id] = safeData;
+    try{ localStorage.setItem("tl_trip_cache", JSON.stringify(cached)); }catch(e){ console.log("Cache write failed:",e.message); }
 
     if(sb && user?.id && !String(user.id).startsWith("local") && navigator.onLine){
       try{
-        const {error} = await sb.from("trips").update({
+        // Don't update photos during sync (not cached locally)
+        const syncFields = {
           date:tripData.date, location:tripData.location, type:tripData.type,
           styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-          gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+          gear:tripData.gear, guide_notes:tripData.guideNotes,
           trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
           air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
           weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
           wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
           stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
           catch_details:tripData.catchDetails||[]
-        }).eq("id",id);
+        };
+        // Strip catch_details photos to save space
+        if(syncFields.catch_details){
+          syncFields.catch_details=syncFields.catch_details.map(({photo:_ph,...rest})=>rest);
+        }
+        const {error} = await sb.from("trips").update(syncFields).eq("id",id);
         if(!error){
           // Mark as synced
           const c2 = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
@@ -1595,10 +1627,13 @@ function GuideBook({user}){
         console.log("Trip save offline — queued for sync:", id);
       }
     }
-    // Also update localStorage trips list
-    const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
-    const updated = trips.map(t => t.id===id ? {...t,...tripData} : t);
-    localStorage.setItem("tl_trips", JSON.stringify(updated));
+    // Also update localStorage trips list (strip photos to avoid quota)
+    try{
+      const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+      const {photos:_p2,...tripDataSafe}=tripData;
+      const updated = trips.map(t => t.id===id ? {...t,...tripDataSafe} : t);
+      localStorage.setItem("tl_trips", JSON.stringify(updated));
+    }catch(e){ console.log("localStorage trips update failed:",e.message); }
   }
 
   // Sync any pending trip updates when connection is restored
@@ -1610,17 +1645,23 @@ function GuideBook({user}){
     let synced=0;
     for(const [id, tripData] of pending){
       try{
-        const {error} = await sb.from("trips").update({
+        // Don't update photos during sync (not cached locally)
+        const syncFields = {
           date:tripData.date, location:tripData.location, type:tripData.type,
           styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-          gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+          gear:tripData.gear, guide_notes:tripData.guideNotes,
           trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
           air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
           weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
           wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
           stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
           catch_details:tripData.catchDetails||[]
-        }).eq("id",id);
+        };
+        // Strip catch_details photos to save space
+        if(syncFields.catch_details){
+          syncFields.catch_details=syncFields.catch_details.map(({photo:_ph,...rest})=>rest);
+        }
+        const {error} = await sb.from("trips").update(syncFields).eq("id",id);
         if(!error){ cached[id]._pendingSync=false; synced++; }
       }catch{}
     }
