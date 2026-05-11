@@ -1465,7 +1465,8 @@ function GuideBook({user}){
           tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text,
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
-          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name
+          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name,
+          catchDetails:t.catch_details||[]
         }))
       }));
       setGuests(guestsWithTrips);
@@ -1533,7 +1534,8 @@ function GuideBook({user}){
       air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
       wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
+      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+      catch_details:tripData.catchDetails||[]
     }).select().single();
       if(!error && data) return data;
       console.error("Supabase trip save failed:", error?.message);
@@ -1556,7 +1558,8 @@ function GuideBook({user}){
         air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
         weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
         wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-        stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
+        stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+        catch_details:tripData.catchDetails||[]
       }).eq("id",id);
       return;
     }
@@ -1569,7 +1572,7 @@ function GuideBook({user}){
   async function deleteTripFromDb(id){
     if(sb && !String(id).startsWith("local")) await sb.from("trips").delete().eq("id",id);
   }
-  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],catchDetails:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
@@ -1598,14 +1601,78 @@ function GuideBook({user}){
     setView("guest");
   }
 
-  function handleTripPhoto(e){
+  async function handleTripPhoto(e){
     const files = Array.from(e.target.files);
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = ev => setTripForm(f => ({...f, photos:[...f.photos, ev.target.result]}));
-      reader.readAsDataURL(file);
-    });
     e.target.value = "";
+    for(const file of files){
+      const dataUrl = await new Promise(res=>{ const r=new FileReader(); r.onload=ev=>res(ev.target.result); r.readAsDataURL(file); });
+      // Add photo immediately
+      setTripForm(f=>({...f, photos:[...f.photos, dataUrl]}));
+      // Parse EXIF
+      let photoTime=null, photoGps="", photoLat=null, photoLng=null;
+      try{
+        const abuf=await file.arrayBuffer();
+        const exif=parseExif(abuf);
+        photoTime=exif.time; photoGps=exif.gps||""; photoLat=exif.lat??null; photoLng=exif.lng??null;
+      }catch{}
+      if(!photoTime&&file.lastModified&&Date.now()-file.lastModified>5000){
+        photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      }
+      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+
+      // Build catch detail entry
+      const detail={photo:dataUrl, time:t, gps:photoGps, species:"", length:"", airTemp:"", weatherDesc:"", windSpeed:"", windDir:"", pressure:"", streamCFS:"", streamCondition:"", streamGaugeName:"", analyzing:true};
+      setTripForm(f=>({...f, catchDetails:[...( f.catchDetails||[]), detail]}));
+
+      // Fetch historical conditions from photo GPS
+      const fetchLat=photoLat; const fetchLng=photoLng;
+      if(fetchLat&&fetchLng){
+        try{
+          let dateStr=null, hourStr="12";
+          const d=new Date(t.replace(" at "," "));
+          if(!isNaN(d)){ dateStr=d.toISOString().split("T")[0]; hourStr=String(d.getHours()).padStart(2,"0"); }
+          const today=new Date().toISOString().split("T")[0];
+          let conds;
+          if(dateStr&&dateStr<today){
+            conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
+          } else {
+            const [wxData,usgsData]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
+            const c=wxData.current;
+            const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
+            const ts2=(usgsData.value?.timeSeries)??[];
+            let topGauge=null;
+            if(ts2.length){
+              const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+              if(parsed.length) topGauge=parsed[0];
+            }
+            conds={airTemp:String(Math.round(c.temperature_2m)),weatherDesc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim(),windSpeed:String(Math.round(c.wind_speed_10m)),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg,streamCFS:topGauge?String(Math.round(topGauge.cfs)):"",streamCondition:topGauge?topGauge.label:"",streamGaugeName:topGauge?topGauge.name:""};
+          }
+          setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,...conds}:d)}));
+        }catch(err){ console.log("Trip photo conditions failed:",err); }
+      }
+
+      // Claude vision: identify species + estimate size
+      const key=getKey();
+      if(key){
+        try{
+          const base64=dataUrl.split(",")[1];
+          const mediaType=file.type||"image/jpeg";
+          const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+          const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+          const rd=await res.json();
+          const txt=((rd.content||[])[0]?.text||"").trim();
+          const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+          setTripForm(f=>({...f,
+            catches:f.catches+(parsed.length?1:0),
+            catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,species:parsed.species||"",length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false}:d)
+          }));
+        }catch(err){
+          setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,analyzing:false}:d)}));
+        }
+      } else {
+        setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,analyzing:false}:d)}));
+      }
+    }
   }
 
   function toggleStyle(s){
@@ -1622,24 +1689,29 @@ function GuideBook({user}){
       setGuests(gs=>gs.map(g=>g.id===guest.id?{...g,trips:(g.trips||[]).map(t=>t.id===trip.id?{...t,reportText:txt}:t)}:g));
     }
     try{
+      const catchLines=(trip.catchDetails||[]).filter(d=>d.species||d.length).map((d,i)=>`  Photo ${i+1}: ${d.species||"Unknown"}${d.length?" ("+d.length+'")':""}${d.gps?" at "+d.gps:""}${d.time?" — "+d.time:""}${d.airTemp?" | "+d.airTemp+"°F":""}${d.weatherDesc?" "+d.weatherDesc:""}${d.streamCFS?" | "+Number(d.streamCFS).toLocaleString()+" CFS":""}${d.windSpeed?" | Wind "+d.windSpeed+"mph "+d.windDir:""}`).join("\n");
       const txt = await askClaude(`You are a fly fishing guide writing a trip summary for a client.
 Client: ${guest.name}
 Date: ${trip.date}
 Location: ${trip.location||"Not specified"}
 Trip type: ${trip.type}
 Fishing styles: ${trip.styles.join(", ")||"Not specified"}
-Estimated catches: ${trip.catches}
+Total catches: ${trip.catches}
 Flies that worked: ${trip.flies.join(", ")||"Not specified"}
 Gear used: ${trip.gear||"Not specified"}
+Conditions: ${[trip.airTemp&&trip.airTemp+"°F air",trip.waterTemp&&trip.waterTemp+"°F water",trip.weatherConditions,trip.windSpeed&&trip.windSpeed+"mph wind",trip.streamCFS&&trip.streamCFS+" CFS"].filter(Boolean).join(", ")||"Not recorded"}
 Guide notes: ${trip.guideNotes||"None"}
+${catchLines?`
+Individual catches:
+${catchLines}`:""}
 
 Write a warm, encouraging 3-4 paragraph trip report the guide can share with the client. Include:
-1. A highlight of how the day went
-2. What was working and why (flies, techniques, conditions)
+1. A highlight of how the day went, referencing specific fish caught if data available (species and sizes)
+2. What was working and why (flies, techniques, conditions — be specific about flows, temp, weather if available)
 3. 2-3 specific, kind suggestions for improvement framed positively
 4. An encouraging closing note
 
-Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 600);
+Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 800);
       setReport(txt);
       saveReport(txt);
     }catch(e){ setReport("Could not generate report. " + e.message); }
@@ -1931,14 +2003,42 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <span className="pi">📷</span>Add Photos
         </button>
         {tripForm.photos.length>0&&(
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-            {tripForm.photos.map((p,i)=>(
-              <div key={i} style={{position:"relative"}}>
-                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch"/>
-                <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
-                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-              </div>
-            ))}
+          <div style={{marginBottom:12}}>
+            {tripForm.photos.map((p,i)=>{
+              const cd=(tripForm.catchDetails||[])[i];
+              return(
+                <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <div style={{position:"relative",flexShrink:0}}>
+                    <img src={p} style={{width:72,height:72,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                    <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i),catchDetails:(f.catchDetails||[]).filter((_,j)=>j!==i)}))}
+                      style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  </div>
+                  <div style={{flex:1,fontSize:12}}>
+                    {cd?.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic",marginBottom:4}}>🔍 Analyzing…</div>}
+                    {cd&&!cd.analyzing&&<>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                        {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic"}}>{cd.species}</span>}
+                        {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
+                        {cd.time&&<span style={{color:"var(--stone)"}}>{cd.time}</span>}
+                      </div>
+                      {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:4}}>📍 {cd.gps}</div>}
+                      {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11}}>
+                          {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
+                          {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
+                          {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
+                          {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS</span>}
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:6,marginTop:6}}>
+                        <input className="inp" style={{marginBottom:0,flex:1,fontSize:11,padding:"4px 8px"}} placeholder="Species" value={cd.species||""} onChange={e=>setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,j)=>j===i?{...d,species:e.target.value}:d)}))}/>
+                        <input className="inp" style={{marginBottom:0,width:60,fontSize:11,padding:"4px 8px"}} placeholder='Size"' value={cd.length||""} onChange={e=>setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,j)=>j===i?{...d,length:e.target.value}:d)}))}/>
+                      </div>
+                    </>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         <button className="btn btnp" onClick={saveTrip}>Save Trip</button>
@@ -2072,10 +2172,34 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         )}
         {selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
-            <div className="lbl" style={{marginBottom:8}}>Photos</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:100,height:100,objectFit:"cover",borderRadius:10}} alt="catch"/>)}
-            </div>
+            <div className="lbl" style={{marginBottom:8}}>Catch Photos</div>
+            {selectedTrip.photos.map((p,i)=>{
+              const cd=(selectedTrip.catchDetails||[])[i];
+              return(
+                <div key={i} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"flex-start"}}>
+                  <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8,flexShrink:0}} alt="catch"/>
+                  <div style={{flex:1,fontSize:12}}>
+                    {cd&&<>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                        {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14}}>{cd.species}</span>}
+                        {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
+                      </div>
+                      {cd.time&&<div style={{color:"var(--stone)",marginBottom:3}}>{cd.time}</div>}
+                      {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:3}}>📍 {cd.gps}</div>}
+                      {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11}}>
+                          {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
+                          {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
+                          {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
+                          {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS · {cd.streamCondition}</span>}
+                          {cd.pressure&&<span>📊 {cd.pressure}"</span>}
+                        </div>
+                      )}
+                    </>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         <div style={{marginTop:14,display:"flex",gap:8}}>
