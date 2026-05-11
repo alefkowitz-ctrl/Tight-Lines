@@ -3,9 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="theme-color" content="#1a3a45"/>
+<meta name="apple-mobile-web-app-title" content="Guide's Choice"/>
+<meta name="application-name" content="Guide's Choice"/>
+<meta name="theme-color" content="#0f2d1f"/>
+<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;Guide's Choice&quot;,&quot;short_name&quot;:&quot;Guide's Choice&quot;,&quot;start_url&quot;:&quot;/&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230f2d1f&quot;,&quot;theme_color&quot;:&quot;%230f2d1f&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%230f2d1f'/><text y='380' x='256' text-anchor='middle' font-size='320'>🎣</text></svg>&quot;,&quot;sizes&quot;:&quot;512x512&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}"/>
 <title>Guide's Choice 🎣</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet"/>
@@ -1230,6 +1234,34 @@ ${reportText?`
   <div class="footer-note">Generated ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
 </div>
 
+<script>
+if("serviceWorker" in navigator){
+  // Inline service worker — caches app shell for offline use
+  const swCode = `
+    const CACHE = "guides-choice-v1";
+    const SHELL = ["/"];
+    self.addEventListener("install", e => {
+      e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+      self.skipWaiting();
+    });
+    self.addEventListener("activate", e => {
+      e.waitUntil(caches.keys().then(keys =>
+        Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))
+      ));
+      self.clients.claim();
+    });
+    self.addEventListener("fetch", e => {
+      if(e.request.method !== "GET") return;
+      e.respondWith(
+        fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
+      );
+    });
+  `;
+  const blob = new Blob([swCode], {type:"application/javascript"});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(()=>{});
+}
+</script>
 </body>
 </html>`;
 
@@ -3617,6 +3649,34 @@ function Root(){
   return <App user={user}/>;
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+</script>
+<script>
+if("serviceWorker" in navigator){
+  // Inline service worker — caches app shell for offline use
+  const swCode = `
+    const CACHE = "guides-choice-v1";
+    const SHELL = ["/"];
+    self.addEventListener("install", e => {
+      e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+      self.skipWaiting();
+    });
+    self.addEventListener("activate", e => {
+      e.waitUntil(caches.keys().then(keys =>
+        Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))
+      ));
+      self.clients.claim();
+    });
+    self.addEventListener("fetch", e => {
+      if(e.request.method !== "GET") return;
+      e.respondWith(
+        fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
+      );
+    });
+  `;
+  const blob = new Blob([swCode], {type:"application/javascript"});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(()=>{});
+}
 </script>
 </body>
 </html>
