@@ -2368,10 +2368,26 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                           </div>
                         )}
                       </>}
-                      <button onClick={()=>setEditingCatchIdx(editingCatchIdx===i?null:i)}
-                        style={{fontSize:11,padding:"3px 10px",background:"rgba(44,95,110,0.4)",border:"1px solid rgba(44,95,110,0.6)",borderRadius:8,color:"var(--sky)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                        ✏️ Edit
-                      </button>
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>setEditingCatchIdx(editingCatchIdx===i?null:i)}
+                          style={{fontSize:11,padding:"3px 10px",background:"rgba(44,95,110,0.4)",border:"1px solid rgba(44,95,110,0.6)",borderRadius:8,color:"var(--sky)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                          ✏️ Edit
+                        </button>
+                        <button onClick={()=>{
+                          if(!window.confirm("Remove this photo and its catch data?")) return;
+                          const newPhotos=selectedTrip.photos.filter((_,j)=>j!==i);
+                          const newDetails=(selectedTrip.catchDetails||[]).filter((_,j)=>j!==i);
+                          const updatedTrip={...selectedTrip,photos:newPhotos,catchDetails:newDetails,catches:Math.max(0,(selectedTrip.catches||1)-1)};
+                          setSelectedTrip(updatedTrip);
+                          setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?updatedTrip:t)})));
+                          updateTripInDb(selectedTrip.id,updatedTrip);
+                          // Also update photos in Supabase (separate call since updateTripInDb strips photos)
+                          if(sb&&!String(selectedTrip.id).startsWith("local")) sb.from("trips").update({photos:newPhotos}).eq("id",selectedTrip.id);
+                          if(editingCatchIdx===i) setEditingCatchIdx(null);
+                        }} style={{fontSize:11,padding:"3px 10px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                          🗑
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {editingCatchIdx===i&&(()=>{
