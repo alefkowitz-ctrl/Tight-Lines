@@ -347,6 +347,92 @@ function extractJSON(text){
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
+// Extract EXIF date, GPS from photo binary
+function parseExif(arrayBuffer){
+  const result={time:null,gps:null};
+  try{
+    const view=new DataView(arrayBuffer);
+    if(view.getUint16(0)!==0xFFD8) return result;
+    let offset=2;
+    while(offset<view.byteLength-4){
+      const marker=view.getUint16(offset);
+      const segLen=view.getUint16(offset+2);
+      if(marker===0xFFE1){
+        const hdr=String.fromCharCode(view.getUint8(offset+4),view.getUint8(offset+5),view.getUint8(offset+6),view.getUint8(offset+7));
+        if(hdr==="Exif"){
+          const tiff=offset+10;
+          const le=view.getUint16(tiff)===0x4949;
+          const u16=(o)=>view.getUint16(tiff+o,le);
+          const u32=(o)=>view.getUint32(tiff+o,le);
+          const rational=(o)=>{const n=u32(o),d=u32(o+4);return d?n/d:0;};
+          // Read IFD entries - also follow SubIFD (Exif IFD) for DateTimeOriginal
+          function readIFD(ifdOff){
+            const n=u16(ifdOff);
+            let subExifOff=null;
+            let gpsOff=null;
+            for(let i=0;i<n;i++){
+              const e=ifdOff+2+(i*12);
+              const tag=u16(e);
+              const type=u16(e+2);
+              const valOff=u32(e+8);
+              if(tag===0x9003||tag===0x0132){
+                // DateTimeOriginal or DateTime
+                let s="";
+                for(let j=0;j<19;j++){const c=view.getUint8(tiff+valOff+j);if(c===0)break;s+=String.fromCharCode(c);}
+                const m=s.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+                if(m&&!result.time){
+                  const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
+                  result.time=d.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+                }
+              }
+              if(tag===0x8769) subExifOff=valOff;
+              if(tag===0x8825) gpsOff=valOff;
+            }
+            if(subExifOff) readIFD(subExifOff);
+            if(gpsOff){
+              // Parse GPS IFD — short values (<=4 bytes) are stored inline, not as pointers
+              const TYPE_SIZE={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
+              const gn=u16(gpsOff);
+              let latD=null,latR="N",lngD=null,lngR="E";
+              for(let i=0;i<gn;i++){
+                const e=gpsOff+2+(i*12);
+                const tag=u16(e);
+                const typ=u16(e+2);
+                const count=u32(e+4);
+                const valOff=u32(e+8);
+                const size=(TYPE_SIZE[typ]||1)*count;
+                const isInline=size<=4;
+                // LatRef / LngRef: 2-char ASCII stored inline at entry+8
+                if(tag===1) latR=String.fromCharCode(view.getUint8(tiff+e+8));
+                if(tag===3) lngR=String.fromCharCode(view.getUint8(tiff+e+8));
+                // Lat / Lng: 3 rationals (24 bytes) stored as pointer
+                if(tag===2&&!isInline){
+                  const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
+                  latD=deg+min/60+sec/3600;
+                }
+                if(tag===4&&!isInline){
+                  const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
+                  lngD=deg+min/60+sec/3600;
+                }
+              }
+              if(latD!=null&&lngD!=null){
+                const lat=latR==="S"?-latD:latD;
+                const lng=lngR==="W"?-lngD:lngD;
+                result.gps=fmtCoord(lat,lng);
+                result.lat=lat; result.lng=lng;
+              }
+            }
+          }
+          readIFD(u32(4));
+        }
+      }
+      if(segLen<2) break;
+      offset+=2+segLen;
+    }
+  }catch(ex){}
+  return result;
+}
+
 function getKey(){return localStorage.getItem("anthropic_key")||"";}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
@@ -3108,91 +3194,6 @@ function App({user}){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
     reader.onload=async ev=>{
-      // Extract EXIF date, GPS from photo binary
-      function parseExif(arrayBuffer){
-        const result={time:null,gps:null};
-        try{
-          const view=new DataView(arrayBuffer);
-          if(view.getUint16(0)!==0xFFD8) return result;
-          let offset=2;
-          while(offset<view.byteLength-4){
-            const marker=view.getUint16(offset);
-            const segLen=view.getUint16(offset+2);
-            if(marker===0xFFE1){
-              const hdr=String.fromCharCode(view.getUint8(offset+4),view.getUint8(offset+5),view.getUint8(offset+6),view.getUint8(offset+7));
-              if(hdr==="Exif"){
-                const tiff=offset+10;
-                const le=view.getUint16(tiff)===0x4949;
-                const u16=(o)=>view.getUint16(tiff+o,le);
-                const u32=(o)=>view.getUint32(tiff+o,le);
-                const rational=(o)=>{const n=u32(o),d=u32(o+4);return d?n/d:0;};
-                // Read IFD entries - also follow SubIFD (Exif IFD) for DateTimeOriginal
-                function readIFD(ifdOff){
-                  const n=u16(ifdOff);
-                  let subExifOff=null;
-                  let gpsOff=null;
-                  for(let i=0;i<n;i++){
-                    const e=ifdOff+2+(i*12);
-                    const tag=u16(e);
-                    const type=u16(e+2);
-                    const valOff=u32(e+8);
-                    if(tag===0x9003||tag===0x0132){
-                      // DateTimeOriginal or DateTime
-                      let s="";
-                      for(let j=0;j<19;j++){const c=view.getUint8(tiff+valOff+j);if(c===0)break;s+=String.fromCharCode(c);}
-                      const m=s.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
-                      if(m&&!result.time){
-                        const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
-                        result.time=d.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-                      }
-                    }
-                    if(tag===0x8769) subExifOff=valOff;
-                    if(tag===0x8825) gpsOff=valOff;
-                  }
-                  if(subExifOff) readIFD(subExifOff);
-                  if(gpsOff){
-                    // Parse GPS IFD — short values (<=4 bytes) are stored inline, not as pointers
-                    const TYPE_SIZE={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
-                    const gn=u16(gpsOff);
-                    let latD=null,latR="N",lngD=null,lngR="E";
-                    for(let i=0;i<gn;i++){
-                      const e=gpsOff+2+(i*12);
-                      const tag=u16(e);
-                      const typ=u16(e+2);
-                      const count=u32(e+4);
-                      const valOff=u32(e+8);
-                      const size=(TYPE_SIZE[typ]||1)*count;
-                      const isInline=size<=4;
-                      // LatRef / LngRef: 2-char ASCII stored inline at entry+8
-                      if(tag===1) latR=String.fromCharCode(view.getUint8(tiff+e+8));
-                      if(tag===3) lngR=String.fromCharCode(view.getUint8(tiff+e+8));
-                      // Lat / Lng: 3 rationals (24 bytes) stored as pointer
-                      if(tag===2&&!isInline){
-                        const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
-                        latD=deg+min/60+sec/3600;
-                      }
-                      if(tag===4&&!isInline){
-                        const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
-                        lngD=deg+min/60+sec/3600;
-                      }
-                    }
-                    if(latD!=null&&lngD!=null){
-                      const lat=latR==="S"?-latD:latD;
-                      const lng=lngR==="W"?-lngD:lngD;
-                      result.gps=fmtCoord(lat,lng);
-                      result.lat=lat; result.lng=lng;
-                    }
-                  }
-                }
-                readIFD(u32(4));
-              }
-            }
-            if(segLen<2) break;
-            offset+=2+segLen;
-          }
-        }catch(ex){}
-        return result;
-      }
 
       let photoTime=null, photoGps=null, photoLat=null, photoLng=null;
       try{
@@ -3354,46 +3355,43 @@ If you cannot estimate length, use null for length.`}
     const files=Array.from(e.target.files);
     e.target.value="";
     if(!files.length) return;
-    if(files.length===1){
-      // Single file — use normal flow
-      const dt=new DataTransfer();
-      dt.items.add(files[0]);
-      const fakeE={target:{files:dt.files}};
-      handlePhoto(fakeE);
-      setAddOpen(true);
-      return;
-    }
-    // Multiple — batch mode
+    // Always use batch mode — even for 1 file it works fine
     setBatchOpen(true);
     setBatchQueue([]);
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-    for(const file of files){
+    // Process sequentially — use index to track which item to update
+    for(let fileIdx=0;fileIdx<files.length;fileIdx++){
+      const file=files[fileIdx];
       const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-      // Add placeholder immediately
-      const placeholder={photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true};
-      setBatchQueue(q=>[...q,placeholder]);
-      const idx_ref={idx:0};
-      setBatchQueue(q=>{idx_ref.idx=q.length-1;return q;});
+      const thisIdx=fileIdx;
+      // Add placeholder at this index
+      setBatchQueue(q=>{
+        const newQ=[...q];
+        newQ[thisIdx]={photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true};
+        return newQ;
+      });
+
+      const updates={};
 
       // Parse EXIF
-      let photoTime=null,photoGps="",photoLat=null,photoLng=null;
+      let photoLat=null,photoLng=null;
       try{
         const abuf=await file.arrayBuffer();
         const exif=parseExif(abuf);
-        photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
+        if(exif.time) updates.time=exif.time;
+        if(exif.gps) updates.gps=exif.gps;
+        photoLat=exif.lat??null; photoLng=exif.lng??null;
       }catch{}
-      if(!photoTime&&file.lastModified&&Date.now()-file.lastModified>5000){
-        photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      if(!updates.time&&file.lastModified&&Date.now()-file.lastModified>5000){
+        updates.time=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       }
-      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-
-      const updates={time:t,gps:photoGps};
+      if(!updates.time) updates.time=new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
 
       // Fetch historical conditions
       if(photoLat&&photoLng){
         try{
           let dateStr=null,hourStr="12";
-          const d2=new Date(t.replace(" at "," "));
+          const d2=new Date((updates.time||"").replace(" at "," "));
           if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
           const today=new Date().toISOString().split("T")[0];
           const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
@@ -3401,7 +3399,7 @@ If you cannot estimate length, use null for length.`}
         }catch{}
       }
 
-      // Claude vision
+      // Claude vision — identify species + size
       try{
         const base64=dataUrl.split(",")[1];
         const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
@@ -3412,11 +3410,10 @@ If you cannot estimate length, use null for length.`}
       }catch{}
 
       updates.processing=false;
-      // Update the last item in queue
+      // Update exactly this index
       setBatchQueue(q=>{
         const newQ=[...q];
-        const lastIdx=newQ.length-1;
-        if(newQ[lastIdx]?.photo===dataUrl) newQ[lastIdx]={...newQ[lastIdx],...updates};
+        if(newQ[thisIdx]) newQ[thisIdx]={...newQ[thisIdx],...updates};
         return newQ;
       });
     }
