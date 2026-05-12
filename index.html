@@ -3355,15 +3355,9 @@ If you cannot estimate length, use null for length.`}
     const files=Array.from(e.target.files);
     e.target.value="";
     if(!files.length) return;
-    // Single file — open normal catch form
-    if(files.length===1){
-      handlePhoto({target:{files:e.target.files}});
-      setAddOpen(true);
-      return;
-    }
-    // Multiple — batch mode
+    // Always open batch panel and add photo(s) to queue
     setBatchOpen(true);
-    setBatchQueue([]);
+    // Don't clear queue — keep adding
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
     // Process sequentially — use index to track which item to update
     for(let fileIdx=0;fileIdx<files.length;fileIdx++){
@@ -3446,7 +3440,7 @@ If you cannot estimate length, use null for length.`}
     <div className="app">
       <div className="bgbar"/>
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
-      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
+      <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleBatchPhotos}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -3872,9 +3866,13 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
       <div className={`slide${batchOpen?" on":""}`} style={{zIndex:200}}>
         <div className="slide-hdr">
           <button className="back" onClick={()=>{if(!batchSaving){setBatchOpen(false);setBatchQueue([]);}}}>← Back</button>
-          <span className="slide-title">Batch Upload · {batchQueue.length} photos</span>
+          <span className="slide-title">Queue · {batchQueue.length} {batchQueue.length===1?"catch":"catches"}</span>
         </div>
-        <div style={{padding:"8px 16px 4px",fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>Auto-filled from photo data — edit before saving.</div>
+        <div style={{padding:"8px 16px 8px",display:"flex",gap:8}}>
+          <button onClick={()=>camRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>📷 Add Photo</button>
+          <button onClick={()=>galRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🖼️ From Library</button>
+        </div>
+        <div style={{padding:"0 16px 6px",fontSize:11,color:"var(--stone)",fontStyle:"italic"}}>Add one photo at a time — each is processed automatically.</div>
         <div style={{padding:"0 16px 120px",overflowY:"auto"}}>
           {batchQueue.map((item,i)=>(
             <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:14,marginBottom:12,overflow:"hidden"}}>
