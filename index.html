@@ -3129,7 +3129,7 @@ function App({user}){
   }
   const blank={species:"",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false,sizeNoKey:false};
   const [form,setForm]=useState(blank);
-  const camRef=useRef(),galRef=useRef();
+  const camRef=useRef(),galRef=useRef(),batchRef=useRef();
 
   async function loadConditions(newLoc){
     setLoc(newLoc);
@@ -3441,6 +3441,7 @@ If you cannot estimate length, use null for length.`}
       <div className="bgbar"/>
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
       <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
+      <input ref={batchRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -3775,7 +3776,8 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           ):(
             <div className="pbtns">
               <button className="pbtn" onClick={()=>camRef.current.click()}><span className="pi">📷</span>Take Photo</button>
-              <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library <span style={{fontSize:10,opacity:0.7}}>(or multiple)</span></button>
+              <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library</button>
+              <button className="pbtn" onClick={()=>batchRef.current.click()} style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)"}}><span className="pi">📚</span>Batch Upload (multiple)</button>
             </div>
           )}
           <p className="hint">Time, GPS & conditions auto-filled from photo — edit if needed.</p>
