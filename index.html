@@ -3418,6 +3418,7 @@ If you cannot estimate length, use null for length.`}
     e.target.value="";
     if(!files.length) return;
     setBatchOpen(true);
+    setAddOpen(false);
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
 
     async function processFile(file){
@@ -3543,7 +3544,7 @@ If you cannot estimate length, use null for length.`}
     <div className="app">
       <div className="bgbar"/>
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleBatchPhotos}/>
-      <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleBatchPhotos}/>
+      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -3905,7 +3906,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
         </div>
 
         {tab==="log"&&(
-          <button className="fab" onClick={()=>{setBatchOpen(true);setTimeout(()=>camRef.current?.click(),300);}}
+          <button className="fab" onClick={()=>{galRef.current?.click();}}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
         )}
       </div>
@@ -4028,10 +4029,10 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           </div>
         )}
         <div style={{padding:"0 16px 8px",display:"flex",gap:8}}>
-          <button onClick={()=>camRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>📷 Add Photo</button>
-          <button onClick={()=>galRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🖼️ From Library</button>
+          <button onClick={()=>camRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>📷 Camera</button>
+          <button onClick={()=>galRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🖼️ Library (multi-select)</button>
         </div>
-        <div style={{padding:"0 16px 6px",fontSize:11,color:"var(--stone)",fontStyle:"italic"}}>Add one photo at a time — each is processed automatically.</div>
+        <div style={{padding:"0 16px 6px",fontSize:11,color:"var(--stone)",fontStyle:"italic"}}>📷 one at a time · 🖼️ tap Select then choose multiple photos</div>
         <div style={{padding:"0 16px 120px",overflowY:"auto"}}>
           {batchQueue.map((item,i)=>(
             <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:14,marginBottom:12,overflow:"hidden"}}>
