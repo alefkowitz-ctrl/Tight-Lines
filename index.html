@@ -1633,7 +1633,7 @@ function GuideBook({user}){
       // Load guests AND trips in parallel
       const [{data:gData,error:gErr},{data:tData}]=await Promise.all([
         sb.from("guests").select("*").eq("user_id",user.id).order("name"),
-        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,photos,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,catch_details").eq("user_id",user.id).order("date",{ascending:false})
+        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name").eq("user_id",user.id).order("date",{ascending:false})
       ]);
       if(gErr){
         console.error("Failed to load guests:", gErr.message);
@@ -1651,12 +1651,12 @@ function GuideBook({user}){
         trips:trips.filter(t=>t.guest_id===g.id).map(t=>({
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
-          gear:t.gear,guideNotes:t.guide_notes,photos:t.photos||[],
+          gear:t.gear,guideNotes:t.guide_notes,
+          photos:[],catchDetails:[],_detailsLoaded:false,
           tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text,
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
-          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name,
-          catchDetails:t.catch_details||[]
+          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name
         }))
       }));
       setGuests(guestsWithTrips);
@@ -1799,6 +1799,22 @@ function GuideBook({user}){
     if(!sb||!user?.id||String(id).startsWith("local")) return;
     try{ await sb.from("trips").update({photos}).eq("id",id); }
     catch(e){ console.log("Photo save failed:",e); }
+  }
+
+  async function loadTripDetails(tripId){
+    // Fetch photos and catch_details on demand when a trip is opened
+    if(!sb) return;
+    try{
+      const {data} = await sb.from("trips").select("photos,catch_details").eq("id",tripId).single();
+      if(!data) return;
+      const photos = data.photos||[];
+      const catchDetails = data.catch_details||[];
+      setGuests(gs=>gs.map(g=>({
+        ...g,
+        trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails,_detailsLoaded:true}:t)
+      })));
+      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails,_detailsLoaded:true}:st);
+    }catch(e){ console.log("loadTripDetails failed:",e); }
   }
 
   async function syncPendingTrips(){
@@ -2204,7 +2220,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
-        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");}}>
+        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");if(!trip._detailsLoaded)loadTripDetails(trip.id);}}>
           <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
           {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
@@ -2443,7 +2459,8 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             <p style={{fontSize:13,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
-        {selectedTrip.photos.length>0&&(
+        {!selectedTrip._detailsLoaded&&<div style={{textAlign:"center",padding:16,color:"var(--stone)",fontSize:12,fontStyle:"italic"}}>Loading catches…</div>}
+        {selectedTrip._detailsLoaded&&selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
