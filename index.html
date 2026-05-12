@@ -3792,12 +3792,6 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
 
-                  {/* Edit button always visible */}
-                  <button onClick={e=>{e.stopPropagation();setEditingCatchId(editingCatchId===c.id?null:c.id);}}
-                    style={{marginTop:10,marginBottom:4,width:"100%",padding:"8px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:10,color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                    {editingCatchId===c.id?"▲ Close Edit":"✏️ Edit Catch"}
-                  </button>
-
                   {selectedCatch===c.id&&<>
                     {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:4,fontStyle:"italic",lineHeight:1.5}}>{c.notes}</p>}
                     {(c.airTemp||c.streamCFS||c.weatherDesc||c.pressure||c.windSpeed)&&(
@@ -3816,53 +3810,6 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                       </div>
                     )}
 
-                    {editingCatchId===c.id&&(
-                      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginTop:8}} onClick={e=>e.stopPropagation()}>
-                        <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
-                            <select className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} value={c.species||""}
-                              onChange={e=>updateCatch(c.id,{species:e.target.value})}>
-                              <option value="">Select…</option>
-                              {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (inches)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number" placeholder='e.g. 18"'
-                              value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div style={{marginBottom:8}}>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
-                            value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
-                        </div>
-                        <div style={{marginBottom:8}}>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
-                            value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp (°F)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
-                              value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
-                              value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div style={{marginBottom:8}}>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Notes</div>
-                          <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12,padding:"6px 8px"}}
-                            value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
-                        </div>
-                      </div>
-                    )}
                     {coord&&(()=>{
                       const sp=(c.species||"Catch").replace(/'/g,"\'");
                       const popupTxt=sp+(c.length?" — "+c.length+'"':"");
@@ -3901,6 +3848,59 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                     </button>
                   </>}
                 </div>
+                  {selectedCatch===c.id&&(
+                    <button onClick={e=>{e.stopPropagation();setEditingCatchId(editingCatchId===c.id?null:c.id);}}
+                      style={{marginTop:8,width:"100%",padding:"10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:10,color:"var(--gold)",fontSize:14,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      {editingCatchId===c.id?"▲ Close Edit":"✏️ Edit Catch"}
+                    </button>
+                  )}
+                  {editingCatchId===c.id&&(
+                    <div style={{background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px",marginTop:4,marginBottom:8}} onClick={e=>e.stopPropagation()}>
+                      <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                        <div>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
+                          <select className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} value={c.species||""}
+                            onChange={e=>updateCatch(c.id,{species:e.target.value})}>
+                            <option value="">Select…</option>
+                            {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (inches)</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number" placeholder='18'
+                            value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
+                        </div>
+                      </div>
+                      <div style={{marginBottom:8}}>
+                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
+                        <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                          value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
+                      </div>
+                      <div style={{marginBottom:8}}>
+                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS</div>
+                        <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                          value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                        <div>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp (°F)</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                            value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
+                        </div>
+                        <div>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                            value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Notes</div>
+                        <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                          value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+                      </div>
+                    </div>
+                  )}
               </div>
             );})}
           </>}
