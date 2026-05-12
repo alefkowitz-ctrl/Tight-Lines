@@ -2528,7 +2528,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
                   <div style={{display:"flex",gap:10,padding:10,alignItems:"flex-start"}}>
                     <img src={p} style={{width:90,height:90,objectFit:"cover",borderRadius:8,flexShrink:0,cursor:"pointer"}} alt="catch"
-                      onClick={()=>setSelectedPhotoIdx(selectedPhotoIdx===i?null:i)}/>
+                      onClick={()=>window._setLightbox&&window._setLightbox(p)}/>
                     <div style={{flex:1,fontSize:12}}>
                       {cd?.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic",marginBottom:6}}>🔍 Analyzing…</div>}
                       {(!cd||(!cd.species&&!cd.airTemp&&!cd.analyzing))&&<div style={{color:"var(--stone)",fontStyle:"italic",fontSize:11}}>No data yet — tap "Analyze Photos" above</div>}
@@ -3112,6 +3112,9 @@ function App({user}){
   const [addOpen,setAddOpen]=useState(false);
   const [batchQueue,setBatchQueue]=useState([]);  // [{photo,time,gps,species,length,airTemp,...,processing}]
   const [editingCatchId,setEditingCatchId]=useState(null);
+  const [lightboxPhoto,setLightboxPhoto]=useState(null);
+  // Make setLightboxPhoto accessible globally for child components
+  React.useEffect(()=>{ window._setLightbox=setLightboxPhoto; return()=>{window._setLightbox=null;}; },[setLightboxPhoto]);
   const [offlinePhotoQueue,setOfflinePhotoQueue]=useState(()=>{
     try{ return JSON.parse(localStorage.getItem("tl_offline_photos")||"[]"); }catch{ return []; }
   });
@@ -3777,7 +3780,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                 if(e.target.tagName==="BUTTON"||e.target.tagName==="A") return;
                 setSelectedCatch(selectedCatch===c.id?null:c.id);
               }}>
-                {c.photo?<img src={c.photo} className="c-img" alt="catch"/>:<div className="c-ph">🐟</div>}
+                {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div className="csp">{c.species}</div>
@@ -3920,7 +3923,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           <label className="lbl">Photo</label>
           {form.photo?(
             <div className="pw">
-              <img src={form.photo} className="p-img" alt="catch"/>
+              <img src={form.photo} className="p-img" alt="catch" style={{cursor:"pointer"}} onClick={()=>setLightboxPhoto(form.photo)}/>
               <div className="pov">
                 {form.gps&&<span className="ptag">📍 {form.gps}</span>}
                 {form.time&&<span className="ttag">{form.time}</span>}
@@ -4111,6 +4114,15 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           </button>
         </div>
       </div>
+      {/* Lightbox */}
+      {lightboxPhoto&&(
+        <div onClick={()=>setLightboxPhoto(null)}
+          style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.95)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+          <img src={lightboxPhoto} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} alt="catch"/>
+          <button onClick={()=>setLightboxPhoto(null)}
+            style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",border:"none",color:"white",borderRadius:"50%",width:36,height:36,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+      )}
       </div>
     </div>
   );
