@@ -2668,6 +2668,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             {generating?"Generating…":"✦ Generate Client Report"}
           </button>
           <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{
+  if(!selectedTrip._detailsLoaded) loadTripDetails(selectedTrip.id);
   setTripForm({
     ...tripForm0,
     ...selectedTrip,
@@ -3110,6 +3111,10 @@ function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
   const [batchQueue,setBatchQueue]=useState([]);  // [{photo,time,gps,species,length,airTemp,...,processing}]
+  const [editingCatchId,setEditingCatchId]=useState(null);
+  const [offlinePhotoQueue,setOfflinePhotoQueue]=useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("tl_offline_photos")||"[]"); }catch{ return []; }
+  });
   const [batchOpen,setBatchOpen]=useState(false);
   const [batchSaving,setBatchSaving]=useState(false);
   const [loc,setLoc]=useState(null);
@@ -3149,6 +3154,22 @@ function App({user}){
         setCatchesLoading(false);
       });
   },[user]);
+
+  async function updateCatch(id, updates){
+    setCatches(cs=>cs.map(c=>c.id===id?{...c,...updates}:c));
+    if(!sb||String(id).startsWith("local")) return;
+    try{
+      await sb.from("catches").update({
+        species:updates.species, length:updates.length,
+        flies:updates.flies, notes:updates.notes,
+        air_temp:updates.airTemp, weather_desc:updates.weatherDesc,
+        wind_speed:updates.windSpeed, wind_dir:updates.windDir,
+        pressure:updates.pressure, stream_cfs:updates.streamCFS,
+        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName,
+        gps:updates.gps, time:updates.time
+      }).eq("id",id);
+    }catch(e){ console.log("updateCatch failed:",e); }
+  }
 
   async function addCatch(catchData){
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
@@ -3396,66 +3417,110 @@ If you cannot estimate length, use null for length.`}
     const files=Array.from(e.target.files);
     e.target.value="";
     if(!files.length) return;
-    // Always open batch panel and add photo(s) to queue
     setBatchOpen(true);
-    // Don't clear queue — keep adding
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-    // Process each file — append to existing queue
-    for(let fileIdx=0;fileIdx<files.length;fileIdx++){
-      const file=files[fileIdx];
+
+    async function processFile(file){
       const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-      // Append placeholder and capture the index it was added at
-      let thisIdx=-1;
-      setBatchQueue(q=>{
-        thisIdx=q.length;
-        return [...q,{photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true}];
-      });
-      // Wait for state to settle so thisIdx is set
-      await new Promise(res=>setTimeout(res,50));
+      const item={photo:dataUrl,time:"",gps:"",lat:null,lng:null,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true,id:Date.now()+Math.random()};
 
-      const updates={};
-
-      // Parse EXIF
-      let photoLat=null,photoLng=null;
+      // EXIF
       try{
         const abuf=await file.arrayBuffer();
         const exif=parseExif(abuf);
-        if(exif.time) updates.time=exif.time;
-        if(exif.gps) updates.gps=exif.gps;
-        photoLat=exif.lat??null; photoLng=exif.lng??null;
+        if(exif.time) item.time=exif.time;
+        if(exif.gps) item.gps=exif.gps;
+        if(exif.lat) item.lat=exif.lat;
+        if(exif.lng) item.lng=exif.lng;
       }catch{}
-      if(!updates.time&&file.lastModified&&Date.now()-file.lastModified>5000){
-        updates.time=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      if(!item.time&&file.lastModified&&Date.now()-file.lastModified>5000){
+        item.time=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       }
-      if(!updates.time) updates.time=new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      if(!item.time) item.time=new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
 
-      // Fetch historical conditions
-      if(photoLat&&photoLng){
+      // Add to queue immediately
+      setBatchQueue(q=>[...q,{...item}]);
+
+      // If offline — save to localStorage queue for later processing
+      if(!navigator.onLine){
+        item.processing=false;
+        setBatchQueue(q=>q.map(x=>x.id===item.id?{...item}:x));
+        // Save offline queue
+        try{
+          const oq=JSON.parse(localStorage.getItem("tl_offline_photos")||"[]");
+          oq.push({...item,photo:dataUrl});
+          localStorage.setItem("tl_offline_photos",JSON.stringify(oq));
+        }catch{}
+        return;
+      }
+
+      // Online — fetch conditions
+      if(item.lat&&item.lng){
         try{
           let dateStr=null,hourStr="12";
-          const d2=new Date((updates.time||"").replace(" at "," "));
+          const d2=new Date(item.time.replace(" at "," "));
           if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
           const today=new Date().toISOString().split("T")[0];
-          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
-          if(conds) Object.assign(updates,conds);
+          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(item.lat,item.lng,dateStr,hourStr):null;
+          if(conds) Object.assign(item,conds);
         }catch{}
       }
 
-      // Claude vision — identify species + size
+      // Claude vision
       try{
         const base64=dataUrl.split(",")[1];
         const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
         const rd=await res.json();
         const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-        if(parsed.species) updates.species=parsed.species;
-        if(parsed.length!=null) updates.length=String(Math.round(parsed.length));
+        if(parsed.species) item.species=parsed.species;
+        if(parsed.length!=null) item.length=String(Math.round(parsed.length));
       }catch{}
 
-      updates.processing=false;
-      // Update this item by matching photo dataUrl (reliable since thisIdx may have shifted)
-      setBatchQueue(q=>q.map(item=>item.photo===dataUrl?{...item,...updates}:item));
+      item.processing=false;
+      setBatchQueue(q=>q.map(x=>x.id===item.id?{...item}:x));
+    }
+
+    // Process all files
+    for(const file of files){
+      await processFile(file);
     }
   }
+
+  // Process offline photo queue when back online
+  React.useEffect(()=>{
+    async function processOfflineQueue(){
+      const oq=JSON.parse(localStorage.getItem("tl_offline_photos")||"[]");
+      if(!oq.length) return;
+      const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+      for(const item of oq){
+        try{
+          // Fetch conditions
+          if(item.lat&&item.lng){
+            let dateStr=null,hourStr="12";
+            const d2=new Date((item.time||"").replace(" at "," "));
+            if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+            const today=new Date().toISOString().split("T")[0];
+            const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(item.lat,item.lng,dateStr,hourStr):null;
+            if(conds) Object.assign(item,conds);
+          }
+          // Claude vision
+          const base64=item.photo.split(",")[1];
+          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify fish, estimate length. Species: ${SPECIES_LIST.join(", ")}. Reply JSON: {"species":"Rainbow Trout","length":14}`}]}]})});
+          const rd=await res.json();
+          const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+          if(parsed.species) item.species=parsed.species;
+          if(parsed.length!=null) item.length=String(Math.round(parsed.length));
+          // Save catch
+          await addCatch({species:item.species||"",length:item.length||"",flies:item.flies||[],photo:item.photo,gps:item.gps||"Location not recorded",time:item.time,notes:item.notes||"",air_temp:item.airTemp,weather_desc:item.weatherDesc,wind_speed:item.windSpeed,wind_dir:item.windDir,pressure:item.pressure,stream_cfs:item.streamCFS,stream_condition:item.streamCondition,stream_gauge_name:item.streamGaugeName});
+        }catch(e){ console.log("Offline photo processing failed:",e); }
+      }
+      localStorage.removeItem("tl_offline_photos");
+      setOfflinePhotoQueue([]);
+    }
+    window.addEventListener("online",processOfflineQueue);
+    return()=>window.removeEventListener("online",processOfflineQueue);
+  },[]);
+
 
   function submitCatch(){
     const now=new Date();
@@ -3740,6 +3805,57 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                         </div>
                       </div>
                     )}
+                    <button onClick={()=>setEditingCatchId(editingCatchId===c.id?null:c.id)}
+                      style={{marginTop:8,width:"100%",padding:"6px",background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:8,color:"var(--sky)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      {editingCatchId===c.id?"▲ Close Edit":"✏️ Edit Catch"}
+                    </button>
+                    {editingCatchId===c.id&&(
+                      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginTop:8}}>
+                        <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
+                            <select className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} value={c.species||""}
+                              onChange={e=>updateCatch(c.id,{species:e.target.value})}>
+                              <option value="">Select…</option>
+                              {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (inches)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number" placeholder='e.g. 18"'
+                              value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                            value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                            value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp (°F)</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                              value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
+                          </div>
+                          <div>
+                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
+                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
+                              value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                          </div>
+                        </div>
+                        <div style={{marginBottom:8}}>
+                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Notes</div>
+                          <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12,padding:"6px 8px"}}
+                            value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+                        </div>
+                      </div>
+                    )}
                     {coord&&(()=>{
                       const sp=(c.species||"Catch").replace(/'/g,"\'");
                       const popupTxt=sp+(c.length?" — "+c.length+'"':"");
@@ -3789,7 +3905,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
         </div>
 
         {tab==="log"&&(
-          <button className="fab" onClick={()=>{setBatchOpen(true);}}
+          <button className="fab" onClick={()=>{setBatchOpen(true);setTimeout(()=>camRef.current?.click(),300);}}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
         )}
       </div>
@@ -3906,7 +4022,12 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           <button className="back" onClick={()=>{if(!batchSaving){setBatchOpen(false);setBatchQueue([]);}}}>← Back</button>
           <span className="slide-title">Queue · {batchQueue.length} {batchQueue.length===1?"catch":"catches"}</span>
         </div>
-        <div style={{padding:"8px 16px 8px",display:"flex",gap:8}}>
+        {offlinePhotoQueue.length>0&&(
+          <div style={{margin:"0 16px 8px",padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:11,color:"var(--gold)"}}>
+            📡 {offlinePhotoQueue.length} photo{offlinePhotoQueue.length!==1?"s":""} saved offline — will process when back online
+          </div>
+        )}
+        <div style={{padding:"0 16px 8px",display:"flex",gap:8}}>
           <button onClick={()=>camRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>📷 Add Photo</button>
           <button onClick={()=>galRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🖼️ From Library</button>
         </div>
@@ -3953,7 +4074,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
                       <input className="inp" style={{marginBottom:0,flex:1,fontSize:11,padding:"4px 8px"}} placeholder="Flies (comma separated)"
                         value={(item.flies||[]).join(", ")}
                         onChange={e=>setBatchQueue(q=>q.map((x,j)=>j===i?{...x,flies:e.target.value.split(",").map(f=>f.trim()).filter(Boolean)}:x))}/>
-                      <button onClick={()=>setBatchQueue(q=>q.filter((_,j)=>j!==i))}
+                      <button onClick={()=>setBatchQueue(q=>q.filter(x=>x.id!==item.id))}
                         style={{padding:"4px 8px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",fontSize:11,cursor:"pointer",flexShrink:0}}>🗑</button>
                     </div>
                   </>}
@@ -3983,6 +4104,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
               setBatchSaving(false);
               setBatchOpen(false);
               setBatchQueue([]);
+              setSelectedCatch(null);
             }}>
             {batchSaving?"⏳ Saving…":`💾 Save All ${batchQueue.filter(x=>!x.processing).length} Catches`}
           </button>
