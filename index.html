@@ -192,18 +192,43 @@ function AuthScreen(){
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  async function validateInviteCode(code){
+    // Check against invite_codes table in Supabase
+    const {data,error} = await sb.from("invite_codes")
+      .select("id,used,max_uses,use_count")
+      .eq("code", code.trim().toUpperCase())
+      .single();
+    if(error||!data) return {valid:false, reason:"Invalid invite code."};
+    if(data.used) return {valid:false, reason:"This invite code has already been used."};
+    if(data.max_uses&&data.use_count>=data.max_uses) return {valid:false, reason:"This invite code has reached its limit."};
+    return {valid:true, id:data.id, useCount:data.use_count};
+  }
+
   async function handleSubmit(){
     setError(""); setSuccess(""); setLoading(true);
     try{
-      if(!sb){ setError("Supabase not configured. Add your project URL and anon key to the app."); setLoading(false); return; }
+      if(!sb){ setError("Supabase not configured."); setLoading(false); return; }
       if(mode==="signup"){
+        // Validate invite code first
+        if(!inviteCode.trim()){ setError("An invite code is required to create an account."); setLoading(false); return; }
+        const {valid, reason, id, useCount} = await validateInviteCode(inviteCode);
+        if(!valid){ setError(reason); setLoading(false); return; }
+        // Create account
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
         if(e) throw e;
-        setSuccess("Check your email to confirm your account, then log in.");
+        // Mark code as used
+        await sb.from("invite_codes").update({
+          use_count:(useCount||0)+1,
+          used: true, // set to false if you want multi-use codes
+          used_by_email: email,
+          used_at: new Date().toISOString()
+        }).eq("id",id);
+        setSuccess("Account created! Check your email to confirm, then log in.");
         setMode("login");
       } else if(mode==="login"){
         const{error:e} = await sb.auth.signInWithPassword({email, password});
@@ -233,6 +258,11 @@ function AuthScreen(){
           {mode==="signup"&&<>
             <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
             <input className="inp" placeholder="John Smith" value={name} onChange={e=>setName(e.target.value)}/>
+            <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
+            <input className="inp" placeholder="e.g. TIGHTLINES24" value={inviteCode}
+              onChange={e=>setInviteCode(e.target.value.toUpperCase())}
+              style={{letterSpacing:2,fontFamily:"monospace"}}/>
+            <div style={{fontSize:11,color:"var(--stone)",marginTop:-8,marginBottom:12,fontStyle:"italic"}}>Need a code? Contact your guide or Adam at amlefkowitz@gmail.com</div>
           </>}
           <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Email</label>
           <input className="inp" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
@@ -1667,6 +1697,12 @@ function GuideBook({user}){
   }
 
   // Sync any pending trip updates when connection is restored
+  async function saveTripPhotos(id, photos){
+    if(!sb||!user?.id||String(id).startsWith("local")) return;
+    try{ await sb.from("trips").update({photos}).eq("id",id); }
+    catch(e){ console.log("Photo save failed:",e); }
+  }
+
   async function syncPendingTrips(){
     if(!sb||!user?.id||String(user.id).startsWith("local")) return;
     const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
@@ -2411,8 +2447,8 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                           setSelectedTrip(updatedTrip);
                           setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?updatedTrip:t)})));
                           updateTripInDb(selectedTrip.id,updatedTrip);
-                          // Also update photos in Supabase (separate call since updateTripInDb strips photos)
-                          if(sb&&!String(selectedTrip.id).startsWith("local")) sb.from("trips").update({photos:newPhotos}).eq("id",selectedTrip.id);
+                          // Separately update photos since updateTripInDb strips them to avoid quota
+                          saveTripPhotos(selectedTrip.id, newPhotos);
                           if(editingCatchIdx===i) setEditingCatchIdx(null);
                         }} style={{fontSize:11,padding:"3px 10px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                           🗑
@@ -2643,6 +2679,98 @@ function ReportMap({rivers, center}){
   );
 }
 
+function GuestTrips({user}){
+  const [trips, setTrips] = React.useState([]);
+  const [expanded, setExpanded] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(()=>{
+    if(!sb||!user?.email) { setLoading(false); return; }
+    async function load(){
+      // Find guest records matching this user's email, then load their trips
+      const {data:guests} = await sb.from("guests").select("id,name").ilike("email", user.email);
+      if(!guests?.length){ setLoading(false); return; }
+      const guestIds = guests.map(g=>g.id);
+      const {data:tripData} = await sb.from("trips")
+        .select("*")
+        .in("guest_id", guestIds)
+        .not("report_text", "is", null)
+        .neq("report_text", "")
+        .order("date", {ascending:false});
+      if(tripData?.length){
+        const enriched = tripData.map(t=>({
+          ...t,
+          reportText:t.report_text,
+          catchDetails:t.catch_details||[],
+          photos:t.photos||[]
+        }));
+        setTrips(enriched);
+      }
+      setLoading(false);
+    }
+    load();
+  },[user]);
+
+  if(loading) return null;
+  if(!trips.length) return null;
+
+  return(
+    <div style={{marginBottom:16}}>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"var(--gold)",marginBottom:10,letterSpacing:0.5}}>
+        ✦ My Trip Reports
+      </div>
+      {trips.map((t,i)=>(
+        <div key={t.id} className="card" style={{marginBottom:10}}>
+          <div style={{cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
+            onClick={()=>setExpanded(expanded===i?null:i)}>
+            <div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Trip"}</div>
+              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.date} · {t.catches||0} fish · {t.type}</div>
+            </div>
+            <span style={{color:"var(--stone)",fontSize:12}}>{expanded===i?"▲":"▼"}</span>
+          </div>
+
+          {expanded===i&&<>
+            <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:12,paddingTop:12}}>
+              {/* Catch photos with data */}
+              {t.photos.length>0&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Catches</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {t.photos.map((p,pi)=>{
+                      const cd=(t.catchDetails||[])[pi];
+                      return(
+                        <div key={pi} style={{textAlign:"center"}}>
+                          <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8,display:"block"}} alt="catch"/>
+                          {cd?.species&&<div style={{fontSize:10,color:"var(--foam)",marginTop:3,fontStyle:"italic"}}>{cd.species}</div>}
+                          {cd?.length&&<div style={{fontSize:10,color:"var(--sky)"}}>{cd.length}"</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* Conditions */}
+              {(t.air_temp||t.stream_cfs||t.weather_conditions)&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:"3px 12px",fontSize:11,color:"var(--stone)",marginBottom:12}}>
+                  {t.weather_conditions&&<span>{t.weather_conditions}</span>}
+                  {t.air_temp&&<span>🌡 {t.air_temp}°F</span>}
+                  {t.water_temp&&<span>💧 {t.water_temp}°F water</span>}
+                  {t.stream_cfs&&<span>〰 {Number(t.stream_cfs).toLocaleString()} CFS</span>}
+                  {t.wind_speed&&<span>💨 {t.wind_speed}mph {t.wind_dir}</span>}
+                </div>
+              )}
+              {/* Guide report */}
+              <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Guide Report</div>
+              <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Crimson Pro',serif"}}>{t.reportText}</div>
+            </div>
+          </>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
@@ -2866,6 +2994,9 @@ function TripPlanner({defaultLocation}){
 function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
+  const [batchQueue,setBatchQueue]=useState([]);  // [{photo,time,gps,species,length,airTemp,...,processing}]
+  const [batchOpen,setBatchOpen]=useState(false);
+  const [batchSaving,setBatchSaving]=useState(false);
   const [loc,setLoc]=useState(null);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
@@ -2878,6 +3009,8 @@ function App({user}){
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
   const [selectedCatch,setSelectedCatch]=useState(null);
+  const [catchSummary,setCatchSummary]=useState(null);
+  const [summaryLoading,setSummaryLoading]=useState(false);
 
   // Load catches from Supabase on mount
   useEffect(()=>{
@@ -3217,6 +3350,78 @@ If you cannot estimate length, use null for length.`}
 
   function addFly(){if(!form.flyInput.trim())return;setForm(f=>({...f,flies:[...f.flies,f.flyInput.trim()],flyInput:""}));}
   function removeFly(i){setForm(f=>({...f,flies:f.flies.filter((_,j)=>j!==i)}));}
+  async function handleBatchPhotos(e){
+    const files=Array.from(e.target.files);
+    e.target.value="";
+    if(!files.length) return;
+    if(files.length===1){
+      // Single file — use normal flow
+      const dt=new DataTransfer();
+      dt.items.add(files[0]);
+      const fakeE={target:{files:dt.files}};
+      handlePhoto(fakeE);
+      setAddOpen(true);
+      return;
+    }
+    // Multiple — batch mode
+    setBatchOpen(true);
+    setBatchQueue([]);
+    const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+    for(const file of files){
+      const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+      // Add placeholder immediately
+      const placeholder={photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true};
+      setBatchQueue(q=>[...q,placeholder]);
+      const idx_ref={idx:0};
+      setBatchQueue(q=>{idx_ref.idx=q.length-1;return q;});
+
+      // Parse EXIF
+      let photoTime=null,photoGps="",photoLat=null,photoLng=null;
+      try{
+        const abuf=await file.arrayBuffer();
+        const exif=parseExif(abuf);
+        photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
+      }catch{}
+      if(!photoTime&&file.lastModified&&Date.now()-file.lastModified>5000){
+        photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      }
+      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+
+      const updates={time:t,gps:photoGps};
+
+      // Fetch historical conditions
+      if(photoLat&&photoLng){
+        try{
+          let dateStr=null,hourStr="12";
+          const d2=new Date(t.replace(" at "," "));
+          if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+          const today=new Date().toISOString().split("T")[0];
+          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
+          if(conds) Object.assign(updates,conds);
+        }catch{}
+      }
+
+      // Claude vision
+      try{
+        const base64=dataUrl.split(",")[1];
+        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
+        const rd=await res.json();
+        const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+        if(parsed.species) updates.species=parsed.species;
+        if(parsed.length!=null) updates.length=String(Math.round(parsed.length));
+      }catch{}
+
+      updates.processing=false;
+      // Update the last item in queue
+      setBatchQueue(q=>{
+        const newQ=[...q];
+        const lastIdx=newQ.length-1;
+        if(newQ[lastIdx]?.photo===dataUrl) newQ[lastIdx]={...newQ[lastIdx],...updates};
+        return newQ;
+      });
+    }
+  }
+
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
@@ -3238,7 +3443,7 @@ If you cannot estimate length, use null for length.`}
     <div className="app">
       <div className="bgbar"/>
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
-      <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhoto}/>
+      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -3263,7 +3468,7 @@ If you cannot estimate length, use null for length.`}
         </>}
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan Trip"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
+          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Trips"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
@@ -3423,6 +3628,38 @@ If you cannot estimate length, use null for length.`}
               );
             })()}
 
+            {catches.length>=3&&(
+              <div style={{marginBottom:12}}>
+                <button onClick={async()=>{
+                  if(summaryLoading) return;
+                  setSummaryLoading(true); setCatchSummary(null);
+                  try{
+                    const summary=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" with "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" | "+c.airTemp+"°F":""}${c.streamCFS?" | "+Number(c.streamCFS).toLocaleString()+" CFS":""}${c.windSpeed?" | "+c.windSpeed+"mph "+c.windDir:""}${c.notes?" — "+c.notes:""}`).join("
+");
+                    const txt=await askClaude(`You are a fly fishing data analyst. A guide/angler has logged the following catches:
+
+${summary}
+
+Analyze these catches and write a concise 2-3 paragraph trend summary covering:
+1. Which species, flies, locations, or conditions correlate with the most success
+2. Patterns in timing, water flow, weather, or temperature
+3. 2-3 specific actionable recommendations for future trips
+
+Be specific with numbers and conditions where available. Plain text only.`, false, 600);
+                    setCatchSummary(txt);
+                  }catch(e){ setCatchSummary("Could not generate summary. Try again."); }
+                  setSummaryLoading(false);
+                }} className="btn btnp" style={{width:"100%",marginBottom:catchSummary?10:0}}>
+                  {summaryLoading?"⏳ Analyzing catches…":"✦ AI Catch Trend Summary"}
+                </button>
+                {catchSummary&&(
+                  <div style={{background:"rgba(0,0,0,0.25)",borderRadius:12,padding:"14px 16px"}}>
+                    <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Trend Analysis</div>
+                    <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap"}}>{catchSummary}</div>
+                  </div>
+                )}
+              </div>
+            )}
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>{
               const parseCoord=(gps)=>{
@@ -3509,7 +3746,10 @@ If you cannot estimate length, use null for length.`}
             );})}
           </>}
 
-          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
+          {tab==="plan"&&<>
+            <GuestTrips user={user}/>
+            <TripPlanner defaultLocation={loc?.label||""}/>
+          </>}
           {tab==="guide"&&<GuideBook user={user}/>}
         </div>
 
@@ -3538,7 +3778,7 @@ If you cannot estimate length, use null for length.`}
           ):(
             <div className="pbtns">
               <button className="pbtn" onClick={()=>camRef.current.click()}><span className="pi">📷</span>Take Photo</button>
-              <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library</button>
+              <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library <span style={{fontSize:10,opacity:0.7}}>(or multiple)</span></button>
             </div>
           )}
           <p className="hint">Time, GPS & conditions auto-filled from photo — edit if needed.</p>
@@ -3624,6 +3864,91 @@ If you cannot estimate length, use null for length.`}
             value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
           <button className="btn btnp" onClick={submitCatch}>🐟 Save to Log</button>
         </div>
+
+      {/* Batch upload review panel */}
+      <div className={`slide${batchOpen?" on":""}`} style={{zIndex:200}}>
+        <div className="slide-hdr">
+          <button className="back" onClick={()=>{if(!batchSaving){setBatchOpen(false);setBatchQueue([]);}}}>← Back</button>
+          <span className="slide-title">Batch Upload · {batchQueue.length} photos</span>
+        </div>
+        <div style={{padding:"8px 16px 4px",fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>Auto-filled from photo data — edit before saving.</div>
+        <div style={{padding:"0 16px 120px",overflowY:"auto"}}>
+          {batchQueue.map((item,i)=>(
+            <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:14,marginBottom:12,overflow:"hidden"}}>
+              <div style={{display:"flex",gap:10,padding:10,alignItems:"flex-start"}}>
+                <img src={item.photo} style={{width:80,height:80,objectFit:"cover",borderRadius:8,flexShrink:0}} alt="catch"/>
+                <div style={{flex:1}}>
+                  {item.processing&&<div style={{color:"var(--sky)",fontSize:12,fontStyle:"italic",marginBottom:4}}>🔍 Analyzing…</div>}
+                  {!item.processing&&<>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <div>
+                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:2}}>Species</div>
+                        <select className="inp" style={{marginBottom:0,fontSize:11,padding:"5px 6px"}}
+                          value={item.species||""}
+                          onChange={e=>setBatchQueue(q=>q.map((x,j)=>j===i?{...x,species:e.target.value}:x))}>
+                          <option value="">Select…</option>
+                          {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:2}}>Length (in)</div>
+                        <input className="inp" style={{marginBottom:0,fontSize:11,padding:"5px 6px"}} type="number" placeholder='e.g. 14"'
+                          value={item.length||""}
+                          onChange={e=>setBatchQueue(q=>q.map((x,j)=>j===i?{...x,length:e.target.value}:x))}/>
+                      </div>
+                    </div>
+                    {(item.time||item.gps)&&<div style={{fontSize:10,color:"var(--stone)",marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {item.time&&<span>🕐 {item.time}</span>}
+                      {item.gps&&<span>📍 {item.gps}</span>}
+                    </div>}
+                    {(item.airTemp||item.weatherDesc||item.streamCFS)&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:"2px 8px",fontSize:10,color:"var(--stone)",marginBottom:6,background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"4px 8px"}}>
+                        {item.weatherDesc&&<span>{item.weatherDesc}</span>}
+                        {item.airTemp&&<span>🌡 {item.airTemp}°F</span>}
+                        {item.windSpeed&&<span>💨 {item.windSpeed}mph {item.windDir}</span>}
+                        {item.streamCFS&&<span>💧 {Number(item.streamCFS).toLocaleString()} CFS</span>}
+                        {item.pressure&&<span>📊 {item.pressure}"</span>}
+                      </div>
+                    )}
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <input className="inp" style={{marginBottom:0,flex:1,fontSize:11,padding:"4px 8px"}} placeholder="Flies (comma separated)"
+                        value={(item.flies||[]).join(", ")}
+                        onChange={e=>setBatchQueue(q=>q.map((x,j)=>j===i?{...x,flies:e.target.value.split(",").map(f=>f.trim()).filter(Boolean)}:x))}/>
+                      <button onClick={()=>setBatchQueue(q=>q.filter((_,j)=>j!==i))}
+                        style={{padding:"4px 8px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",fontSize:11,cursor:"pointer",flexShrink:0}}>🗑</button>
+                    </div>
+                  </>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{position:"fixed",bottom:0,left:0,right:0,padding:"12px 16px",background:"var(--deep)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+          <button className="btn btnp" style={{width:"100%",opacity:batchSaving?0.6:1}}
+            onClick={async()=>{
+              if(batchSaving) return;
+              const ready=batchQueue.filter(x=>!x.processing);
+              if(!ready.length) return;
+              setBatchSaving(true);
+              for(const item of ready){
+                await addCatch({
+                  species:item.species||"",length:item.length||"",flies:item.flies||[],
+                  photo:item.photo,gps:item.gps||"Location not recorded",
+                  time:item.time||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true}),
+                  notes:item.notes||"",
+                  air_temp:item.airTemp,weather_desc:item.weatherDesc,wind_speed:item.windSpeed,
+                  wind_dir:item.windDir,pressure:item.pressure,stream_cfs:item.streamCFS,
+                  stream_condition:item.streamCondition,stream_gauge_name:item.streamGaugeName
+                });
+              }
+              setBatchSaving(false);
+              setBatchOpen(false);
+              setBatchQueue([]);
+            }}>
+            {batchSaving?"⏳ Saving…":`💾 Save All ${batchQueue.filter(x=>!x.processing).length} Catches`}
+          </button>
+        </div>
+      </div>
       </div>
     </div>
   );
