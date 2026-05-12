@@ -3359,17 +3359,18 @@ If you cannot estimate length, use null for length.`}
     setBatchOpen(true);
     // Don't clear queue — keep adding
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-    // Process sequentially — use index to track which item to update
+    // Process each file — append to existing queue
     for(let fileIdx=0;fileIdx<files.length;fileIdx++){
       const file=files[fileIdx];
       const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-      const thisIdx=fileIdx;
-      // Add placeholder at this index
+      // Append placeholder and capture the index it was added at
+      let thisIdx=-1;
       setBatchQueue(q=>{
-        const newQ=[...q];
-        newQ[thisIdx]={photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true};
-        return newQ;
+        thisIdx=q.length;
+        return [...q,{photo:dataUrl,time:"",gps:"",species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true}];
       });
+      // Wait for state to settle so thisIdx is set
+      await new Promise(res=>setTimeout(res,50));
 
       const updates={};
 
@@ -3410,12 +3411,8 @@ If you cannot estimate length, use null for length.`}
       }catch{}
 
       updates.processing=false;
-      // Update exactly this index
-      setBatchQueue(q=>{
-        const newQ=[...q];
-        if(newQ[thisIdx]) newQ[thisIdx]={...newQ[thisIdx],...updates};
-        return newQ;
-      });
+      // Update this item by matching photo dataUrl (reliable since thisIdx may have shifted)
+      setBatchQueue(q=>q.map(item=>item.photo===dataUrl?{...item,...updates}:item));
     }
   }
 
@@ -3439,7 +3436,7 @@ If you cannot estimate length, use null for length.`}
   return(
     <div className="app">
       <div className="bgbar"/>
-      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleBatchPhotos}/>
       <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleBatchPhotos}/>
 
       <div className={`main${addOpen?" off":""}`}>
@@ -3751,7 +3748,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
         </div>
 
         {tab==="log"&&(
-          <button className="fab" onClick={()=>{setForm(blank);setAddOpen(true);}}
+          <button className="fab" onClick={()=>{setBatchOpen(true);}}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
         )}
       </div>
