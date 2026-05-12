@@ -3794,7 +3794,7 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
 
                   {selectedCatch===c.id&&<>
                     <button onClick={e=>{e.stopPropagation();setEditingCatchId(editingCatchId===c.id?null:c.id);}}
-                      style={{marginTop:8,marginBottom:4,width:"100%",padding:"7px",background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:8,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      style={{marginTop:10,marginBottom:6,width:"100%",padding:"10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:10,color:"var(--gold)",fontSize:14,cursor:"pointer",fontFamily:"'Crimson Pro',serif",fontWeight:"bold"}}>
                       {editingCatchId===c.id?"▲ Close Edit":"✏️ Edit Catch"}
                     </button>
                     {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:4,fontStyle:"italic",lineHeight:1.5}}>{c.notes}</p>}
