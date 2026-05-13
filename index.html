@@ -6,10 +6,7 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="Guide's Choice"/>
-<meta name="application-name" content="Guide's Choice"/>
-<meta name="theme-color" content="#0f2d1f"/>
-<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;Guide's Choice&quot;,&quot;short_name&quot;:&quot;Guide's Choice&quot;,&quot;start_url&quot;:&quot;/&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230f2d1f&quot;,&quot;theme_color&quot;:&quot;%230f2d1f&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%230f2d1f'/><text y='380' x='256' text-anchor='middle' font-size='320'>🎣</text></svg>&quot;,&quot;sizes&quot;:&quot;512x512&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}"/>
+<meta name="theme-color" content="#1a3a45"/>
 <title>Guide's Choice 🎣</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet"/>
@@ -192,43 +189,18 @@ function AuthScreen(){
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  async function validateInviteCode(code){
-    // Check against invite_codes table in Supabase
-    const {data,error} = await sb.from("invite_codes")
-      .select("id,used,max_uses,use_count")
-      .eq("code", code.trim().toUpperCase())
-      .single();
-    if(error||!data) return {valid:false, reason:"Invalid invite code."};
-    if(data.used) return {valid:false, reason:"This invite code has already been used."};
-    if(data.max_uses&&data.use_count>=data.max_uses) return {valid:false, reason:"This invite code has reached its limit."};
-    return {valid:true, id:data.id, useCount:data.use_count};
-  }
-
   async function handleSubmit(){
     setError(""); setSuccess(""); setLoading(true);
     try{
-      if(!sb){ setError("Supabase not configured."); setLoading(false); return; }
+      if(!sb){ setError("Supabase not configured. Add your project URL and anon key to the app."); setLoading(false); return; }
       if(mode==="signup"){
-        // Validate invite code first
-        if(!inviteCode.trim()){ setError("An invite code is required to create an account."); setLoading(false); return; }
-        const {valid, reason, id, useCount} = await validateInviteCode(inviteCode);
-        if(!valid){ setError(reason); setLoading(false); return; }
-        // Create account
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
         if(e) throw e;
-        // Mark code as used
-        await sb.from("invite_codes").update({
-          use_count:(useCount||0)+1,
-          used: true, // set to false if you want multi-use codes
-          used_by_email: email,
-          used_at: new Date().toISOString()
-        }).eq("id",id);
-        setSuccess("Account created! Check your email to confirm, then log in.");
+        setSuccess("Check your email to confirm your account, then log in.");
         setMode("login");
       } else if(mode==="login"){
         const{error:e} = await sb.auth.signInWithPassword({email, password});
@@ -258,11 +230,6 @@ function AuthScreen(){
           {mode==="signup"&&<>
             <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
             <input className="inp" placeholder="John Smith" value={name} onChange={e=>setName(e.target.value)}/>
-            <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
-            <input className="inp" placeholder="e.g. TIGHTLINES24" value={inviteCode}
-              onChange={e=>setInviteCode(e.target.value.toUpperCase())}
-              style={{letterSpacing:2,fontFamily:"monospace"}}/>
-            <div style={{fontSize:11,color:"var(--stone)",marginTop:-8,marginBottom:12,fontStyle:"italic"}}>Need a code? Contact your guide or Adam at amlefkowitz@gmail.com</div>
           </>}
           <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Email</label>
           <input className="inp" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
@@ -347,99 +314,16 @@ function extractJSON(text){
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
-function parseExif(arrayBuffer){
-  const result={time:null,gps:null};
-  try{
-    const view=new DataView(arrayBuffer);
-    if(view.getUint16(0)!==0xFFD8) return result;
-    let offset=2;
-    while(offset<view.byteLength-4){
-      const marker=view.getUint16(offset);
-      const segLen=view.getUint16(offset+2);
-      if(marker===0xFFE1){
-        const hdr=String.fromCharCode(view.getUint8(offset+4),view.getUint8(offset+5),view.getUint8(offset+6),view.getUint8(offset+7));
-        if(hdr==="Exif"){
-          const tiff=offset+10;
-          const le=view.getUint16(tiff)===0x4949;
-          const u16=(o)=>view.getUint16(tiff+o,le);
-          const u32=(o)=>view.getUint32(tiff+o,le);
-          const rational=(o)=>{const n=u32(o),d=u32(o+4);return d?n/d:0;};
-          // Read IFD entries - also follow SubIFD (Exif IFD) for DateTimeOriginal
-          function readIFD(ifdOff){
-            const n=u16(ifdOff);
-            let subExifOff=null;
-            let gpsOff=null;
-            for(let i=0;i<n;i++){
-              const e=ifdOff+2+(i*12);
-              const tag=u16(e);
-              const type=u16(e+2);
-              const valOff=u32(e+8);
-              if(tag===0x9003||tag===0x0132){
-                // DateTimeOriginal or DateTime
-                let s="";
-                for(let j=0;j<19;j++){const c=view.getUint8(tiff+valOff+j);if(c===0)break;s+=String.fromCharCode(c);}
-                const m=s.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
-                if(m&&!result.time){
-                  const d=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
-                  result.time=d.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-                }
-              }
-              if(tag===0x8769) subExifOff=valOff;
-              if(tag===0x8825) gpsOff=valOff;
-            }
-            if(subExifOff) readIFD(subExifOff);
-            if(gpsOff){
-              // Parse GPS IFD — short values (<=4 bytes) are stored inline, not as pointers
-              const TYPE_SIZE={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
-              const gn=u16(gpsOff);
-              let latD=null,latR="N",lngD=null,lngR="E";
-              for(let i=0;i<gn;i++){
-                const e=gpsOff+2+(i*12);
-                const tag=u16(e);
-                const typ=u16(e+2);
-                const count=u32(e+4);
-                const valOff=u32(e+8);
-                const size=(TYPE_SIZE[typ]||1)*count;
-                const isInline=size<=4;
-                // LatRef / LngRef: 2-char ASCII stored inline at entry+8
-                if(tag===1) latR=String.fromCharCode(view.getUint8(tiff+e+8));
-                if(tag===3) lngR=String.fromCharCode(view.getUint8(tiff+e+8));
-                // Lat / Lng: 3 rationals (24 bytes) stored as pointer
-                if(tag===2&&!isInline){
-                  const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
-                  latD=deg+min/60+sec/3600;
-                }
-                if(tag===4&&!isInline){
-                  const deg=rational(valOff),min=rational(valOff+8),sec=rational(valOff+16);
-                  lngD=deg+min/60+sec/3600;
-                }
-              }
-              if(latD!=null&&lngD!=null){
-                const lat=latR==="S"?-latD:latD;
-                const lng=lngR==="W"?-lngD:lngD;
-                result.gps=fmtCoord(lat,lng);
-                result.lat=lat; result.lng=lng;
-              }
-            }
-          }
-          readIFD(u32(4));
-        }
-      }
-      if(segLen<2) break;
-      offset+=2+segLen;
-    }
-  }catch(ex){}
-  return result;
-}
-
 function getKey(){return localStorage.getItem("anthropic_key")||"";}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
+  const key=getKey();
+  if(!key)throw new Error("NO_KEY");
   const body={model:"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
-  const res=await fetch("/api/claude",{
+  const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify(body)
   });
   let d;
@@ -601,82 +485,13 @@ async function fetchUSGSTemp(siteNo){
   }catch{ return null; }
 }
 
-async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
-  // dateStr = "YYYY-MM-DD", hourStr = "HH" (24h)
-  // Ensure bbox is always minLng,minLat,maxLng,maxLat (handles negative western longitudes)
-  const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
-  try{
-    // Open-Meteo archive API — free, no key needed
-    const url=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
-    const r=await fetch(url);
-    if(r.ok){
-      const d=await r.json();
-      const hour=Math.min(parseInt(hourStr)||12, (d.hourly?.time?.length||1)-1);
-      const temp=d.hourly?.temperature_2m?.[hour];
-      const wcode=d.hourly?.weather_code?.[hour];
-      const wind=d.hourly?.wind_speed_10m?.[hour];
-      const wdir=d.hourly?.wind_direction_10m?.[hour];
-      const pres=d.hourly?.surface_pressure?.[hour];
-      if(temp!=null) results.airTemp=String(Math.round(temp));
-      if(wcode!=null) results.weatherDesc=`${WX_EMOJI[wcode]||""} ${WX_DESC[wcode]||""}`.trim();
-      if(wind!=null) results.windSpeed=String(Math.round(wind));
-      if(wdir!=null) results.windDir=windDir(wdir);
-      if(pres!=null) results.pressure=(pres*0.02953).toFixed(2);
-    }
-  }catch(e){ console.log("Historical weather failed:",e); }
-  try{
-    // USGS historical flow — try daily values first, then instantaneous values
-    const sizes=[0.5,1.0,1.5,2.5];
-    let flowFound=false;
-    for(const p of sizes){
-      if(flowFound) break;
-      const minLng=Math.min(lng-p,lng+p), maxLng=Math.max(lng-p,lng+p);
-      const minLat=Math.min(lat-p,lat+p), maxLat=Math.max(lat-p,lat+p);
-      const bbox=`${minLng},${minLat},${maxLng},${maxLat}`;
-      // Try daily values (no siteStatus filter — more compatible)
-      const urls=[
-        `https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`,
-        `https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&startDT=${dateStr}T${hourStr}:00:00&endDT=${dateStr}T23:59:59&siteType=ST`
-      ];
-      for(const url of urls){
-        if(flowFound) break;
-        try{
-          const r=await fetch(url);
-          if(!r.ok) continue;
-          const d=await r.json();
-          const ts=(d.value?.timeSeries)??[];
-          if(!ts.length) continue;
-          const parsed=ts.map(t=>{
-            const vals=t.values?.[0]?.value||[];
-            const raw=vals[0]?.value;
-            const cfs=raw!=null?parseFloat(raw):null;
-            const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-            const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-            const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-            return{name:t.sourceInfo?.siteName??"",cfs,dist};
-          }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-          if(parsed.length){
-            const g=parsed[0];
-            results.streamCFS=String(Math.round(g.cfs));
-            results.streamCondition=cfsLabel(g.cfs,null).label;
-            results.streamGaugeName=g.name;
-            flowFound=true;
-          }
-        }catch(e2){ console.log("USGS url failed:",e2.message); }
-      }
-    }
-    if(!flowFound) console.log("Historical USGS: no flow data found for",dateStr,"at",lat,lng);
-  }catch(e){ console.log("Historical USGS failed:",e); }
-  return results;
-}
-
 async function fetchUSGSLive(lat,lng){
   // Try multiple bounding box sizes to find gauges
   const sizes=[0.5, 1.0, 1.5, 2.5];
   var lastStatus="", lastCount=0;
   for(var si=0; si<sizes.length; si++){
     var p=sizes[si];
-    var minLng=Math.min(lng-p,lng+p), minLat=Math.min(lat-p,lat+p), maxLng=Math.max(lng-p,lng+p), maxLat=Math.max(lat-p,lat+p);
+    var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
       var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
@@ -1047,7 +862,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
       <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
         <span style={{fontSize:11,color:"var(--stone)",marginRight:2}}>Show:</span>
         {TIMEFRAMES.map(tf=>(
-          <button key={tf.label} onClick={e=>{e.stopPropagation();setDays(tf.days);}}
+          <button key={tf.label} onClick={()=>setDays(tf.days)}
             style={{
               background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
               border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
@@ -1072,19 +887,18 @@ function GaugeList({gauges}){
   return(
     <div>
       {gauges.map((g,i)=>(
-        <div className="gi" key={i}>
-          <div style={{cursor:"pointer",display:"flex",flexDirection:"column",gap:4}} onClick={()=>setExpanded(expanded===i?null:i)}>
-            <div className="grow">
-              <span className="gname">{g.name}</span>
-              <span className={`gbadge ${g.cls}`}>{g.label}</span>
-            </div>
-            <div className="grow">
-              <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
-              {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
-              {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
-              <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ Hide chart":"▼ Show chart"}</span>
-            </div>
+        <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
+          <div className="grow">
+            <span className="gname">{g.name}</span>
+            <span className={`gbadge ${g.cls}`}>{g.label}</span>
           </div>
+          <div className="grow">
+            <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
+            {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
+            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
+            <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲":"▼"}</span>
+          </div>
+          <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
           {expanded===i&&(
             <GaugeChart siteNo={g.siteNo} siteName={g.name} initialCFS={g.cfs}/>
           )}
@@ -1301,9 +1115,6 @@ function generateTripReportPDF(guest, trip, reportText){
   <div class="stat"><div class="stat-val">~${trip.catches||0}</div><div class="stat-lbl">Fish Caught</div></div>
   ${(trip.styles||[]).length>0?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${(trip.styles||[]).join(", ")}</div><div class="stat-lbl">Techniques</div></div>`:""}
   ${(trip.gear)?`<div class="stat-div"></div><div class="stat"><div class="stat-val" style="font-size:14px">${trip.gear}</div><div class="stat-lbl">Gear</div></div>`:""}
-  ${(trip.streamCFS)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${Number(trip.streamCFS).toLocaleString()}</div><div class="stat-lbl">CFS · ${trip.streamCondition||"Flow"}</div></div>`:""}
-  ${(trip.airTemp)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${trip.airTemp}°F</div><div class="stat-lbl">Air Temp</div></div>`:""}
-  ${(trip.waterTemp)?`<div class="stat-div"></div><div class="stat"><div class="stat-val">${trip.waterTemp}°F</div><div class="stat-lbl">Water Temp</div></div>`:""}
 
 </div>
 
@@ -1347,34 +1158,6 @@ ${reportText?`
   <div class="footer-note">Generated ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
 </div>
 
-<script>
-if("serviceWorker" in navigator){
-  // Inline service worker — caches app shell for offline use
-  const swCode = `
-    const CACHE = "guides-choice-v1";
-    const SHELL = ["/"];
-    self.addEventListener("install", e => {
-      e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
-      self.skipWaiting();
-    });
-    self.addEventListener("activate", e => {
-      e.waitUntil(caches.keys().then(keys =>
-        Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))
-      ));
-      self.clients.claim();
-    });
-    self.addEventListener("fetch", e => {
-      if(e.request.method !== "GET") return;
-      e.respondWith(
-        fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
-      );
-    });
-  `;
-  const blob = new Blob([swCode], {type:"application/javascript"});
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl).catch(()=>{});
-}
-</script>
 </body>
 </html>`;
 
@@ -1567,42 +1350,6 @@ function GuideBook({user}){
   const [view, setView] = useState("list"); // list | guest | addGuest | editGuest | addTrip | editTrip | tripDetail
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
-  // One-time cleanup of old bloated cache
-  React.useEffect(()=>{
-    try{
-      const c=JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-      let changed=false;
-      Object.keys(c).forEach(id=>{
-        if(c[id].catchDetails){
-          c[id].catchDetails=c[id].catchDetails.map(({photo:_ph,...rest})=>rest);
-          changed=true;
-        }
-        if(c[id].photos){ delete c[id].photos; changed=true; }
-      });
-      if(changed) localStorage.setItem("tl_trip_cache", JSON.stringify(c));
-    }catch(e){ localStorage.removeItem("tl_trip_cache"); }
-  },[]);
-  const [processingPhotos, setProcessingPhotos] = useState(false);
-  // Clear any corrupt cache entries on init
-  React.useMemo(()=>{ try{ const c=localStorage.getItem("tl_trip_cache"); if(c) JSON.parse(c); }catch(e){ localStorage.removeItem("tl_trip_cache"); } },[]);
-  const [pendingSyncCount, setPendingSyncCount] = useState(()=>{
-    const c=JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-    return Object.values(c).filter(v=>v._pendingSync).length;
-  });
-
-  // Auto-sync when connection restored
-  React.useEffect(()=>{
-    async function onOnline(){
-      const count = await syncPendingTrips();
-      if(count>0) setPendingSyncCount(0);
-    }
-    window.addEventListener("online", onOnline);
-    // Also try on mount in case we just came back online
-    if(navigator.onLine) onOnline();
-    return ()=>window.removeEventListener("online", onOnline);
-  },[user]);
-  const [editingCatchIdx, setEditingCatchIdx] = useState(null);
-  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(null);
 
   const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
 
@@ -1611,14 +1358,6 @@ function GuideBook({user}){
     if(!user) return;
     async function load(){
       const isLocalUser = !sb || String(user?.id).startsWith("local");
-      // Show cached guests immediately while loading from Supabase
-      if(!isLocalUser){
-        try{
-          const cacheKey="tl_guests_"+user.id;
-          const cached=localStorage.getItem(cacheKey);
-          if(cached){ setGuests(JSON.parse(cached)); setGuestsLoading(false); }
-        }catch{}
-      }
 
       if(isLocalUser){
         // No Supabase - use localStorage only
@@ -1630,13 +1369,11 @@ function GuideBook({user}){
         return;
       }
 
-      // Load guests AND trips in parallel
-      const [{data:gData,error:gErr},{data:tData}]=await Promise.all([
-        sb.from("guests").select("*").eq("user_id",user.id).order("name"),
-        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name").eq("user_id",user.id).order("date",{ascending:false})
-      ]);
+      // Logged in via Supabase - load from cloud (works on any device)
+      const {data:gData, error:gErr}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
       if(gErr){
         console.error("Failed to load guests:", gErr.message);
+        // Fall back to localStorage if Supabase fails
         const localGuests = JSON.parse(localStorage.getItem("tl_guests")||"[]");
         const localTrips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
         setGuests(localGuests.map(g=>({...g,trips:localTrips.filter(t=>t.guest_id===g.id)})));
@@ -1644,6 +1381,7 @@ function GuideBook({user}){
         return;
       }
       if(!gData){ setGuestsLoading(false); return; }
+      const {data:tData}=await sb.from("trips").select("*").eq("user_id",user.id).order("date",{ascending:false});
       const trips=tData||[];
       const guestsWithTrips=gData.map(g=>({
         ...g,
@@ -1651,24 +1389,16 @@ function GuideBook({user}){
         trips:trips.filter(t=>t.guest_id===g.id).map(t=>({
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
-          gear:t.gear,guideNotes:t.guide_notes,
-          photos:[],catchDetails:[],_detailsLoaded:false,
+          gear:t.gear,guideNotes:t.guide_notes,photos:t.photos||[],
           tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text,
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
-          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name
+          streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name,
+          catchDetails:t.catch_details||[]
         }))
       }));
       setGuests(guestsWithTrips);
       setGuestsLoading(false);
-      // Cache guests (without trip photos) for instant next load
-      try{
-        const cacheKey="tl_guests_"+user.id;
-        const safe=guestsWithTrips.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[]}))}));
-        localStorage.setItem(cacheKey, JSON.stringify(safe));
-      }catch{}
-      localStorage.removeItem("tl_guests");
-      localStorage.removeItem("tl_trips");
     }
     load();
   },[user]);
@@ -1685,7 +1415,9 @@ function GuideBook({user}){
       try{
         const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
         if(error){
-          alert("Supabase error: "+error.message+"\nCode: "+error.code+"\nGuest saved locally only.");
+          alert("Supabase error: "+error.message+"
+Code: "+error.code+"
+Guest saved locally only.");
           return localGuest;
         }
         if(data){
@@ -1728,8 +1460,7 @@ function GuideBook({user}){
       air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
       wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-      catch_details:tripData.catchDetails||[]
+      stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
     }).select().single();
       if(!error && data) return data;
       console.error("Supabase trip save failed:", error?.message);
@@ -1743,113 +1474,23 @@ function GuideBook({user}){
   }
 
   async function updateTripInDb(id, tripData){
-    // Always write to localStorage first as offline cache
-    // Strip photos (base64) to avoid localStorage quota — they're in Supabase already
-    const {photos:_p, ...tripDataNoPhotos} = tripData;
-    // Also strip photos from catchDetails to avoid localStorage quota
-    const safeData = {
-      ...tripDataNoPhotos,
-      catchDetails:(tripDataNoPhotos.catchDetails||[]).map(({photo:_ph,...rest})=>rest),
-      _pendingSync: true,
-      _updatedAt: Date.now()
-    };
-    const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-    cached[id] = safeData;
-    try{ localStorage.setItem("tl_trip_cache", JSON.stringify(cached)); }catch(e){ console.log("Cache write failed:",e.message); }
-
-    if(sb && user?.id && !String(user.id).startsWith("local") && navigator.onLine){
-      try{
-        // Don't update photos during sync (not cached locally)
-        const syncFields = {
-          date:tripData.date, location:tripData.location, type:tripData.type,
-          styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-          gear:tripData.gear, guide_notes:tripData.guideNotes,
-          trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
-          air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
-          weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-          wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-          stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-          catch_details:tripData.catchDetails||[]
-        };
-        // Strip catch_details photos to save space
-        if(syncFields.catch_details){
-          syncFields.catch_details=syncFields.catch_details.map(({photo:_ph,...rest})=>rest);
-        }
-        const {error} = await sb.from("trips").update(syncFields).eq("id",id);
-        if(!error){
-          // Mark as synced
-          const c2 = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-          if(c2[id]) { c2[id]._pendingSync=false; localStorage.setItem("tl_trip_cache", JSON.stringify(c2)); }
-        }
-      }catch(e){
-        console.log("Trip save offline — queued for sync:", id);
-      }
+    if(sb && user?.id && !String(user.id).startsWith("local")){
+      await sb.from("trips").update({
+        date:tripData.date, location:tripData.location, type:tripData.type,
+        styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
+        gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+        trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
+        air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
+        weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
+        wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
+        stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
+      }).eq("id",id);
+      return;
     }
-    // Also update localStorage trips list (strip photos to avoid quota)
-    try{
-      const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
-      const {photos:_p2,...tripDataSafe}=tripData;
-      const updated = trips.map(t => t.id===id ? {...t,...tripDataSafe} : t);
-      localStorage.setItem("tl_trips", JSON.stringify(updated));
-    }catch(e){ console.log("localStorage trips update failed:",e.message); }
-  }
-
-  // Sync any pending trip updates when connection is restored
-  async function saveTripPhotos(id, photos){
-    if(!sb||!user?.id||String(id).startsWith("local")) return;
-    try{ await sb.from("trips").update({photos}).eq("id",id); }
-    catch(e){ console.log("Photo save failed:",e); }
-  }
-
-  async function loadTripDetails(tripId){
-    // Fetch photos and catch_details on demand when a trip is opened
-    if(!sb) return;
-    try{
-      const {data} = await sb.from("trips").select("photos,catch_details").eq("id",tripId).single();
-      if(!data) return;
-      const photos = data.photos||[];
-      const catchDetails = data.catch_details||[];
-      setGuests(gs=>gs.map(g=>({
-        ...g,
-        trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails,_detailsLoaded:true}:t)
-      })));
-      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails,_detailsLoaded:true}:st);
-    }catch(e){ console.log("loadTripDetails failed:",e); }
-  }
-
-  async function syncPendingTrips(){
-    if(!sb||!user?.id||String(user.id).startsWith("local")) return;
-    const cached = JSON.parse(localStorage.getItem("tl_trip_cache")||"{}");
-    const pending = Object.entries(cached).filter(([,v])=>v._pendingSync);
-    if(!pending.length) return;
-    let synced=0;
-    for(const [id, tripData] of pending){
-      try{
-        // Don't update photos during sync (not cached locally)
-        const syncFields = {
-          date:tripData.date, location:tripData.location, type:tripData.type,
-          styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-          gear:tripData.gear, guide_notes:tripData.guideNotes,
-          trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
-          air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
-          weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
-          wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
-          stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-          catch_details:tripData.catchDetails||[]
-        };
-        // Strip catch_details photos to save space
-        if(syncFields.catch_details){
-          syncFields.catch_details=syncFields.catch_details.map(({photo:_ph,...rest})=>rest);
-        }
-        const {error} = await sb.from("trips").update(syncFields).eq("id",id);
-        if(!error){ cached[id]._pendingSync=false; synced++; }
-      }catch{}
-    }
-    if(synced>0){
-      localStorage.setItem("tl_trip_cache", JSON.stringify(cached));
-      console.log(`Synced ${synced} pending trip update(s)`);
-    }
-    return synced;
+    // localStorage fallback
+    const trips = JSON.parse(localStorage.getItem("tl_trips")||"[]");
+    const updated = trips.map(t => t.id===id ? {...t,...tripData} : t);
+    localStorage.setItem("tl_trips", JSON.stringify(updated));
   }
 
   async function deleteTripFromDb(id){
@@ -1884,78 +1525,14 @@ function GuideBook({user}){
     setView("guest");
   }
 
-  async function handleTripPhoto(e){
+  function handleTripPhoto(e){
     const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => setTripForm(f => ({...f, photos:[...f.photos, ev.target.result]}));
+      reader.readAsDataURL(file);
+    });
     e.target.value = "";
-    for(const file of files){
-      const dataUrl = await new Promise(res=>{ const r=new FileReader(); r.onload=ev=>res(ev.target.result); r.readAsDataURL(file); });
-      // Add photo immediately
-      setTripForm(f=>({...f, photos:[...f.photos, dataUrl]}));
-      // Parse EXIF
-      let photoTime=null, photoGps="", photoLat=null, photoLng=null;
-      try{
-        const abuf=await file.arrayBuffer();
-        const exif=parseExif(abuf);
-        photoTime=exif.time; photoGps=exif.gps||""; photoLat=exif.lat??null; photoLng=exif.lng??null;
-      }catch{}
-      if(!photoTime&&file.lastModified&&Date.now()-file.lastModified>5000){
-        photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      }
-      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-
-      // Build catch detail entry
-      const detail={photo:dataUrl, time:t, gps:photoGps, species:"", length:"", airTemp:"", weatherDesc:"", windSpeed:"", windDir:"", pressure:"", streamCFS:"", streamCondition:"", streamGaugeName:"", analyzing:true};
-      setTripForm(f=>({...f, catchDetails:[...( f.catchDetails||[]), detail]}));
-
-      // Fetch historical conditions from photo GPS
-      const fetchLat=photoLat; const fetchLng=photoLng;
-      if(fetchLat&&fetchLng){
-        try{
-          let dateStr=null, hourStr="12";
-          const d=new Date(t.replace(" at "," "));
-          if(!isNaN(d)){ dateStr=d.toISOString().split("T")[0]; hourStr=String(d.getHours()).padStart(2,"0"); }
-          const today=new Date().toISOString().split("T")[0];
-          let conds;
-          if(dateStr&&dateStr<today){
-            conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
-          } else {
-            const [wxData,usgsData]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
-            const c=wxData.current;
-            const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
-            const ts2=(usgsData.value?.timeSeries)??[];
-            let topGauge=null;
-            if(ts2.length){
-              const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-              if(parsed.length) topGauge=parsed[0];
-            }
-            conds={airTemp:String(Math.round(c.temperature_2m)),weatherDesc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim(),windSpeed:String(Math.round(c.wind_speed_10m)),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg,streamCFS:topGauge?String(Math.round(topGauge.cfs)):"",streamCondition:topGauge?topGauge.label:"",streamGaugeName:topGauge?topGauge.name:""};
-          }
-          setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,...conds}:d)}));
-        }catch(err){ console.log("Trip photo conditions failed:",err); }
-      }
-
-      // Claude vision: identify species + estimate size
-      const key=getKey();
-      if(key){
-        try{
-          const base64=dataUrl.split(",")[1];
-          const mediaType=file.type||"image/jpeg";
-          const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
-          const rd=await res.json();
-          const txt=((rd.content||[])[0]?.text||"").trim();
-          const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
-          setTripForm(f=>({...f,
-            catches:f.catches+(parsed.length?1:0),
-            catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,species:parsed.species||"",length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false}:d)
-          }));
-        }catch(err){
-          setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,analyzing:false}:d)}));
-        }
-      } else {
-        setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,analyzing:false}:d)}));
-      }
-    }
   }
 
   function toggleStyle(s){
@@ -1972,29 +1549,24 @@ function GuideBook({user}){
       setGuests(gs=>gs.map(g=>g.id===guest.id?{...g,trips:(g.trips||[]).map(t=>t.id===trip.id?{...t,reportText:txt}:t)}:g));
     }
     try{
-      const catchLines=(trip.catchDetails||[]).filter(d=>d.species||d.length).map((d,i)=>`  Photo ${i+1}: ${d.species||"Unknown"}${d.length?" ("+d.length+'")':""}${d.gps?" at "+d.gps:""}${d.time?" — "+d.time:""}${d.airTemp?" | "+d.airTemp+"°F":""}${d.weatherDesc?" "+d.weatherDesc:""}${d.streamCFS?" | "+Number(d.streamCFS).toLocaleString()+" CFS":""}${d.windSpeed?" | Wind "+d.windSpeed+"mph "+d.windDir:""}`).join("\n");
       const txt = await askClaude(`You are a fly fishing guide writing a trip summary for a client.
 Client: ${guest.name}
 Date: ${trip.date}
 Location: ${trip.location||"Not specified"}
 Trip type: ${trip.type}
 Fishing styles: ${trip.styles.join(", ")||"Not specified"}
-Total catches: ${trip.catches}
+Estimated catches: ${trip.catches}
 Flies that worked: ${trip.flies.join(", ")||"Not specified"}
 Gear used: ${trip.gear||"Not specified"}
-Conditions: ${[trip.airTemp&&trip.airTemp+"°F air",trip.waterTemp&&trip.waterTemp+"°F water",trip.weatherConditions,trip.windSpeed&&trip.windSpeed+"mph wind",trip.streamCFS&&trip.streamCFS+" CFS"].filter(Boolean).join(", ")||"Not recorded"}
 Guide notes: ${trip.guideNotes||"None"}
-${catchLines?`
-Individual catches:
-${catchLines}`:""}
 
 Write a warm, encouraging 3-4 paragraph trip report the guide can share with the client. Include:
-1. A highlight of how the day went, referencing specific fish caught if data available (species and sizes)
-2. What was working and why (flies, techniques, conditions — be specific about flows, temp, weather if available)
+1. A highlight of how the day went
+2. What was working and why (flies, techniques, conditions)
 3. 2-3 specific, kind suggestions for improvement framed positively
 4. An encouraging closing note
 
-Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 800);
+Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 600);
       setReport(txt);
       saveReport(txt);
     }catch(e){ setReport("Could not generate report. " + e.message); }
@@ -2029,7 +1601,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 let migrated=0;
                 for(const g of localGuests){
                   const {id:oldId,...gData}=g;
-                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,address2:gData.address2,city:gData.city,state:gData.state,zip:gData.zip,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
+                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
                   if(!error&&newG){
                     migrated++;
                     const gTrips=localTrips.filter(t=>t.guest_id===oldId);
@@ -2211,16 +1783,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
-      {pendingSyncCount>0&&(
-        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,color:"var(--gold)",display:"flex",alignItems:"center",gap:8}}>
-          <span>📡</span>
-          <span>{pendingSyncCount} trip update{pendingSyncCount!==1?"s":""} saved offline — will sync when back online</span>
-        </div>
-      )}
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
-        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");if(!trip._detailsLoaded)loadTripDetails(trip.id);}}>
+        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");}}>
           <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
           {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
@@ -2292,42 +1858,14 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <span className="pi">📷</span>Add Photos
         </button>
         {tripForm.photos.length>0&&(
-          <div style={{marginBottom:12}}>
-            {tripForm.photos.map((p,i)=>{
-              const cd=(tripForm.catchDetails||[])[i];
-              return(
-                <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,display:"flex",gap:10,alignItems:"flex-start"}}>
-                  <div style={{position:"relative",flexShrink:0}}>
-                    <img src={p} style={{width:72,height:72,objectFit:"cover",borderRadius:8}} alt="catch"/>
-                    <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i),catchDetails:(f.catchDetails||[]).filter((_,j)=>j!==i)}))}
-                      style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                  </div>
-                  <div style={{flex:1,fontSize:12}}>
-                    {cd?.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic",marginBottom:4}}>🔍 Analyzing…</div>}
-                    {cd&&!cd.analyzing&&<>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                        {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic"}}>{cd.species}</span>}
-                        {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
-                        {cd.time&&<span style={{color:"var(--stone)"}}>{cd.time}</span>}
-                      </div>
-                      {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:4}}>📍 {cd.gps}</div>}
-                      {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
-                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11}}>
-                          {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
-                          {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
-                          {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
-                          {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS</span>}
-                        </div>
-                      )}
-                      <div style={{display:"flex",gap:6,marginTop:6}}>
-                        <input className="inp" style={{marginBottom:0,flex:1,fontSize:11,padding:"4px 8px"}} placeholder="Species" value={cd.species||""} onChange={e=>setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,j)=>j===i?{...d,species:e.target.value}:d)}))}/>
-                        <input className="inp" style={{marginBottom:0,width:60,fontSize:11,padding:"4px 8px"}} placeholder='Size"' value={cd.length||""} onChange={e=>setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,j)=>j===i?{...d,length:e.target.value}:d)}))}/>
-                      </div>
-                    </>}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+            {tripForm.photos.map((p,i)=>(
+              <div key={i} style={{position:"relative"}}>
+                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
+                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ))}
           </div>
         )}
         <button className="btn btnp" onClick={saveTrip}>Save Trip</button>
@@ -2459,208 +1997,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             <p style={{fontSize:13,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
-        {!selectedTrip._detailsLoaded&&<div style={{textAlign:"center",padding:16,color:"var(--stone)",fontSize:12,fontStyle:"italic"}}>Loading catches…</div>}
-        {selectedTrip._detailsLoaded&&selectedTrip.photos.length>0&&(
+        {selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
-              <button onClick={async()=>{
-                if(processingPhotos) return;
-                setProcessingPhotos(true);
-                const key=getKey();
-                const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-                const details=[...(selectedTrip.catchDetails||[])];
-                // Ensure array is same length as photos
-                while(details.length<selectedTrip.photos.length) details.push({});
-                for(let i=0;i<selectedTrip.photos.length;i++){
-                  const p=selectedTrip.photos[i];
-                  // Skip if already has full data
-                  if(details[i]?.species&&details[i]?.airTemp) continue;
-                  // Convert data URL to blob for EXIF
-                  let photoTime=null,photoGps="",photoLat=null,photoLng=null;
-                  try{
-                    const res2=await fetch(p);
-                    const abuf=await res2.arrayBuffer();
-                    const exif=parseExif(abuf);
-                    photoTime=exif.time; photoGps=exif.gps||""; photoLat=exif.lat??null; photoLng=exif.lng??null;
-                  }catch{}
-                  const t=photoTime||selectedTrip.date||"";
-                  details[i]={...details[i],time:t,gps:photoGps,analyzing:true};
-                  // Update UI immediately
-                  const updDetails=[...details];
-                  setSelectedTrip(st=>({...st,catchDetails:updDetails}));
-                  // Fetch conditions
-                  if(photoLat&&photoLng){
-                    try{
-                      let dateStr=null,hourStr="12";
-                      const d2=new Date((t||"").replace(" at "," "));
-                      if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
-                      const today=new Date().toISOString().split("T")[0];
-                      const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
-                      if(conds) Object.assign(details[i],conds);
-                    }catch{}
-                  }
-                  // Claude vision
-                  try{
-                    {
-                      const base64=p.split(",")[1];
-                      const res3=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
-                      const rd=await res3.json();
-                      const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-                      if(parsed.species) details[i].species=parsed.species;
-                      if(parsed.length!=null) details[i].length=String(Math.round(parsed.length));
-                    }
-                  }catch{}
-                  details[i].analyzing=false;
-                  setSelectedTrip(st=>({...st,catchDetails:[...details]}));
-                }
-                // Save to Supabase
-                await updateTripInDb(selectedTrip.id,{...selectedTrip,catchDetails:details});
-                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?{...t,catchDetails:details}:t)})));
-                setProcessingPhotos(false);
-              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                {processingPhotos?"⏳ Processing…":"✦ Analyze Photos"}
-              </button>
+            <div className="lbl" style={{marginBottom:8}}>Photos</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:100,height:100,objectFit:"cover",borderRadius:10}} alt="catch"/>)}
             </div>
-            {selectedTrip.photos.map((p,i)=>{
-              const cd=(selectedTrip.catchDetails||[])[i];
-              return(
-                <div key={i} style={{background:"rgba(0,0,0,0.2)",borderRadius:12,marginBottom:8,overflow:"hidden"}}>
-                  <div style={{display:"flex",gap:10,padding:10,alignItems:"flex-start"}}>
-                    <img src={p} style={{width:90,height:90,objectFit:"cover",borderRadius:8,flexShrink:0,cursor:"pointer"}} alt="catch"
-                      onClick={()=>window._setLightbox&&window._setLightbox(p)}/>
-                    <div style={{flex:1,fontSize:12}}>
-                      {cd?.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic",marginBottom:6}}>🔍 Analyzing…</div>}
-                      {(!cd||(!cd.species&&!cd.airTemp&&!cd.analyzing))&&<div style={{color:"var(--stone)",fontStyle:"italic",fontSize:11}}>No data yet — tap "Analyze Photos" above</div>}
-                      {cd&&!cd.analyzing&&(cd.species||cd.airTemp)&&<>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4,alignItems:"center"}}>
-                          {cd.species&&<span style={{color:"var(--foam)",fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14}}>{cd.species}</span>}
-                          {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
-                        </div>
-                        {cd.time&&<div style={{color:"var(--stone)",marginBottom:3,fontSize:11}}>{cd.time}</div>}
-                        {cd.gps&&<div style={{color:"var(--stone)",fontSize:11,marginBottom:3}}>📍 {cd.gps}</div>}
-                        {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
-                          <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",color:"var(--stone)",fontSize:11,marginBottom:6}}>
-                            {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
-                            {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
-                            {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
-                            {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS</span>}
-                            {cd.pressure&&<span>📊 {cd.pressure}"</span>}
-                          </div>
-                        )}
-                      </>}
-                      <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>setEditingCatchIdx(editingCatchIdx===i?null:i)}
-                          style={{fontSize:11,padding:"3px 10px",background:"rgba(44,95,110,0.4)",border:"1px solid rgba(44,95,110,0.6)",borderRadius:8,color:"var(--sky)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                          ✏️ Edit
-                        </button>
-                        <button onClick={()=>{
-                          if(!window.confirm("Remove this photo and its catch data?")) return;
-                          const newPhotos=selectedTrip.photos.filter((_,j)=>j!==i);
-                          const newDetails=(selectedTrip.catchDetails||[]).filter((_,j)=>j!==i);
-                          const updatedTrip={...selectedTrip,photos:newPhotos,catchDetails:newDetails,catches:Math.max(0,(selectedTrip.catches||1)-1)};
-                          setSelectedTrip(updatedTrip);
-                          setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?updatedTrip:t)})));
-                          updateTripInDb(selectedTrip.id,updatedTrip);
-                          // Separately update photos since updateTripInDb strips them to avoid quota
-                          saveTripPhotos(selectedTrip.id, newPhotos);
-                          if(editingCatchIdx===i) setEditingCatchIdx(null);
-                        }} style={{fontSize:11,padding:"3px 10px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                          🗑
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  {editingCatchIdx===i&&(()=>{
-                    const cd2=(selectedTrip.catchDetails||[])[i]||{};
-                    const save=(updates)=>{
-                      const newDetails=[...(selectedTrip.catchDetails||[])];
-                      while(newDetails.length<=i) newDetails.push({});
-                      newDetails[i]={...newDetails[i],...updates};
-                      setSelectedTrip(st=>({...st,catchDetails:newDetails}));
-                      updateTripInDb(selectedTrip.id,{...selectedTrip,catchDetails:newDetails});
-                      if(!navigator.onLine) setPendingSyncCount(n=>n+1);
-                      setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?{...t,catchDetails:newDetails}:t)})));
-                    };
-                    return(
-                      <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",padding:"12px 14px",background:"rgba(0,0,0,0.15)"}}>
-                        <div style={{fontSize:11,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
-                            <select className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} value={cd2.species||""}
-                              onChange={e=>save({species:e.target.value})}>
-                              <option value="">Select…</option>
-                              {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (inches)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number" placeholder='e.g. 18"'
-                              value={cd2.length||""} onChange={e=>save({length:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div style={{marginBottom:8}}>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. May 8, 2026 at 2:30 PM"
-                            value={cd2.time||""} onChange={e=>save({time:e.target.value})}/>
-                        </div>
-                        <div style={{marginBottom:8}}>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS Location</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. 39.6923°N, 106.7450°W"
-                            value={cd2.gps||""} onChange={e=>save({gps:e.target.value})}/>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp (°F)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
-                              value={cd2.airTemp||""} onChange={e=>save({airTemp:e.target.value})}/>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
-                              value={cd2.streamCFS||""} onChange={e=>save({streamCFS:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Wind (mph)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} type="number"
-                              value={cd2.windSpeed||""} onChange={e=>save({windSpeed:e.target.value})}/>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Wind Dir</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="SW"
-                              value={cd2.windDir||""} onChange={e=>save({windDir:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Pressure (inHg)</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}}
-                              value={cd2.pressure||""} onChange={e=>save({pressure:e.target.value})}/>
-                          </div>
-                          <div>
-                            <div className="lbl" style={{marginBottom:3,fontSize:10}}>Sky</div>
-                            <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. ☀️ Sunny"
-                              value={cd2.weatherDesc||""} onChange={e=>save({weatherDesc:e.target.value})}/>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="lbl" style={{marginBottom:3,fontSize:10}}>Flow Condition / Gauge</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,padding:"6px 8px"}} placeholder="e.g. Good — Eagle River at Eagle"
-                            value={cd2.streamGaugeName||""} onChange={e=>save({streamGaugeName:e.target.value})}/>
-                        </div>
-                        <button onClick={()=>setEditingCatchIdx(null)}
-                          style={{marginTop:10,width:"100%",padding:"6px",background:"var(--water)",border:"none",borderRadius:8,color:"var(--foam)",cursor:"pointer",fontFamily:"'Crimson Pro',serif",fontSize:13}}>
-                          ✓ Done
-                        </button>
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
           </div>
         )}
         <div style={{marginTop:14,display:"flex",gap:8}}>
@@ -2668,7 +2010,6 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             {generating?"Generating…":"✦ Generate Client Report"}
           </button>
           <button className="btn" style={{background:"rgba(44,95,110,0.5)",padding:"0 14px"}} onClick={()=>{
-  if(!selectedTrip._detailsLoaded) loadTripDetails(selectedTrip.id);
   setTripForm({
     ...tripForm0,
     ...selectedTrip,
@@ -2743,150 +2084,6 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
 }
 
 // ── Trip Planner ──────────────────────────────────────────────────────────────
-function ReportMap({rivers, center}){
-  const [pins, setPins] = React.useState([]);
-  const mapRef = React.useRef(null);
-
-  React.useEffect(()=>{
-    if(!rivers||!rivers.length||!center?.label) return;
-    // Geocode each river name near the search location
-    async function geocodeRivers(){
-      const results = [];
-      for(const r of rivers){
-        try{
-          const data = await geocode(`${r.name} near ${center.label}`);
-          if(data&&data.length){
-            results.push({name:r.name, conditions:r.conditions, lat:parseFloat(data[0].lat), lng:parseFloat(data[0].lon)});
-          }
-        }catch{}
-      }
-      setPins(results);
-    }
-    geocodeRivers();
-  },[rivers, center]);
-
-  if(!pins.length) return(
-    <div style={{marginTop:10,padding:"12px",background:"rgba(0,0,0,0.2)",borderRadius:10,fontSize:12,color:"var(--stone)",fontStyle:"italic",textAlign:"center",animation:"pulse 1.5s infinite"}}>📍 Locating rivers on map…</div>
-  );
-
-  // Build OpenStreetMap bbox from pin bounds
-  const lats=pins.map(p=>p.lat), lngs=pins.map(p=>p.lng);
-  const minLat=Math.min(...lats)-0.15, maxLat=Math.max(...lats)+0.15;
-  const minLng=Math.min(...lngs)-0.2, maxLng=Math.max(...lngs)+0.2;
-  const bbox=`${minLng},${minLat},${maxLng},${maxLat}`;
-  const markers=pins.map(p=>`${p.lat},${p.lng}`).join("|");
-  const src=`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${pins[0].lat}%2C${pins[0].lng}`;
-
-  return(
-    <div style={{marginTop:14}}>
-      <div style={{fontSize:11,color:"var(--stone)",marginBottom:6,fontStyle:"italic"}}>📍 Rivers in this report</div>
-      <div style={{borderRadius:12,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
-        <iframe title="Rivers Map" width="100%" height="240" frameBorder="0" style={{display:"block"}} src={src} allowFullScreen/>
-      </div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-        {pins.map((p,i)=>(
-          <a key={i} href={`https://maps.google.com/?q=${p.lat},${p.lng}`} target="_blank" rel="noreferrer"
-            style={{fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"4px 10px",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
-            📍 {p.name}
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function GuestTrips({user}){
-  const [trips, setTrips] = React.useState([]);
-  const [expanded, setExpanded] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(()=>{
-    if(!sb||!user?.email) { setLoading(false); return; }
-    async function load(){
-      // Find guest records matching this user's email, then load their trips
-      const {data:guests} = await sb.from("guests").select("id,name").ilike("email", user.email);
-      if(!guests?.length){ setLoading(false); return; }
-      const guestIds = guests.map(g=>g.id);
-      const {data:tripData} = await sb.from("trips")
-        .select("*")
-        .in("guest_id", guestIds)
-        .not("report_text", "is", null)
-        .neq("report_text", "")
-        .order("date", {ascending:false});
-      if(tripData?.length){
-        const enriched = tripData.map(t=>({
-          ...t,
-          reportText:t.report_text,
-          catchDetails:t.catch_details||[],
-          photos:t.photos||[]
-        }));
-        setTrips(enriched);
-      }
-      setLoading(false);
-    }
-    load();
-  },[user]);
-
-  if(loading) return null;
-  if(!trips.length) return null;
-
-  return(
-    <div style={{marginBottom:16}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"var(--gold)",marginBottom:10,letterSpacing:0.5}}>
-        ✦ My Trip Reports
-      </div>
-      {trips.map((t,i)=>(
-        <div key={t.id} className="card" style={{marginBottom:10}}>
-          <div style={{cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
-            onClick={()=>setExpanded(expanded===i?null:i)}>
-            <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Trip"}</div>
-              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.date} · {t.catches||0} fish · {t.type}</div>
-            </div>
-            <span style={{color:"var(--stone)",fontSize:12}}>{expanded===i?"▲":"▼"}</span>
-          </div>
-
-          {expanded===i&&<>
-            <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:12,paddingTop:12}}>
-              {/* Catch photos with data */}
-              {t.photos.length>0&&(
-                <div style={{marginBottom:14}}>
-                  <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Catches</div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                    {t.photos.map((p,pi)=>{
-                      const cd=(t.catchDetails||[])[pi];
-                      return(
-                        <div key={pi} style={{textAlign:"center"}}>
-                          <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8,display:"block"}} alt="catch"/>
-                          {cd?.species&&<div style={{fontSize:10,color:"var(--foam)",marginTop:3,fontStyle:"italic"}}>{cd.species}</div>}
-                          {cd?.length&&<div style={{fontSize:10,color:"var(--sky)"}}>{cd.length}"</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {/* Conditions */}
-              {(t.air_temp||t.stream_cfs||t.weather_conditions)&&(
-                <div style={{display:"flex",flexWrap:"wrap",gap:"3px 12px",fontSize:11,color:"var(--stone)",marginBottom:12}}>
-                  {t.weather_conditions&&<span>{t.weather_conditions}</span>}
-                  {t.air_temp&&<span>🌡 {t.air_temp}°F</span>}
-                  {t.water_temp&&<span>💧 {t.water_temp}°F water</span>}
-                  {t.stream_cfs&&<span>〰 {Number(t.stream_cfs).toLocaleString()} CFS</span>}
-                  {t.wind_speed&&<span>💨 {t.wind_speed}mph {t.wind_dir}</span>}
-                </div>
-              )}
-              {/* Guide report */}
-              <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Guide Report</div>
-              <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Crimson Pro',serif"}}>{t.reportText}</div>
-            </div>
-          </>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
@@ -3006,7 +2203,7 @@ function TripPlanner({defaultLocation}){
         addStep("Report complete ✓");
       }
     }catch(e){
-      if(e.message==="NO_KEY"||e.message?.includes("API key")){setError("AI service unavailable. Please try again.");}
+      if(e.message==="NO_KEY"){setError("Add your Anthropic API key above to get AI fishing reports.");}
       else setError(e.message||"Something went wrong.");
     }finally{setBusy(false);}
   }
@@ -3016,7 +2213,7 @@ function TripPlanner({defaultLocation}){
 
   return(
     <div>
-
+      {!hasKey&&<ApiKeySetup onSave={()=>setHasKey(true)}/>}
       <div className="card">
         <div className="ctitle">🗓 Plan Your Trip</div>
         <label className="lbl">Destination</label>
@@ -3094,7 +2291,6 @@ function TripPlanner({defaultLocation}){
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
               </div>
             ))}
-            <ReportMap rivers={report.rivers} center={loc}/>
           </>}
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
@@ -3110,16 +2306,9 @@ function TripPlanner({defaultLocation}){
 function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
-  const [batchQueue,setBatchQueue]=useState([]);  // [{photo,time,gps,species,length,airTemp,...,processing}]
   const [editingCatchId,setEditingCatchId]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
-  // Make setLightboxPhoto accessible globally for child components
   React.useEffect(()=>{ window._setLightbox=setLightboxPhoto; return()=>{window._setLightbox=null;}; },[setLightboxPhoto]);
-  const [offlinePhotoQueue,setOfflinePhotoQueue]=useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("tl_offline_photos")||"[]"); }catch{ return []; }
-  });
-  const [batchOpen,setBatchOpen]=useState(false);
-  const [batchSaving,setBatchSaving]=useState(false);
   const [loc,setLoc]=useState(null);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
@@ -3131,29 +2320,14 @@ function App({user}){
   const [lastUpd,setLastUpd]=useState(null);
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
-  const [selectedCatch,setSelectedCatch]=useState(null);
-  const [catchSummary,setCatchSummary]=useState(null);
-  const [summaryLoading,setSummaryLoading]=useState(false);
 
-  // Load catches — show cache immediately, then refresh from Supabase
+  // Load catches from Supabase on mount
   useEffect(()=>{
     if(!user) return;
-    // Show cached catches instantly
-    const cacheKey="tl_catches_"+user.id;
-    try{
-      const cached=localStorage.getItem(cacheKey);
-      if(cached){ setCatches(JSON.parse(cached)); setCatchesLoading(false); }
-    }catch{}
     if(!sb){ setCatchesLoading(false); return; }
-    // Then fetch fresh data from Supabase (no photos in list query — load on demand)
-    sb.from("catches").select("id,species,length,flies,photo,gps,time,notes,air_temp,weather_desc,wind_speed,wind_dir,pressure,stream_cfs,stream_condition,stream_gauge_name,created_at").eq("user_id",user.id).order("created_at",{ascending:false})
+    sb.from("catches").select("*").eq("user_id",user.id).order("created_at",{ascending:false})
       .then(({data,error})=>{
-        if(!error&&data){
-          const mapped=data.map(r=>({id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||""}));
-          setCatches(mapped);
-          // Cache without photos to avoid quota
-          try{ localStorage.setItem(cacheKey, JSON.stringify(mapped.map(({photo:_p,...rest})=>rest))); }catch{}
-        }
+        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||""})));
         setCatchesLoading(false);
       });
   },[user]);
@@ -3163,28 +2337,19 @@ function App({user}){
     if(!sb||String(id).startsWith("local")) return;
     try{
       await sb.from("catches").update({
-        species:updates.species, length:updates.length,
-        flies:updates.flies, notes:updates.notes,
+        species:updates.species, length:updates.length, flies:updates.flies,
+        notes:updates.notes, gps:updates.gps, time:updates.time,
         air_temp:updates.airTemp, weather_desc:updates.weatherDesc,
         wind_speed:updates.windSpeed, wind_dir:updates.windDir,
         pressure:updates.pressure, stream_cfs:updates.streamCFS,
-        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName,
-        gps:updates.gps, time:updates.time
+        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName
       }).eq("id",id);
     }catch(e){ console.log("updateCatch failed:",e); }
   }
 
   async function addCatch(catchData){
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
-    const{data,error}=await sb.from("catches").insert({
-      user_id:user.id,
-      species:catchData.species, length:catchData.length, flies:catchData.flies,
-      photo:catchData.photo, gps:catchData.gps, time:catchData.time, notes:catchData.notes,
-      air_temp:catchData.air_temp, weather_desc:catchData.weather_desc,
-      wind_speed:catchData.wind_speed, wind_dir:catchData.wind_dir, pressure:catchData.pressure,
-      stream_cfs:catchData.stream_cfs, stream_condition:catchData.stream_condition,
-      stream_gauge_name:catchData.stream_gauge_name
-    }).select().single();
+    const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
     if(!error&&data) setCatches(c=>[{id:data.id,...catchData},...c]);
   }
 
@@ -3192,7 +2357,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:"",time:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",sizeEstimating:false,sizeEstimated:false,sizeNoKey:false};
+  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -3258,285 +2423,21 @@ function App({user}){
   function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=async ev=>{
-
-      let photoTime=null, photoGps=null, photoLat=null, photoLng=null;
-      try{
-        const abuf=await file.arrayBuffer();
-        const exif=parseExif(abuf);
-        photoTime=exif.time;
-        photoGps=exif.gps;
-        photoLat=exif.lat??null;
-        photoLng=exif.lng??null;
-      }catch{}
-      if(!photoTime&&file.lastModified&&Date.now()-file.lastModified>5000){
-        photoTime=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      }
-      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      const g=photoGps||(loc?fmtCoord(loc.lat,loc.lng):"");
-
-      // Set photo + time + gps immediately
-      setForm(f=>({...f,photo:ev.target.result,gps:g,time:t,sizeEstimating:true}));
-
-      // Fetch conditions — use historical API if photo date is in the past, live if today
-      const fetchLat=photoLat??loc?.lat??null;
-      const fetchLng=photoLng??loc?.lng??null;
-      if(fetchLat&&fetchLng){
-        try{
-          // Parse photo date for historical lookup
-          // photoTime format: "April 28, 2026 at 2:57 PM"
-          let dateStr=null, hourStr="12";
-          if(photoTime){
-            const d=new Date(photoTime.replace(" at "," "));
-            if(!isNaN(d)){
-              dateStr=d.toISOString().split("T")[0];
-              hourStr=String(d.getHours()).padStart(2,"0");
-            }
-          }
-          const today=new Date().toISOString().split("T")[0];
-          const isHistorical=dateStr&&dateStr<today;
-          let conds;
-          if(isHistorical){
-            // Use archive API for past dates
-            conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
-          } else {
-            // Live fetch for today
-            const [wxData,usgsData]=await Promise.all([
-              fetchWeather(fetchLat,fetchLng),
-              fetchUSGSLive(fetchLat,fetchLng)
-            ]);
-            const c=wxData.current;
-            const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
-            const wxDesc=`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim();
-            const ts=(usgsData.value?.timeSeries)??[];
-            let topGauge=null;
-            if(ts.length){
-              const parsed=ts.map(t=>{
-                const raw=t.values?.[0]?.value?.[0]?.value;
-                const cfs=raw!=null?parseFloat(raw):null;
-                const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-                const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-                const dist=Math.sqrt(Math.pow(siteLat-fetchLat,2)+Math.pow(siteLng-fetchLng,2));
-                return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
-              }).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-              if(parsed.length) topGauge=parsed[0];
-            }
-            conds={
-              airTemp:String(Math.round(c.temperature_2m)),
-              weatherDesc:wxDesc,
-              windSpeed:String(Math.round(c.wind_speed_10m)),
-              windDir:windDir(c.wind_direction_10m),
-              pressure:pressureInHg,
-              streamCFS:topGauge?String(Math.round(topGauge.cfs)):"",
-              streamCondition:topGauge?topGauge.label:"",
-              streamGaugeName:topGauge?topGauge.name:""
-            };
-          }
-          setForm(f=>({...f,...conds}));
-        }catch(e){
-          // Fall back to currently loaded conditions
-          const topGauge=gauges[0]||null;
-          setForm(f=>({...f,
-            airTemp:weather?String(weather.temp):"",
-            weatherDesc:weather?weather.desc:"",
-            windSpeed:weather?String(weather.wind):"",
-            windDir:weather?weather.windDir:"",
-            pressure:weather?String(weather.pressure):"",
-            streamCFS:topGauge?String(Math.round(topGauge.cfs||0)):"",
-            streamCondition:topGauge?topGauge.label:"",
-            streamGaugeName:topGauge?topGauge.name:""
-          }));
-        }
-      } else {
-        // No GPS — use whatever is loaded on Conditions tab
-        const topGauge=gauges[0]||null;
-        setForm(f=>({...f,
-          airTemp:weather?String(weather.temp):"",
-          weatherDesc:weather?weather.desc:"",
-          windSpeed:weather?String(weather.wind):"",
-          windDir:weather?weather.windDir:"",
-          pressure:weather?String(weather.pressure):"",
-          streamCFS:topGauge?String(Math.round(topGauge.cfs||0)):"",
-          streamCondition:topGauge?topGauge.label:"",
-          streamGaugeName:topGauge?topGauge.name:""
-        }));
-      }
-
-      // Auto-estimate fish size from photo using Claude vision
-      const key=getKey();
-      // No key check needed — proxy handles auth server-side
-      try{
-        const base64=ev.target.result.split(",")[1];
-        const mediaType=file.type||"image/jpeg";
-        const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-        const res=await fetch("/api/claude",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({
-            model:"claude-sonnet-4-6",
-            max_tokens:150,
-            messages:[{role:"user",content:[
-              {type:"image",source:{type:"base64",media_type:mediaType,data:base64}},
-              {type:"text",text:`This is a photo of a caught fish. Do two things:
-1. Identify the species. Choose the best match from this list: ${SPECIES_LIST.join(", ")}. If unsure, pick the closest match.
-2. Estimate the fish length in inches based on visual cues like the angler's hands, rod, reel, net, or visible reference objects.
-Reply with ONLY a JSON object, no other text: {"species":"Rainbow Trout","length":14}
-If you cannot estimate length, use null for length.`}
-            ]}]
-          })
-        });
-        const d=await res.json();
-        const txt=((d.content||[])[0]?.text||"").trim();
-        try{
-          const clean=txt.replace(/```json|```/g,"").trim();
-          const parsed=JSON.parse(clean);
-          const updates={sizeEstimating:false};
-          if(parsed.species&&SPECIES_LIST.includes(parsed.species)) updates.species=parsed.species;
-          if(parsed.length!=null&&!isNaN(parsed.length)&&parsed.length>0&&parsed.length<100){
-            updates.length=String(Math.round(parsed.length));
-            updates.sizeEstimated=true;
-          }
-          setForm(f=>({...f,...updates}));
-        }catch{
-          // fallback: try parsing as plain number
-          const num=parseFloat(txt);
-          if(!isNaN(num)&&num>0&&num<100){
-            setForm(f=>({...f,length:String(Math.round(num)),sizeEstimating:false,sizeEstimated:true}));
-          } else {
-            setForm(f=>({...f,sizeEstimating:false}));
-          }
-        }
-      }catch(err){
-        console.error("Fish ID API error:",err);
-        setForm(f=>({...f,sizeEstimating:false}));
-      }
+    reader.onload=ev=>{
+      const now=new Date();
+      const t=now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      const g=loc?fmtCoord(loc.lat,loc.lng):"Location unavailable";
+      setForm(f=>({...f,photo:ev.target.result,gps:g,time:t}));
     };
     reader.readAsDataURL(file);e.target.value="";
   }
 
   function addFly(){if(!form.flyInput.trim())return;setForm(f=>({...f,flies:[...f.flies,f.flyInput.trim()],flyInput:""}));}
   function removeFly(i){setForm(f=>({...f,flies:f.flies.filter((_,j)=>j!==i)}));}
-  async function handleBatchPhotos(e){
-    const files=Array.from(e.target.files);
-    e.target.value="";
-    if(!files.length) return;
-    setBatchOpen(true);
-    setAddOpen(false);
-    const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-
-    async function processFile(file){
-      const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-      const item={photo:dataUrl,time:"",gps:"",lat:null,lng:null,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",flies:[],notes:"",processing:true,id:Date.now()+Math.random()};
-
-      // EXIF
-      try{
-        const abuf=await file.arrayBuffer();
-        const exif=parseExif(abuf);
-        if(exif.time) item.time=exif.time;
-        if(exif.gps) item.gps=exif.gps;
-        if(exif.lat) item.lat=exif.lat;
-        if(exif.lng) item.lng=exif.lng;
-      }catch{}
-      if(!item.time&&file.lastModified&&Date.now()-file.lastModified>5000){
-        item.time=new Date(file.lastModified).toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      }
-      if(!item.time) item.time=new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-
-      // Add to queue immediately
-      setBatchQueue(q=>[...q,{...item}]);
-
-      // If offline — save to localStorage queue for later processing
-      if(!navigator.onLine){
-        item.processing=false;
-        setBatchQueue(q=>q.map(x=>x.id===item.id?{...item}:x));
-        // Save offline queue
-        try{
-          const oq=JSON.parse(localStorage.getItem("tl_offline_photos")||"[]");
-          oq.push({...item,photo:dataUrl});
-          localStorage.setItem("tl_offline_photos",JSON.stringify(oq));
-        }catch{}
-        return;
-      }
-
-      // Online — fetch conditions
-      if(item.lat&&item.lng){
-        try{
-          let dateStr=null,hourStr="12";
-          const d2=new Date(item.time.replace(" at "," "));
-          if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
-          const today=new Date().toISOString().split("T")[0];
-          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(item.lat,item.lng,dateStr,hourStr):null;
-          if(conds) Object.assign(item,conds);
-        }catch{}
-      }
-
-      // Claude vision
-      try{
-        const base64=dataUrl.split(",")[1];
-        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});
-        const rd=await res.json();
-        const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-        if(parsed.species) item.species=parsed.species;
-        if(parsed.length!=null) item.length=String(Math.round(parsed.length));
-      }catch{}
-
-      item.processing=false;
-      setBatchQueue(q=>q.map(x=>x.id===item.id?{...item}:x));
-    }
-
-    // Process all files
-    for(const file of files){
-      await processFile(file);
-    }
-  }
-
-  // Process offline photo queue when back online
-  React.useEffect(()=>{
-    async function processOfflineQueue(){
-      const oq=JSON.parse(localStorage.getItem("tl_offline_photos")||"[]");
-      if(!oq.length) return;
-      const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
-      for(const item of oq){
-        try{
-          // Fetch conditions
-          if(item.lat&&item.lng){
-            let dateStr=null,hourStr="12";
-            const d2=new Date((item.time||"").replace(" at "," "));
-            if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
-            const today=new Date().toISOString().split("T")[0];
-            const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(item.lat,item.lng,dateStr,hourStr):null;
-            if(conds) Object.assign(item,conds);
-          }
-          // Claude vision
-          const base64=item.photo.split(",")[1];
-          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify fish, estimate length. Species: ${SPECIES_LIST.join(", ")}. Reply JSON: {"species":"Rainbow Trout","length":14}`}]}]})});
-          const rd=await res.json();
-          const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-          if(parsed.species) item.species=parsed.species;
-          if(parsed.length!=null) item.length=String(Math.round(parsed.length));
-          // Save catch
-          await addCatch({species:item.species||"",length:item.length||"",flies:item.flies||[],photo:item.photo,gps:item.gps||"Location not recorded",time:item.time,notes:item.notes||"",air_temp:item.airTemp,weather_desc:item.weatherDesc,wind_speed:item.windSpeed,wind_dir:item.windDir,pressure:item.pressure,stream_cfs:item.streamCFS,stream_condition:item.streamCondition,stream_gauge_name:item.streamGaugeName});
-        }catch(e){ console.log("Offline photo processing failed:",e); }
-      }
-      localStorage.removeItem("tl_offline_photos");
-      setOfflinePhotoQueue([]);
-    }
-    window.addEventListener("online",processOfflineQueue);
-    return()=>window.removeEventListener("online",processOfflineQueue);
-  },[]);
-
-
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={
-      species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,
-      gps:form.gps||"Location not recorded",time:t,notes:form.notes,
-      air_temp:form.airTemp,weather_desc:form.weatherDesc,
-      wind_speed:form.windSpeed,wind_dir:form.windDir,pressure:form.pressure,
-      stream_cfs:form.streamCFS,stream_condition:form.streamCondition,
-      stream_gauge_name:form.streamGaugeName
-    };
+    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes};
     addCatch(catchData);
     setForm(blank);setAddOpen(false);
   }
@@ -3546,8 +2447,8 @@ If you cannot estimate length, use null for length.`}
   return(
     <div className="app">
       <div className="bgbar"/>
-      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleBatchPhotos}/>
-      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleBatchPhotos}/>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
+      <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhoto}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -3646,7 +2547,7 @@ If you cannot estimate length, use null for length.`}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
                 <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
-                  const rows=[["Species","Length","Flies","GPS","Date","Notes","Air Temp (F)","Weather","Wind","Pressure (inHg)","Stream CFS","Stream Condition","Gauge Name"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes,c.airTemp||"",c.weatherDesc||"",c.windSpeed?(c.windSpeed+" mph "+(c.windDir||"")):"",c.pressure||"",c.streamCFS||"",c.streamCondition||"",c.streamGaugeName||""])];
+                  const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
@@ -3668,253 +2569,87 @@ If you cannot estimate length, use null for length.`}
                 </div>);
               })()}
             </div>
-
-            {/* All-catches map */}
-            {catches.length>0&&(()=>{
-              const withGps=catches.filter(c=>c.gps&&c.gps!=="Location not recorded"&&c.gps!=="Location unavailable"&&c.gps.match(/[\d.]+/));
-              if(!withGps.length) return null;
-              // Parse first coord for map center
-              const parseCoord=(gps)=>{
-                const m=gps.match(/([\d.]+)[°\s]*([NS])[,\s]*([\d.]+)[°\s]*([EW])/i);
-                if(!m) return null;
-                const lat=parseFloat(m[1])*(m[2].toUpperCase()==="S"?-1:1);
-                const lng=parseFloat(m[3])*(m[4].toUpperCase()==="W"?-1:1);
-                return{lat,lng};
-              };
-              const coords=withGps.map(c=>parseCoord(c.gps)).filter(Boolean);
-              if(!coords.length) return null;
-              const avgLat=coords.reduce((s,c)=>s+c.lat,0)/coords.length;
-              const avgLng=coords.reduce((s,c)=>s+c.lng,0)/coords.length;
-              const bbox_pad=0.15;
-              const minLat=Math.min(...coords.map(c=>c.lat))-bbox_pad;
-              const maxLat=Math.max(...coords.map(c=>c.lat))+bbox_pad;
-              const minLng=Math.min(...coords.map(c=>c.lng))-bbox_pad;
-              const maxLng=Math.max(...coords.map(c=>c.lng))+bbox_pad;
-              const buildAllCatchesMap=(function(){
-                var pts=coords.map(function(co,i){
-                  var sp=String((withGps[i]&&withGps[i].species)||"Catch").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-                  var ln=(withGps[i]&&withGps[i].length)?(" — "+withGps[i].length+"\""):"";
-                  return "L.marker(["+co.lat+","+co.lng+"],{icon:gi}).addTo(map).bindPopup(\'"+sp+ln+"\');";
-                }).join("");
-                var iconDiv="<div style=\"background:#c8a84b;width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white\"></div>";
-                return [
-                  "<!DOCTYPE html><html><head><meta charset=\'utf-8\'/>",
-                  "<link rel=\'stylesheet\' href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'/>",
-                  "<scr"+"ipt src=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\'><\/scr"+"ipt>",
-                  "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>",
-                  "<\/head><body><div id=\'map\'><\/div><scr"+"ipt>",
-                  "var map=L.map(\'map\',{attributionControl:false}).fitBounds([["+minLat+","+minLng+"],["+maxLat+","+maxLng+"]]);",
-                  "L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\').addTo(map);",
-                  "var gi=L.divIcon({html:\'"+iconDiv+"\',iconSize:[16,16],iconAnchor:[8,16],className:\'\'});",
-                  pts,
-                  "<\/scr"+"ipt><\/body><\/html>"
-                ].join("");
-              })();
-              return(
-                <div className="card" style={{padding:0,overflow:"hidden"}}>
-                  <div style={{padding:"12px 14px 8px",display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations</span>
-                    <span style={{fontSize:11,color:"var(--stone)"}}>{coords.length} mapped</span>
-                  </div>
-                  <iframe title="Catch Map" width="100%" height="220" frameBorder="0" style={{display:"block"}}
-                    srcDoc={buildAllCatchesMap}/>
-                  <div style={{padding:"6px 14px 10px",display:"flex",flexWrap:"wrap",gap:6}}>
-                    {withGps.slice(0,6).map((c,i)=>{
-                      const coord=parseCoord(c.gps);
-                      if(!coord) return null;
-                      return(<a key={i} href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
-                        style={{fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"3px 8px",textDecoration:"none"}}>
-                        📍 {c.species}
-                      </a>);
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {catches.length>=3&&(
-              <div style={{marginBottom:12}}>
-                <button onClick={async()=>{
-                  if(summaryLoading) return;
-                  setSummaryLoading(true); setCatchSummary(null);
-                  try{
-                    const summary=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" with "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" | "+c.airTemp+"°F":""}${c.streamCFS?" | "+Number(c.streamCFS).toLocaleString()+" CFS":""}${c.windSpeed?" | "+c.windSpeed+"mph "+c.windDir:""}${c.notes?" — "+c.notes:""}`).join("
-");
-                    const txt=await askClaude(`You are a fly fishing data analyst. A guide/angler has logged the following catches:
-
-${summary}
-
-Analyze these catches and write a concise 2-3 paragraph trend summary covering:
-1. Which species, flies, locations, or conditions correlate with the most success
-2. Patterns in timing, water flow, weather, or temperature
-3. 2-3 specific actionable recommendations for future trips
-
-Be specific with numbers and conditions where available. Plain text only.`, false, 600);
-                    setCatchSummary(txt);
-                  }catch(e){ setCatchSummary("Could not generate summary. Try again."); }
-                  setSummaryLoading(false);
-                }} className="btn btnp" style={{width:"100%",marginBottom:catchSummary?10:0}}>
-                  {summaryLoading?"⏳ Analyzing catches…":"✦ AI Catch Trend Summary"}
-                </button>
-                {catchSummary&&(
-                  <div style={{background:"rgba(0,0,0,0.25)",borderRadius:12,padding:"14px 16px"}}>
-                    <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Trend Analysis</div>
-                    <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap"}}>{catchSummary}</div>
-                  </div>
-                )}
-              </div>
-            )}
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
-            {catches.map(c=>{
-              const parseCoord=(gps)=>{
-                if(!gps) return null;
-                const m=gps.match(/([\d.]+)[°\s]*([NS])[,\s]*([\d.]+)[°\s]*([EW])/i);
-                if(!m) return null;
-                const lat=parseFloat(m[1])*(m[2].toUpperCase()==="S"?-1:1);
-                const lng=parseFloat(m[3])*(m[4].toUpperCase()==="W"?-1:1);
-                return{lat,lng};
-              };
-              const coord=parseCoord(c.gps);
-              return(
-              <div className="cc" key={c.id} style={{cursor:"pointer"}} onClick={e=>{
-                if(e.target.tagName==="BUTTON"||e.target.tagName==="A") return;
-                setSelectedCatch(selectedCatch===c.id?null:c.id);
-              }}>
-                {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph" onClick={e=>e.stopPropagation()}>🐟</div>}
+            {catches.map(c=>(
+              <div className="cc" key={c.id}>
+                {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                    <div className="csp">{c.species}</div>
-                    <span style={{fontSize:11,color:"var(--stone)"}}>{selectedCatch===c.id?"▲":"▼"}</span>
-                  </div>
+                  <div className="csp">{c.species}</div>
                   <div className="cm">
                     {c.length&&<span className="cmi">📏 {c.length}"</span>}
                     <span className="cmi">🕐 {c.time}</span>
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-
-                  {selectedCatch===c.id&&<>
-                    {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:4,fontStyle:"italic",lineHeight:1.5}}>{c.notes}</p>}
-                    {(c.airTemp||c.streamCFS||c.weatherDesc||c.pressure||c.windSpeed)&&(
-                      <div style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"10px 12px",marginTop:10}}>
-                        <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Conditions at time of catch</div>
-                        <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:12}}>
-                          <div style={{display:"flex",flexWrap:"wrap",gap:"4px 16px"}}>
-                            {c.weatherDesc&&<span><span style={{color:"var(--stone)"}}>Sky: </span><span style={{color:"var(--foam)"}}>{c.weatherDesc}</span></span>}
-                            {c.airTemp&&<span><span style={{color:"var(--stone)"}}>Air: </span><span style={{color:"var(--foam)"}}>{c.airTemp}°F</span></span>}
-                            {c.windSpeed&&<span><span style={{color:"var(--stone)"}}>Wind: </span><span style={{color:"var(--foam)"}}>{c.windSpeed} mph {c.windDir}</span></span>}
-                            {c.pressure&&<span><span style={{color:"var(--stone)"}}>Pressure: </span><span style={{color:"var(--foam)"}}>{c.pressure}"</span></span>}
-                          </div>
-                          {c.streamCFS&&<div><span style={{color:"var(--stone)"}}>Flow: </span><span style={{color:"var(--foam)"}}>{Number(c.streamCFS).toLocaleString()} CFS · {c.streamCondition}</span></div>}
-                          {c.streamGaugeName&&<div style={{fontSize:11,color:"var(--stone)",fontStyle:"italic"}}>{c.streamGaugeName}</div>}
-                        </div>
-                      </div>
-                    )}
-
-                    {coord&&(()=>{
-                      const sp=(c.species||"Catch").replace(/'/g,"\'");
-                      const popupTxt=sp+(c.length?" — "+c.length+'"':"");
-                      const mapHtml=(function(){
-                        var iconDiv2="<div style=\"background:#c8a84b;width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white\"></div>";
-                        var popup=String(popupTxt||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-                        return [
-                          "<!DOCTYPE html><html><head><meta charset=\'utf-8\'/>",
-                          "<link rel=\'stylesheet\' href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'/>",
-                          "<scr"+"ipt src=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\'><\/scr"+"ipt>",
-                          "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>",
-                          "<\/head><body><div id=\'map\'><\/div><scr"+"ipt>",
-                          "var map=L.map(\'map\',{zoomControl:true,attributionControl:false}).setView(["+coord.lat+","+coord.lng+"],14);",
-                          "L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\').addTo(map);",
-                          "var icon=L.divIcon({html:\'"+iconDiv2+"\',iconSize:[20,20],iconAnchor:[10,20],className:\'\'});",
-                          "L.marker(["+coord.lat+","+coord.lng+"],{icon:icon}).addTo(map).bindPopup(\'"+popup+"\').openPopup();",
-                          "<\/scr"+"ipt><\/body><\/html>"
-                        ].join("");
-                      })();
-                      return(
-                        <div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
-                          <iframe title="Catch location" width="100%" height="200" frameBorder="0" style={{display:"block"}} srcDoc={mapHtml}/>
-                          <a href={`https://maps.google.com/?q=${coord.lat},${coord.lng}`} target="_blank" rel="noreferrer"
-                            style={{display:"block",padding:"6px 12px",fontSize:11,color:"var(--sky)",background:"rgba(0,0,0,0.3)",textDecoration:"none",textAlign:"center"}}>
-                            Open in Google Maps →
-                          </a>
-                        </div>
-                      );
-                    })()}
-                    {c.gps&&<div className="cgps" style={{marginTop:6}}>📍 {c.gps}</div>}
-                    <div style={{display:"flex",gap:8,marginTop:10}}>
-                      <button onClick={e=>{
-                        e.stopPropagation();
-                        setEditingCatchId(editingCatchId===c.id?null:c.id);
-                      }} style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                        ✏️ Edit
-                      </button>
-                      <button onClick={e=>{
-                        e.stopPropagation();
-                        if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}
-                      }} style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                        🗑 Delete
-                      </button>
-                    </div>
-                  </>}
-                </div>
-                {editingCatchId===c.id&&(
-                  <div style={{background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px",marginBottom:12}} onClick={e=>e.stopPropagation()}>
-                    <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                      <div>
-                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Species</div>
-                        <select className="inp" style={{marginBottom:0,fontSize:12}} value={c.species||""}
-                          onChange={e=>updateCatch(c.id,{species:e.target.value})}>
-                          <option value="">Select…</option>
-                          {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Length (in)</div>
-                        <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
-                          value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
-                      </div>
-                    </div>
-                    <div style={{marginBottom:8}}>
-                      <div className="lbl" style={{marginBottom:3,fontSize:10}}>Date & Time</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}}
-                        value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
-                    </div>
-                    <div style={{marginBottom:8}}>
-                      <div className="lbl" style={{marginBottom:3,fontSize:10}}>GPS</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}}
-                        value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                      <div>
-                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Air Temp °F</div>
-                        <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
-                          value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
-                      </div>
-                      <div>
-                        <div className="lbl" style={{marginBottom:3,fontSize:10}}>Stream CFS</div>
-                        <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
-                          value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
-                      </div>
+                  {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
+                  <div className="cgps">📍 {c.gps}</div>
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
+                  style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                  ✏️ Edit
+                </button>
+                <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
+                  style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                  🗑 Delete
+                </button>
+              </div>
+              {editingCatchId===c.id&&(
+                <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
+                  <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Species</div>
+                      <select className="inp" style={{marginBottom:0,fontSize:12}} value={c.species||""}
+                        onChange={e=>updateCatch(c.id,{species:e.target.value})}>
+                        <option value="">Select…</option>
+                        {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                      </select>
                     </div>
                     <div>
-                      <div className="lbl" style={{marginBottom:3,fontSize:10}}>Notes</div>
-                      <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12}}
-                        value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                        value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
                     </div>
                   </div>
-                )}
-            );})}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:12}}
+                      value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>GPS</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:12}}
+                      value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                        value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                        value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Notes</div>
+                    <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12}}
+                      value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+                  </div>
+                </div>
+              )}
+                </div>
+              </div>
+            ))}
           </>}
 
-          {tab==="plan"&&<>
-            <GuestTrips user={user}/>
-            <TripPlanner defaultLocation={loc?.label||""}/>
-          </>}
-          {tab==="guide"&&<GuideBook user={user} key={user?.id}/>}
+          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
+          {tab==="guide"&&<GuideBook user={user}/>}
         </div>
 
         {tab==="log"&&(
-          <button className="fab" onClick={()=>{galRef.current?.click();}}
+          <button className="fab" onClick={()=>{setForm(blank);setAddOpen(true);}}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
         )}
       </div>
@@ -3924,16 +2659,16 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           <button className="back" onClick={()=>setAddOpen(false)}>← Back</button>
           <span className="slide-title">Record a Catch</span>
         </div>
-        <div style={{padding:"20px 16px 80px"}}>
+        <div style={{padding:"20px 16px 48px"}}>
           <label className="lbl">Photo</label>
           {form.photo?(
             <div className="pw">
-              <img src={form.photo} className="p-img" alt="catch" style={{cursor:"pointer"}} onClick={()=>setLightboxPhoto(form.photo)}/>
+              <img src={form.photo} className="p-img" alt="catch"/>
               <div className="pov">
                 {form.gps&&<span className="ptag">📍 {form.gps}</span>}
                 {form.time&&<span className="ttag">{form.time}</span>}
               </div>
-              <button className="px" onClick={()=>setForm(f=>({...f,photo:null,gps:"",time:""}))}>✕</button>
+              <button className="px" onClick={()=>setForm(f=>({...f,photo:null,gps:null,time:null}))}>✕</button>
             </div>
           ):(
             <div className="pbtns">
@@ -3941,25 +2676,13 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
               <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library</button>
             </div>
           )}
-          <p className="hint">Time, GPS & conditions auto-filled from photo — edit if needed.</p>
-          <label className="lbl">Date & Time</label>
-          <input className="inp" placeholder="e.g. May 8, 2026 at 7:30 AM" value={form.time}
-            onChange={e=>setForm(f=>({...f,time:e.target.value}))}/>
-          <label className="lbl">GPS Location</label>
-          <input className="inp" placeholder="e.g. 39.7392° N, 104.9903° W" value={form.gps}
-            onChange={e=>setForm(f=>({...f,gps:e.target.value}))}/>
+          <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
-            <option value="">Select…</option>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
-          <label className="lbl">Length (inches)
-            {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
-            {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ AI estimated — adjust if needed</span>}
-          </label>
-          <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
-            onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
-            style={form.sizeEstimated?{borderColor:"rgba(90,122,74,0.6)",background:"rgba(90,122,74,0.1)"}:{}}/>
+          <label className="lbl">Length (inches)</label>
+          <input className="inp" type="number" placeholder="e.g. 18" value={form.length} onChange={e=>setForm(f=>({...f,length:e.target.value}))}/>
           <label className="lbl">Flies Used</label>
           <div className="ftags">{form.flies.map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>removeFly(i)}>×</button></div>)}</div>
           <div className="frow">
@@ -3968,126 +2691,23 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
               onKeyDown={e=>e.key==="Enter"&&addFly()}/>
             <button className="btn" onClick={addFly}>Add</button>
           </div>
-          <label className="lbl">Conditions Snapshot</label>
-          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
-                <input className="inp" style={{marginBottom:0}} type="number" placeholder="65"
-                  value={form.airTemp} onChange={e=>setForm(f=>({...f,airTemp:e.target.value}))}/>
-              </div>
-              <div>
-                <div className="lbl" style={{marginBottom:4}}>Stream CFS</div>
-                <input className="inp" style={{marginBottom:0}} type="number" placeholder="250"
-                  value={form.streamCFS} onChange={e=>setForm(f=>({...f,streamCFS:e.target.value}))}/>
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
-                <input className="inp" style={{marginBottom:0}} type="number" placeholder="8"
-                  value={form.windSpeed} onChange={e=>setForm(f=>({...f,windSpeed:e.target.value}))}/>
-              </div>
-              <div>
-                <div className="lbl" style={{marginBottom:4}}>Wind Dir</div>
-                <input className="inp" style={{marginBottom:0}} placeholder="SW"
-                  value={form.windDir} onChange={e=>setForm(f=>({...f,windDir:e.target.value}))}/>
-              </div>
-            </div>
-            <div>
-              <div className="lbl" style={{marginBottom:4}}>Sky / Weather</div>
-              <input className="inp" style={{marginBottom:0}} placeholder="e.g. ☀️ Sunny"
-                value={form.weatherDesc} onChange={e=>setForm(f=>({...f,weatherDesc:e.target.value}))}/>
-            </div>
-          </div>
           <label className="lbl">Notes</label>
-          <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Where, how, conditions…"
+          <textarea className="inp" rows={4} style={{resize:"none"}} placeholder="Where, how, conditions…"
             value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
           <button className="btn btnp" onClick={submitCatch}>🐟 Save to Log</button>
         </div>
       </div>
-
-      <div className={`slide${batchOpen?" on":""}`} style={{zIndex:200}}>
-        <div className="slide-hdr">
-          <button className="back" onClick={()=>{if(!batchSaving){setBatchOpen(false);setBatchQueue([]);}}}>← Back</button>
-          <span className="slide-title">Queue · {batchQueue.length} {batchQueue.length===1?"catch":"catches"}</span>
-        </div>
-        <div style={{padding:"8px 16px 8px",display:"flex",gap:8}}>
-          <button onClick={()=>camRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>📷 Camera</button>
-          <button onClick={()=>galRef.current.click()} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🖼️ Library</button>
-        </div>
-        <div style={{padding:"0 16px 120px"}}>
-          {batchQueue.map((item,i)=>(
-            <div key={item.id||i} style={{background:"rgba(0,0,0,0.2)",borderRadius:14,marginBottom:12,overflow:"hidden"}}>
-              <div style={{display:"flex",gap:10,padding:10,alignItems:"flex-start"}}>
-                <img src={item.photo} style={{width:80,height:80,objectFit:"cover",borderRadius:8,flexShrink:0}} alt="catch"/>
-                <div style={{flex:1}}>
-                  {item.processing&&<div style={{color:"var(--sky)",fontSize:12,fontStyle:"italic",marginBottom:4}}>🔍 Analyzing…</div>}
-                  {!item.processing&&<>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-                      <div>
-                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:2}}>Species</div>
-                        <select className="inp" style={{marginBottom:0,fontSize:11,padding:"5px 6px"}} value={item.species||""}
-                          onChange={e=>setBatchQueue(q=>q.map(x=>x.id===item.id?{...x,species:e.target.value}:x))}>
-                          <option value="">Select…</option>
-                          {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:2}}>Length (in)</div>
-                        <input className="inp" style={{marginBottom:0,fontSize:11,padding:"5px 6px"}} type="number"
-                          value={item.length||""} onChange={e=>setBatchQueue(q=>q.map(x=>x.id===item.id?{...x,length:e.target.value}:x))}/>
-                      </div>
-                    </div>
-                    {(item.time||item.gps)&&<div style={{fontSize:10,color:"var(--stone)",marginBottom:4,display:"flex",gap:8,flexWrap:"wrap"}}>
-                      {item.time&&<span>🕐 {item.time}</span>}
-                      {item.gps&&<span>📍 {item.gps}</span>}
-                    </div>}
-                    {(item.airTemp||item.weatherDesc||item.streamCFS)&&(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:"2px 8px",fontSize:10,color:"var(--stone)",marginBottom:6}}>
-                        {item.weatherDesc&&<span>{item.weatherDesc}</span>}
-                        {item.airTemp&&<span>🌡 {item.airTemp}°F</span>}
-                        {item.streamCFS&&<span>💧 {Number(item.streamCFS).toLocaleString()} CFS</span>}
-                      </div>
-                    )}
-                    <div style={{display:"flex",gap:6}}>
-                      <input className="inp" style={{marginBottom:0,flex:1,fontSize:11,padding:"4px 8px"}} placeholder="Flies (comma separated)"
-                        value={(item.flies||[]).join(", ")} onChange={e=>setBatchQueue(q=>q.map(x=>x.id===item.id?{...x,flies:e.target.value.split(",").map(f=>f.trim()).filter(Boolean)}:x))}/>
-                      <button onClick={()=>setBatchQueue(q=>q.filter(x=>x.id!==item.id))}
-                        style={{padding:"4px 8px",background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,color:"#e08080",fontSize:11,cursor:"pointer",flexShrink:0}}>🗑</button>
-                    </div>
-                  </>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{position:"fixed",bottom:0,left:0,right:0,padding:"12px 16px",background:"var(--deep)",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
-          <button className="btn btnp" style={{width:"100%",opacity:batchSaving?0.6:1}} onClick={async()=>{
-            if(batchSaving) return;
-            const ready=batchQueue.filter(x=>!x.processing);
-            if(!ready.length) return;
-            setBatchSaving(true);
-            for(const item of ready){
-              await addCatch({species:item.species||"",length:item.length||"",flies:item.flies||[],photo:item.photo,gps:item.gps||"Location not recorded",time:item.time||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true}),notes:item.notes||"",air_temp:item.airTemp,weather_desc:item.weatherDesc,wind_speed:item.windSpeed,wind_dir:item.windDir,pressure:item.pressure,stream_cfs:item.streamCFS,stream_condition:item.streamCondition,stream_gauge_name:item.streamGaugeName});
-            }
-            setBatchSaving(false);setBatchOpen(false);setBatchQueue([]);
-          }}>
-            {batchSaving?"⏳ Saving…":`💾 Save All ${batchQueue.filter(x=>!x.processing).length} Catches`}
-          </button>
+    </div>
+    {lightboxPhoto&&(
+      <div onClick={()=>setLightboxPhoto(null)}
+        style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.97)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+        <img src={lightboxPhoto} style={{maxWidth:"100vw",maxHeight:"100vh",objectFit:"contain",display:"block"}} alt="catch"/>
+        <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:20,right:20}}>
+          <button onClick={()=>setLightboxPhoto(null)}
+            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:"50%",width:44,height:44,fontSize:22,cursor:"pointer"}}>✕</button>
         </div>
       </div>
-
-      {lightboxPhoto&&ReactDOM.createPortal(
-        <div onClick={()=>setLightboxPhoto(null)}
-          style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.97)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-          <img src={lightboxPhoto} style={{maxWidth:"100vw",maxHeight:"100vh",objectFit:"contain",display:"block"}} alt="catch"/>
-          <button onClick={e=>{e.stopPropagation();setLightboxPhoto(null);}}
-            style={{position:"fixed",top:20,right:20,background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:"50%",width:44,height:44,fontSize:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}}>✕</button>
-        </div>,
-        document.body
-      )}
-    </div>
+    )}
   );
 }
 
@@ -4108,34 +2728,6 @@ function Root(){
   return <App user={user}/>;
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
-</script>
-<script>
-if("serviceWorker" in navigator){
-  // Inline service worker — caches app shell for offline use
-  const swCode = `
-    const CACHE = "guides-choice-v1";
-    const SHELL = ["/"];
-    self.addEventListener("install", e => {
-      e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
-      self.skipWaiting();
-    });
-    self.addEventListener("activate", e => {
-      e.waitUntil(caches.keys().then(keys =>
-        Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))
-      ));
-      self.clients.claim();
-    });
-    self.addEventListener("fetch", e => {
-      if(e.request.method !== "GET") return;
-      e.respondWith(
-        fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
-      );
-    });
-  `;
-  const blob = new Blob([swCode], {type:"application/javascript"});
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl).catch(()=>{});
-}
 </script>
 </body>
 </html>
