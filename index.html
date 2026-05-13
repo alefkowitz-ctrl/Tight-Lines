@@ -1450,25 +1450,32 @@ function GuideBook({user}){
   async function loadTripPhotos(tripId){
     if(!sb) return;
     try{
-      console.log("Loading photos for trip:", tripId);
-      // Fetch catch_details fast (no photos), then photos separately
+      // Load catch_details first (fast)
       const {data:cdData}=await sb.from("trips").select("catch_details").eq("id",tripId).single();
       const catchDetails=(cdData?.catch_details)||[];
-      console.log("catch_details loaded, fetching photos...");
-      // Fetch photos one at a time to avoid timeout on large payloads
-      const {data:photoData,error:pErr}=await sb.from("trip_photos")
-        .select("photo,sort_order")
+      
+      // Get photo IDs first (no photo data)
+      const {data:photoIds}=await sb.from("trip_photos")
+        .select("id,sort_order")
         .eq("trip_id",tripId)
-        .order("sort_order")
-        .limit(20);
-      console.log("Photo load result:", photoData?.length, "photos, error:", pErr?.message);
-      if(pErr){ console.log("Photo load error:",pErr.message); return; }
-      const photos=(photoData||[]).map(r=>r.photo);
-      console.log("Setting", photos.length, "photos");
-      setSelectedTrip(st=>{
-        if(!st||st.id!==tripId) return st;
-        return {...st,photos,catchDetails};
-      });
+        .order("sort_order");
+      
+      if(!photoIds?.length){
+        setSelectedTrip(st=>st?.id===tripId?{...st,catchDetails}:st);
+        return;
+      }
+      
+      // Fetch each photo individually to avoid timeout
+      const photos=[];
+      for(const row of photoIds){
+        const {data:pd}=await sb.from("trip_photos")
+          .select("photo")
+          .eq("id",row.id)
+          .single();
+        if(pd?.photo) photos.push(pd.photo);
+      }
+      
+      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
     }catch(e){ console.log("loadTripPhotos failed:",e.message); }
   }
