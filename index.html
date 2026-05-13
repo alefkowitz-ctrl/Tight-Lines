@@ -1415,9 +1415,7 @@ function GuideBook({user}){
       try{
         const {data,error}=await sb.from("guests").insert({user_id:user.id,...guestData}).select().single();
         if(error){
-          alert("Supabase error: "+error.message+"
-Code: "+error.code+"
-Guest saved locally only.");
+          alert("Supabase error: "+error.message+"\nCode: "+error.code+"\nGuest saved locally only.");
           return localGuest;
         }
         if(data){
