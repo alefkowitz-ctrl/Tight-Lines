@@ -1997,10 +1997,88 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         )}
         {selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
-            <div className="lbl" style={{marginBottom:8}}>Photos</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:100,height:100,objectFit:"cover",borderRadius:10}} alt="catch"/>)}
-            </div>
+            <div className="lbl" style={{marginBottom:8}}>Catches · {selectedTrip.photos.length}</div>
+            {selectedTrip.photos.map((p,i)=>{
+              const cd=(selectedTrip.catchDetails||[])[i]||{};
+              return(
+                <div key={i} className="cc" style={{marginBottom:10}}>
+                  <img src={p} className="c-img" alt="catch" style={{cursor:"pointer"}}
+                    onClick={()=>{if(window._setLightbox)window._setLightbox(p);}}/>
+                  <div className="cb">
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div className="csp">{cd.species||"Unknown"}</div>
+                    </div>
+                    <div className="cm">
+                      {cd.length&&<span className="cmi">📏 {cd.length}"</span>}
+                      {cd.time&&<span className="cmi">🕐 {cd.time}</span>}
+                    </div>
+                    {(cd.airTemp||cd.weatherDesc||cd.streamCFS)&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",fontSize:11,color:"var(--stone)",marginTop:4}}>
+                        {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
+                        {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
+                        {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
+                        {cd.streamCFS&&<span>💧 {Number(cd.streamCFS).toLocaleString()} CFS</span>}
+                      </div>
+                    )}
+                    {cd.gps&&<div className="cgps">📍 {cd.gps}</div>}
+                    <div style={{display:"flex",gap:8,marginTop:8}}>
+                      <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
+                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        ✏️ Edit
+                      </button>
+                      <button onClick={e=>{e.stopPropagation();if(window.confirm("Remove this photo and catch data?")){
+                        const newPhotos=selectedTrip.photos.filter((_,j)=>j!==i);
+                        const newDetails=(selectedTrip.catchDetails||[]).filter((_,j)=>j!==i);
+                        const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
+                        setSelectedTrip(upd);
+                        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
+                        if(sb)sb.from("trips").update({photos:newPhotos,catch_details:newDetails}).eq("id",selectedTrip.id);
+                      }}}
+                        style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        🗑 Remove
+                      </button>
+                    </div>
+                  </div>
+                  {editingTripCatchIdx===i&&(
+                    <div style={{background:"rgba(0,0,0,0.3)",padding:"14px",borderTop:"1px solid rgba(255,255,255,0.08)"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                        <div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Species</div>
+                          <select className="inp" style={{marginBottom:0,fontSize:12}} value={cd.species||""}
+                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],species:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}>
+                            <option value="">Select…</option>
+                            {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.length||""}
+                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],length:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                        </div>
+                      </div>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
+                        <input className="inp" style={{marginBottom:0,fontSize:12}} value={cd.time||""}
+                          onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],time:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        <div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.airTemp||""}
+                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],airTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.streamCFS||""}
+                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],streamCFS:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         <div style={{marginTop:14,display:"flex",gap:8}}>
@@ -2305,6 +2383,7 @@ function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
+  const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
   React.useEffect(()=>{
     window._setLightbox=setLightboxPhoto;
