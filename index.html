@@ -17,10 +17,10 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 :root{--water:#1e5c4a;--deep:#0f2d1f;--foam:#e8dfc8;--moss:#4a7a3a;--stone:#7a8a72;--sky:#a8c8b4;--gold:#c8a84b;--red:#e07070;}
-html,body{height:100%;overflow:hidden;}
+html,body{height:100%;overflow:hidden;background:#0a1a10;display:flex;justify-content:center;}
 body{font-family:'Crimson Pro',serif;background:var(--deep);color:var(--foam);}
 #root{height:100%;display:flex;justify-content:center;}
-.app{width:100%;max-width:430px;height:100%;background:var(--deep);position:relative;overflow:hidden;}
+.app{width:100%;max-width:600px;height:100%;background:var(--deep);position:relative;overflow:hidden;margin:0 auto;}
 .bgbar{position:absolute;top:0;left:0;right:0;height:200px;background:linear-gradient(180deg,#1e5c4a,#0f2d1f);z-index:0;pointer-events:none;}
 .main{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;transition:transform .3s cubic-bezier(.4,0,.2,1);}
 .main.off{transform:translateX(-100%);}
@@ -529,6 +529,59 @@ async function fetchUSGSLive(lat,lng){
   }catch(e2){}
   return{value:{timeSeries:[]}};
 }
+async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
+  const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  try{
+    // Historical weather from Open-Meteo archive
+    const wxUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weathercode,windspeed_10m,winddirection_10m,surface_pressure&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto`;
+    const wxRes=await fetch(wxUrl);
+    if(wxRes.ok){
+      const wx=await wxRes.json();
+      const hr=parseInt(hourStr)||12;
+      const idx=Math.min(hr,23);
+      if(wx.hourly){
+        results.airTemp=wx.hourly.temperature_2m?.[idx]!=null?String(Math.round(wx.hourly.temperature_2m[idx])):"";
+        const code=wx.hourly.weathercode?.[idx];
+        results.weatherDesc=(WX_EMOJI[code]||"")+" "+(WX_DESC[code]||"");
+        results.windSpeed=wx.hourly.windspeed_10m?.[idx]!=null?String(Math.round(wx.hourly.windspeed_10m[idx])):"";
+        results.windDir=wx.hourly.winddirection_10m?.[idx]!=null?windDir(wx.hourly.winddirection_10m[idx]):"";
+        results.pressure=wx.hourly.surface_pressure?.[idx]!=null?(wx.hourly.surface_pressure[idx]*0.02953).toFixed(2):"";
+      }
+    }
+  }catch{}
+  try{
+    // Historical stream flow from USGS
+    const sizes=[0.5,1.0,1.5,2.5];
+    for(const p of sizes){
+      const minLng=Math.min(lng-p,lng+p),maxLng=Math.max(lng-p,lng+p);
+      const minLat=Math.min(lat-p,lat+p),maxLat=Math.max(lat-p,lat+p);
+      const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${minLng},${minLat},${maxLng},${maxLat}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`;
+      try{
+        const r=await fetch(url);
+        if(!r.ok) continue;
+        const d=await r.json();
+        const ts=(d.value?.timeSeries)??[];
+        if(!ts.length) continue;
+        const parsed=ts.map(t=>{
+          const raw=t.values?.[0]?.value?.[0]?.value;
+          const cfs=raw!=null?parseFloat(raw):null;
+          const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+          const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+          const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
+          return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
+        }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+        if(parsed.length){
+          results.streamCFS=String(Math.round(parsed[0].cfs));
+          results.streamCondition=parsed[0].label;
+          results.streamGaugeName=parsed[0].name;
+          break;
+        }
+      }catch{}
+    }
+  }catch{}
+  return results;
+}
+
 async function fetchUSGSHistory(lat,lng){
   var p=1.5;
   var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
@@ -2300,6 +2353,59 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
   );
 }
 
+// ── Upcoming Trips ────────────────────────────────────────────────────────────
+function UpcomingTrips({user}){
+  const [trips, setTrips] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const today = new Date().toISOString().split("T")[0];
+
+  React.useEffect(()=>{
+    if(!sb||!user?.email){ setLoading(false); return; }
+    async function load(){
+      const {data:guests}=await sb.from("guests").select("id,name").ilike("email",user.email);
+      if(!guests?.length){ setLoading(false); return; }
+      const guestIds=guests.map(g=>g.id);
+      const {data:tripData}=await sb.from("trips")
+        .select("id,date,location,type,styles,catches,guide_notes,report_text")
+        .in("guest_id",guestIds)
+        .gte("date",today)
+        .order("date",{ascending:true});
+      setTrips(tripData||[]);
+      setLoading(false);
+    }
+    load().catch(()=>setLoading(false));
+  },[user]);
+
+  if(loading||!trips.length) return null;
+
+  return(
+    <div style={{marginBottom:16}}>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"var(--gold)",marginBottom:10,letterSpacing:0.5}}>
+        📅 Upcoming Trips
+      </div>
+      {trips.map(t=>(
+        <div key={t.id} className="card" style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Location TBD"}</div>
+              <div style={{fontSize:12,color:"var(--gold)",marginTop:2,fontWeight:"bold"}}>{new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</div>
+              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.type}{t.styles?.length?" · "+t.styles.join(", "):""}</div>
+            </div>
+            <div style={{fontSize:22}}>🎣</div>
+          </div>
+          {t.guide_notes&&<div style={{fontSize:12,color:"var(--sky)",marginTop:8,fontStyle:"italic",lineHeight:1.5}}>{t.guide_notes}</div>}
+          {t.report_text&&(
+            <div style={{marginTop:8,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:8}}>
+              <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Guide Notes</div>
+              <div style={{fontSize:12,color:"var(--foam)",lineHeight:1.6,fontFamily:"'Crimson Pro',serif"}}>{t.report_text}</div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
@@ -2553,6 +2659,21 @@ function App({user}){
   const [loc,setLoc]=useState(null);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
+  // Auto-detect user location on first load
+  React.useEffect(()=>{
+    if(loc) return; // already have location
+    if(!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      const{latitude:lat,longitude:lng}=pos.coords;
+      // Reverse geocode to get label
+      try{
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+        const d=await r.json();
+        const label=d.address?.city||d.address?.town||d.address?.county||`${lat.toFixed(2)},${lng.toFixed(2)}`;
+        loadConditions({lat,lng,label});
+      }catch{loadConditions({lat,lng,label:`${lat.toFixed(2)}, ${lng.toFixed(2)}`});}
+    },()=>{},{timeout:8000});
+  },[]);
   const [wxError,setWxError]=useState(null);
   const [wxForecast,setWxForecast]=useState(null);
   const [gauges,setGauges]=useState([]);
@@ -2561,6 +2682,8 @@ function App({user}){
   const [lastUpd,setLastUpd]=useState(null);
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
+  const [catchSummary,setCatchSummary]=useState(null);
+  const [summaryLoading,setSummaryLoading]=useState(false);
 
   // Load catches from Supabase on mount
   useEffect(()=>{
@@ -2666,16 +2789,59 @@ function App({user}){
     finally{setGaugeLoading(false);}
   }
 
-  function handlePhoto(e){
+  async function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const now=new Date();
-      const t=now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      const g=loc?fmtCoord(loc.lat,loc.lng):"Location unavailable";
-      setForm(f=>({...f,photo:ev.target.result,gps:g,time:t}));
-    };
-    reader.readAsDataURL(file);e.target.value="";
+    e.target.value="";
+    const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+    // Set photo immediately
+    setForm(f=>({...f,photo:dataUrl,sizeEstimating:true}));
+    setAddOpen(true);
+    // Parse EXIF for date/GPS
+    let photoTime=null,photoGps=null,photoLat=null,photoLng=null;
+    try{
+      const abuf=await file.arrayBuffer();
+      const exif=parseExif(abuf);
+      photoTime=exif.time;photoGps=exif.gps;photoLat=exif.lat??null;photoLng=exif.lng??null;
+    }catch{}
+    const fetchLat=photoLat??loc?.lat;
+    const fetchLng=photoLng??loc?.lng;
+    const now=new Date();
+    const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+    const g=photoGps||(fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded");
+    setForm(f=>({...f,time:t,gps:g}));
+    // Fetch conditions from photo date/location
+    if(fetchLat&&fetchLng){
+      try{
+        let dateStr=null,hourStr="12";
+        const d2=new Date(t.replace(" at "," "));
+        if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+        const today=new Date().toISOString().split("T")[0];
+        if(dateStr&&dateStr<today){
+          const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
+          if(conds) setForm(f=>({...f,...{airTemp:conds.airTemp,weatherDesc:conds.weatherDesc,windSpeed:conds.windSpeed,windDir:conds.windDir,pressure:conds.pressure,streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName}}));
+        } else {
+          const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
+          const c=wx.current;
+          const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
+          setForm(f=>({...f,airTemp:String(Math.round(c.temperature_2m)),weatherDesc:WX_DESC[c.weather_code]||"",windSpeed:String(Math.round(c.wind_speed_10m)),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg}));
+          const ts2=(usgs.value?.timeSeries)??[];
+          if(ts2.length){
+            const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name}));
+          }
+        }
+      }catch(e2){console.log("Conditions fetch failed:",e2.message);}
+    }
+    // AI fish ID
+    try{
+      const base64=dataUrl.split(",")[1];
+      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+      const rd=await res.json();
+      const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+      if(parsed.species) setForm(f=>({...f,species:parsed.species}));
+      if(parsed.length!=null) setForm(f=>({...f,length:String(Math.round(parsed.length)),sizeEstimated:true}));
+    }catch(e3){console.log("Fish ID failed:",e3.message);}
+    setForm(f=>({...f,sizeEstimating:false}));
   }
 
   function addFly(){if(!form.flyInput.trim())return;setForm(f=>({...f,flies:[...f.flies,f.flyInput.trim()],flyInput:""}));}
@@ -2815,6 +2981,67 @@ function App({user}){
                 </div>);
               })()}
             </div>
+            {catches.length>=3&&(
+              <div style={{marginBottom:12}}>
+                <button onClick={async()=>{
+                  if(summaryLoading) return;
+                  setSummaryLoading(true);setCatchSummary(null);
+                  try{
+                    const data=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" using "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" "+c.airTemp+"°F":""}${c.streamCFS?" | "+c.streamCFS+" CFS":""}`).join("\n");
+                    const txt=await askClaude(`Fly fishing catch data:\n${data}\n\nAnalyze and provide a 2-3 paragraph trend summary covering: best species/sizes, patterns in location/time/conditions/flies, and 2-3 actionable recommendations. Be specific with numbers. Plain text only.`,false,600);
+                    setCatchSummary(txt);
+                  }catch(e){setCatchSummary("Could not generate summary.");}
+                  setSummaryLoading(false);
+                }} className="btn btnp" style={{width:"100%",marginBottom:catchSummary?10:0}}>
+                  {summaryLoading?"⏳ Analyzing…":"✦ AI Catch Trend Summary"}
+                </button>
+                {catchSummary&&(
+                  <div style={{background:"rgba(0,0,0,0.25)",borderRadius:12,padding:"14px 16px"}}>
+                    <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Trend Analysis</div>
+                    <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap"}}>{catchSummary}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            {(()=>{
+              const withGps=catches.filter(c=>{if(!c.gps)return false;const m=c.gps.match(/(-?\d+\.?\d*)[°\s]*[NS],?\s*(-?\d+\.?\d*)[°\s]*[EW]/);return !!m;});
+              if(withGps.length<2) return null;
+              const coords=withGps.map(c=>{const m=c.gps.match(/(-?\d+\.?\d*)[°\s]*[NS],?\s*(-?\d+\.?\d*)[°\s]*[EW]/);return{lat:parseFloat(m[1]),lng:-Math.abs(parseFloat(m[2]))};});
+              const lats=coords.map(c=>c.lat),lngs=coords.map(c=>c.lng);
+              const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLng=Math.min(...lngs),maxLng=Math.max(...lngs);
+              const iconDiv="<div style=\'background:#c8a84b;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5)\'></div>";
+              const markers=coords.map((co,i)=>{
+                const c=withGps[i];
+                const popup=[c.species||"Catch",c.length?c.length+'"':"",c.time||""].filter(Boolean).join(" · ").replace(/'/g,"\'");
+                return "L.marker(["+co.lat+","+co.lng+"],{icon:gi}).addTo(map).bindPopup(\'"+popup+"\');";
+              }).join("");
+              const mapHtml=["<!DOCTYPE html><html><head><meta charset=\'utf-8\'/>",
+                "<link rel=\'stylesheet\' href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'/>",
+                "<scr"+"ipt src=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\'></scr"+"ipt>",
+                "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>",
+                "<\/head><body><div id=\'map\'><\/div><scr"+"ipt>",
+                "var map=L.map(\'map\',{attributionControl:false}).fitBounds([["+minLat+","+minLng+"],["+maxLat+","+maxLng+"]],{padding:[20,20]});",
+                "L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\').addTo(map);",
+                "var gi=L.divIcon({html:\'"+iconDiv+"\',iconSize:[14,14],iconAnchor:[7,7],className:\'\'});",
+                markers,
+                "<\/scr"+"ipt><\/body><\/html>"
+              ].join("");
+              return(
+                <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
+                  <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif",letterSpacing:0.5}}>📍 Catch Locations · {withGps.length} mapped</span>
+                  </div>
+                  <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:220,border:"none",display:"block"}}/>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 12px"}}>
+                    {withGps.slice(0,8).map((c,i)=>(
+                      <span key={i} style={{fontSize:11,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
+                        📍 {c.species||"Catch"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>(
               <div className="cc" key={c.id}>
@@ -2890,7 +3117,10 @@ function App({user}){
           ))}
           </>}
 
-          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
+          {tab==="plan"&&<>
+            <UpcomingTrips user={user}/>
+            <TripPlanner defaultLocation={loc?.label||""}/>
+          </>}
           {tab==="guide"&&<GuideBook user={user}/>}
         </div>
 
