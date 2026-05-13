@@ -1423,19 +1423,30 @@ function GuideBook({user}){
   async function loadTripPhotos(tripId){
     if(!sb) return;
     try{
-      // Fetch photos with a timeout - they can be large base64 strings
-      const controller=new AbortController();
-      const timeout=setTimeout(()=>controller.abort(),15000);
-      const {data,error}=await sb.from("trips").select("photos,catch_details").eq("id",tripId).single();
-      clearTimeout(timeout);
-      if(error){ console.log("Photo load error:",error.message); return; }
-      if(data){
-        const photos=data.photos||[];
-        const catchDetails=data.catch_details||[];
-        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
-        setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
-      }
+      // Fetch from separate trip_photos table (fast - no base64 in trips table)
+      const [{data:photoData,error:pErr},{data:cdData}]=await Promise.all([
+        sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
+        sb.from("trips").select("catch_details").eq("id",tripId).single()
+      ]);
+      if(pErr){ console.log("Photo load error:",pErr.message); return; }
+      const photos=(photoData||[]).map(r=>r.photo);
+      const catchDetails=(cdData?.catch_details)||[];
+      setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
+      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
     }catch(e){ console.log("loadTripPhotos failed:",e.message); }
+  }
+
+  async function saveTripPhotos(tripId, photos){
+    if(!sb) return;
+    try{
+      // Delete existing photos for this trip then re-insert
+      await sb.from("trip_photos").delete().eq("trip_id",tripId);
+      if(photos.length>0){
+        await sb.from("trip_photos").insert(
+          photos.map((photo,sort_order)=>({trip_id:tripId,photo,sort_order}))
+        );
+      }
+    }catch(e){ console.log("saveTripPhotos failed:",e.message); }
   }
 
   async function saveGuestToDb(guestData){
@@ -1488,14 +1499,17 @@ function GuideBook({user}){
       user_id:user.id, guest_id:guestId,
       date:tripData.date, location:tripData.location, type:tripData.type,
       styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-      gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+      gear:tripData.gear, guide_notes:tripData.guideNotes,
       trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
       air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
       wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
       stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
     }).select().single();
-      if(!error && data) return data;
+      if(!error && data){
+        if(tripData.photos?.length>0) saveTripPhotos(data.id, tripData.photos).catch(e=>console.log("Photo save failed:",e));
+        return data;
+      }
       console.error("Supabase trip save failed:", error?.message);
     }
     // Fallback: localStorage
@@ -1511,13 +1525,14 @@ function GuideBook({user}){
       await sb.from("trips").update({
         date:tripData.date, location:tripData.location, type:tripData.type,
         styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
-        gear:tripData.gear, guide_notes:tripData.guideNotes, photos:tripData.photos,
+        gear:tripData.gear, guide_notes:tripData.guideNotes,
         trip_cost:tripData.tripCost, tip_amount:tripData.tipAmount, report_text:tripData.reportText,
         air_temp:tripData.airTemp, water_temp:tripData.waterTemp,
         weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
         wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
         stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName
       }).eq("id",id);
+      if(tripData.photos?.length>0) saveTripPhotos(id, tripData.photos).catch(()=>{});
       return;
     }
     // localStorage fallback
@@ -2067,7 +2082,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                         const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
                         setSelectedTrip(upd);
                         setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                        if(sb)sb.from("trips").update({photos:newPhotos,catch_details:newDetails}).eq("id",selectedTrip.id);
+                        if(sb){sb.from("trip_photos").delete().eq("trip_id",selectedTrip.id).then(()=>{if(newPhotos.length>0)sb.from("trip_photos").insert(newPhotos.map((p,i)=>({trip_id:selectedTrip.id,photo:p,sort_order:i})));});sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id);}
                       }}}
                         style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
