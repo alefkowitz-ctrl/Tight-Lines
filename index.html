@@ -1391,7 +1391,7 @@ function GuideBook({user}){
         return;
       }
       if(!gData){ setGuestsLoading(false); return; }
-      const {data:tData, error:tErr}=await sb.from("trips").select("*").eq("user_id",user.id).order("date",{ascending:false});
+      const {data:tData, error:tErr}=await sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,catch_details").eq("user_id",user.id).order("date",{ascending:false});
       if(tErr) console.error("Trip load error:",tErr.message);
       const trips=tData||[];
       const guestsWithTrips=gData.map(g=>({
@@ -1400,7 +1400,7 @@ function GuideBook({user}){
         trips:trips.filter(t=>t.guest_id===g.id).map(t=>({
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
-          gear:t.gear,guideNotes:t.guide_notes,photos:t.photos||[],
+          gear:t.gear,guideNotes:t.guide_notes,photos:[],
           tripCost:t.trip_cost,tipAmount:t.tip_amount,reportText:t.report_text,
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
@@ -1419,6 +1419,17 @@ function GuideBook({user}){
     }
     load();
   },[user]);
+
+  async function loadTripPhotos(tripId){
+    if(!sb) return;
+    try{
+      const {data}=await sb.from("trips").select("photos").eq("id",tripId).single();
+      if(data?.photos){
+        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos:data.photos}:t)})));
+        setSelectedTrip(st=>st?.id===tripId?{...st,photos:data.photos}:st);
+      }
+    }catch(e){ console.log("loadTripPhotos failed:",e); }
+  }
 
   async function saveGuestToDb(guestData){
     // Always try localStorage as immediate save
@@ -1801,7 +1812,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
-        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");}}>
+        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");loadTripPhotos(trip.id);}}>
           <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
           {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
