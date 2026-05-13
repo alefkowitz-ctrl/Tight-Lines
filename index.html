@@ -1348,6 +1348,7 @@ function GuideBook({user}){
   const [guests, setGuests] = useState([]);
   const [guestsLoading, setGuestsLoading] = useState(true);
   const [migrationStatus, setMigrationStatus] = useState(null);
+  const [editingTripCatchIdx, setEditingTripCatchIdx] = useState(null);
 
   async function runPhotoMigration(){
     if(!sb||!user?.id) return;
