@@ -1423,16 +1423,21 @@ function GuideBook({user}){
   async function loadTripPhotos(tripId){
     if(!sb) return;
     try{
-      // Fetch from separate trip_photos table (fast - no base64 in trips table)
+      console.log("Loading photos for trip:", tripId);
       const [{data:photoData,error:pErr},{data:cdData}]=await Promise.all([
         sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
         sb.from("trips").select("catch_details").eq("id",tripId).single()
       ]);
+      console.log("Photo load result:", photoData?.length, "photos, error:", pErr?.message);
       if(pErr){ console.log("Photo load error:",pErr.message); return; }
       const photos=(photoData||[]).map(r=>r.photo);
       const catchDetails=(cdData?.catch_details)||[];
+      console.log("Setting", photos.length, "photos on trip", tripId);
+      setSelectedTrip(st=>{
+        if(!st||st.id!==tripId) return st;
+        return {...st,photos,catchDetails};
+      });
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
-      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
     }catch(e){ console.log("loadTripPhotos failed:",e.message); }
   }
 
