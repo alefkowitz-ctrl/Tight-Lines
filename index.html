@@ -1380,7 +1380,7 @@ function GuideBook({user}){
       }
 
       // Logged in via Supabase - load from cloud (works on any device)
-      const {data:gData, error:gErr}=await sb.from("guests").select("*").eq("user_id",user.id).order("name");
+      const {data:gData, error:gErr}=await sb.from("guests").select("*").eq("user_id",user.id).order("name",{ascending:true});
       if(gErr){
         console.error("Failed to load guests:", gErr.message);
         // Fall back to localStorage if Supabase fails
@@ -1423,12 +1423,19 @@ function GuideBook({user}){
   async function loadTripPhotos(tripId){
     if(!sb) return;
     try{
-      const {data}=await sb.from("trips").select("photos").eq("id",tripId).single();
-      if(data?.photos){
-        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos:data.photos}:t)})));
-        setSelectedTrip(st=>st?.id===tripId?{...st,photos:data.photos}:st);
+      // Fetch photos with a timeout - they can be large base64 strings
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),15000);
+      const {data,error}=await sb.from("trips").select("photos,catch_details").eq("id",tripId).single();
+      clearTimeout(timeout);
+      if(error){ console.log("Photo load error:",error.message); return; }
+      if(data){
+        const photos=data.photos||[];
+        const catchDetails=data.catch_details||[];
+        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
+        setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
       }
-    }catch(e){ console.log("loadTripPhotos failed:",e); }
+    }catch(e){ console.log("loadTripPhotos failed:",e.message); }
   }
 
   async function saveGuestToDb(guestData){
