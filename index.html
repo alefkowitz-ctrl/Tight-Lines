@@ -2306,7 +2306,28 @@ function App({user}){
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
-  React.useEffect(()=>{ window._setLightbox=setLightboxPhoto; return()=>{window._setLightbox=null;}; },[setLightboxPhoto]);
+  React.useEffect(()=>{
+    window._setLightbox=setLightboxPhoto;
+    return()=>{window._setLightbox=null;};
+  },[setLightboxPhoto]);
+  // Lightbox via DOM - avoids JSX nesting issues
+  React.useEffect(()=>{
+    if(!lightboxPhoto){
+      const el=document.getElementById("gc-lightbox");
+      if(el) el.remove();
+      return;
+    }
+    let el=document.getElementById("gc-lightbox");
+    if(!el){
+      el=document.createElement("div");
+      el.id="gc-lightbox";
+      document.body.appendChild(el);
+    }
+    el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;";
+    el.innerHTML='<img src="'+lightboxPhoto+'" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="catch"/><button style="position:fixed;top:20px;right:20px;background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;width:44px;height:44px;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>';
+    el.onclick=(e)=>{ setLightboxPhoto(null); };
+    return()=>{ const el2=document.getElementById("gc-lightbox"); if(el2) el2.remove(); };
+  },[lightboxPhoto]);
   const [loc,setLoc]=useState(null);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
@@ -2696,16 +2717,6 @@ function App({user}){
         </div>
       </div>
     </div>
-    {lightboxPhoto&&(
-      <div onClick={()=>setLightboxPhoto(null)}
-        style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.97)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-        <img src={lightboxPhoto} style={{maxWidth:"100vw",maxHeight:"100vh",objectFit:"contain",display:"block"}} alt="catch"/>
-        <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:20,right:20}}>
-          <button onClick={()=>setLightboxPhoto(null)}
-            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:"50%",width:44,height:44,fontSize:22,cursor:"pointer"}}>✕</button>
-        </div>
-      </div>
-    )}
     </div>
   </div>
   );
