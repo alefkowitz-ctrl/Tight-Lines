@@ -1344,9 +1344,43 @@ function TripLocationWeather({tripForm, setTripForm}){
 const FISHING_STYLES = ["Nymphing","Dry Fly","Streamer","Wet Fly","Euro Nymphing","Indicator","Sight Fishing"];
 const TRIP_TYPES = ["Wade","Float","Boat","Stillwater"];
 
-function GuideBook({user, runMigration, migrationStatus}){
+function GuideBook({user}){
   const [guests, setGuests] = useState([]);
   const [guestsLoading, setGuestsLoading] = useState(true);
+  const [migrationStatus, setMigrationStatus] = useState(null);
+
+  async function runPhotoMigration(){
+    if(!sb||!user?.id) return;
+    setMigrationStatus("Starting migration...");
+    try{
+      const {data:tp}=await sb.from("trip_photos").select("id,trip_id").limit(100);
+      let migrated=0;
+      for(const row of (tp||[])){
+        const {data:pd}=await sb.from("trip_photos").select("photo").eq("id",row.id).single();
+        if(!pd?.photo||!pd.photo.startsWith("data:")) continue;
+        const url=await uploadPhotoToStorage(pd.photo,`trips/${row.trip_id}`);
+        if(url){
+          await sb.from("trip_photos").update({photo:url}).eq("id",row.id);
+          migrated++;
+          setMigrationStatus(`Migrating... ${migrated} done`);
+        }
+      }
+      const {data:cp}=await sb.from("catches").select("id,photo").eq("user_id",user.id).limit(100);
+      for(const row of (cp||[])){
+        if(!row.photo||!row.photo.startsWith("data:")) continue;
+        const url=await uploadPhotoToStorage(row.photo,"catches");
+        if(url){
+          await sb.from("catches").update({photo:url}).eq("id",row.id);
+          migrated++;
+          setMigrationStatus(`Migrating... ${migrated} done`);
+        }
+      }
+      setMigrationStatus(migrated>0?`✅ Migrated ${migrated} photos - reload to see them`:"✅ Already migrated");
+      setTimeout(()=>setMigrationStatus(null),5000);
+    }catch(e){
+      setMigrationStatus("❌ "+e.message);
+    }
+  }
   // Clear any stale cache from previous sessions to force fresh Supabase load
   React.useEffect(()=>{
     if(user?.id){
@@ -2491,49 +2525,13 @@ function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
-  const [migrationStatus,setMigrationStatus]=useState(null);
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
   React.useEffect(()=>{
     window._setLightbox=setLightboxPhoto;
     return()=>{window._setLightbox=null;};
   },[setLightboxPhoto]);
-  async function runPhotoMigration(){
-    if(!sb||!user?.id) return;
-    setMigrationStatus("migrating");
-    try{
-      // Get all trip photo IDs without fetching photo data
-      const {data:tp}=await sb.from("trip_photos").select("id,trip_id").limit(100);
-      let migrated=0;
-      for(const row of (tp||[])){
-        // Fetch one photo at a time
-        const {data:pd}=await sb.from("trip_photos").select("photo").eq("id",row.id).single();
-        if(!pd?.photo||!pd.photo.startsWith("data:")) continue;
-        const url=await uploadPhotoToStorage(pd.photo,`trips/${row.trip_id}`);
-        if(url){
-          await sb.from("trip_photos").update({photo:url}).eq("id",row.id);
-          migrated++;
-          setMigrationStatus(`Migrating photos... ${migrated} done`);
-        }
-      }
-      // Catch photos
-      const {data:cp}=await sb.from("catches").select("id,photo").eq("user_id",user.id).limit(100);
-      for(const row of (cp||[])){
-        if(!row.photo||!row.photo.startsWith("data:")) continue;
-        const url=await uploadPhotoToStorage(row.photo,"catches");
-        if(url){
-          await sb.from("catches").update({photo:url}).eq("id",row.id);
-          migrated++;
-          setMigrationStatus(`Migrating photos... ${migrated} done`);
-        }
-      }
-      setMigrationStatus(migrated>0?`✅ Migrated ${migrated} photos`:"✅ All photos already migrated");
-      setTimeout(()=>setMigrationStatus(null),3000);
-    }catch(e){
-      console.log("Migration error:",e.message);
-      setMigrationStatus("❌ Migration failed: "+e.message);
-    }
-  }
+
 
   // Lightbox via DOM - avoids JSX nesting issues
   React.useEffect(()=>{
@@ -2894,7 +2892,7 @@ function App({user}){
           </>}
 
           {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
-          {tab==="guide"&&<GuideBook user={user} runMigration={runPhotoMigration} migrationStatus={migrationStatus}/>}
+          {tab==="guide"&&<GuideBook user={user}/>}
         </div>
 
         {tab==="log"&&(
