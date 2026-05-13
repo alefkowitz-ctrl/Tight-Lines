@@ -2243,10 +2243,8 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <div style={{marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
-              {(()=>{ const [identifying,setIdentifying]=React.useState(false); return(
-              <button onClick={async()=>{
-                if(identifying) return;
-                setIdentifying(true);
+              <button onClick={async(e)=>{
+                e.currentTarget.textContent="⏳ Analyzing…";e.currentTarget.disabled=true;
                 const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
                 const details=[...(selectedTrip.catchDetails||[])];
                 while(details.length<selectedTrip.photos.length) details.push({});
@@ -2273,10 +2271,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 setSelectedTrip(upd);
                 setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
                 if(sb) sb.from("trips").update({catch_details:details}).eq("id",selectedTrip.id);
-                setIdentifying(false);
-              }} style={{fontSize:11,padding:"4px 10px",background:identifying?"rgba(200,168,75,0.4)":"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                {identifying?"⏳ Analyzing…":"✦ Identify Fish"}
-              </button>); })()}
+                e.currentTarget.textContent="✦ Identify Fish";e.currentTarget.disabled=false;
+              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                ✦ Identify Fish
+              </button>
             </div>
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i]||{};
@@ -3130,15 +3128,18 @@ function App({user}){
             )}
             {(()=>{
               const parseGpsCoord=(gps)=>{
-                if(!gps) return null;
-                const nums=gps.match(/-?\d+\.\d+/g);
+                if(!gps||gps==="Location not recorded") return null;
+                const nums=(gps||"").match(/-?\d+\.\d+/g);
                 if(!nums||nums.length<2) return null;
                 let lat=parseFloat(nums[0]), lng=parseFloat(nums[1]);
-                if(gps.includes('W')&&lng>0) lng=-lng;
-                if(gps.includes('S')&&lat>0) lat=-lat;
+                // Make lng negative for W (North America)
+                if((gps.includes("W")||gps.includes("w"))&&lng>0) lng=-lng;
+                if((gps.includes("S")||gps.includes("s"))&&lat>0) lat=-lat;
+                // Sanity check
+                if(lat<-90||lat>90||lng<-180||lng>180) return null;
                 return{lat,lng};
               };
-              const withGps=catches.filter(c=>c.gps&&parseGpsCoord(c.gps));
+              const withGps=catches.filter(c=>c.gps&&parseGpsCoord(c.gps)!==null);
               if(withGps.length<2) return null;
               const coords=withGps.map(c=>parseGpsCoord(c.gps)).filter(Boolean);
               const lats=coords.map(c=>c.lat),lngs=coords.map(c=>c.lng);
@@ -3160,16 +3161,45 @@ function App({user}){
                 markers,
                 "<\/scr"+"ipt><\/body><\/html>"
               ].join("");
+              return(()=>{
+              // Project coords to SVG space
+              const W=580,H=220,PAD=20;
+              const latRange=maxLat-minLat||0.01, lngRange=maxLng-minLng||0.01;
+              const toX=lng=>PAD+(lng-minLng)/lngRange*(W-PAD*2);
+              const toY=lat=>H-PAD-(lat-minLat)/latRange*(H-PAD*2);
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif",letterSpacing:0.5}}>📍 Catch Locations · {withGps.length} mapped</span>
                   </div>
-                  <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:220,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin"/>
+                  <div style={{position:"relative",background:"rgba(0,0,0,0.2)",overflow:"hidden"}}>
+                    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+                      {/* Grid lines */}
+                      {[0.25,0.5,0.75].map(f=>(
+                        <React.Fragment key={f}>
+                          <line x1={PAD} x2={W-PAD} y1={PAD+(H-PAD*2)*f} y2={PAD+(H-PAD*2)*f} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+                          <line x1={PAD+(W-PAD*2)*f} x2={PAD+(W-PAD*2)*f} y1={PAD} y2={H-PAD} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+                        </React.Fragment>
+                      ))}
+                      {/* Catch pins */}
+                      {coords.map((co,i)=>{
+                        const c=withGps[i];
+                        const x=toX(co.lng), y=toY(co.lat);
+                        return(
+                          <g key={i}>
+                            <circle cx={x} cy={y} r={8} fill="rgba(200,168,75,0.3)" stroke="#c8a84b" strokeWidth={1.5}/>
+                            <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
+                            <title>{c.species||"Catch"}{c.length?" — "+c.length+'"':""}{c.time?"
+"+c.time:""}</title>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 12px"}}>
-                    {withGps.slice(0,8).map((c,i)=>(
+                    {withGps.slice(0,10).map((c,i)=>(
                       <span key={i} style={{fontSize:11,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
-                        📍 {c.species||"Catch"}
+                        📍 {c.species||"Catch"}{c.length?` ${c.length}"`:""}
                       </span>
                     ))}
                   </div>
