@@ -1420,19 +1420,51 @@ function GuideBook({user}){
     load();
   },[user]);
 
+  // Upload a base64 photo to Supabase Storage, return public URL
+  async function uploadPhotoToStorage(base64DataUrl, folder){
+    if(!sb) return null;
+    try{
+      // Convert base64 to blob
+      const res=await fetch(base64DataUrl);
+      const blob=await res.blob();
+      const ext=blob.type.split("/")[1]||"jpg";
+      const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const {data,error}=await sb.storage.from("trip-photos").upload(fileName, blob, {contentType:blob.type,upsert:false});
+      if(error){ console.log("Storage upload error:",error.message); return null; }
+      const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
+      return publicUrl;
+    }catch(e){ console.log("uploadPhotoToStorage failed:",e.message); return null; }
+  }
+
+  // Upload all photos in array, return URLs (falls back to base64 if storage fails)
+  async function uploadPhotosToStorage(photos, folder){
+    const results=[];
+    for(const photo of photos){
+      if(photo.startsWith("http")){ results.push(photo); continue; } // already a URL
+      const url=await uploadPhotoToStorage(photo, folder);
+      results.push(url||photo); // fallback to base64 if upload fails
+    }
+    return results;
+  }
+
   async function loadTripPhotos(tripId){
     if(!sb) return;
     try{
       console.log("Loading photos for trip:", tripId);
-      const [{data:photoData,error:pErr},{data:cdData}]=await Promise.all([
-        sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
-        sb.from("trips").select("catch_details").eq("id",tripId).single()
-      ]);
+      // Fetch catch_details fast (no photos), then photos separately
+      const {data:cdData}=await sb.from("trips").select("catch_details").eq("id",tripId).single();
+      const catchDetails=(cdData?.catch_details)||[];
+      console.log("catch_details loaded, fetching photos...");
+      // Fetch photos one at a time to avoid timeout on large payloads
+      const {data:photoData,error:pErr}=await sb.from("trip_photos")
+        .select("photo,sort_order")
+        .eq("trip_id",tripId)
+        .order("sort_order")
+        .limit(20);
       console.log("Photo load result:", photoData?.length, "photos, error:", pErr?.message);
       if(pErr){ console.log("Photo load error:",pErr.message); return; }
       const photos=(photoData||[]).map(r=>r.photo);
-      const catchDetails=(cdData?.catch_details)||[];
-      console.log("Setting", photos.length, "photos on trip", tripId);
+      console.log("Setting", photos.length, "photos");
       setSelectedTrip(st=>{
         if(!st||st.id!==tripId) return st;
         return {...st,photos,catchDetails};
@@ -1444,11 +1476,13 @@ function GuideBook({user}){
   async function saveTripPhotos(tripId, photos){
     if(!sb) return;
     try{
-      // Delete existing photos for this trip then re-insert
+      // Upload base64 photos to Storage, get back URLs
+      const urls=await uploadPhotosToStorage(photos, `trips/${tripId}`);
+      // Delete existing then re-insert with URLs
       await sb.from("trip_photos").delete().eq("trip_id",tripId);
-      if(photos.length>0){
+      if(urls.length>0){
         await sb.from("trip_photos").insert(
-          photos.map((photo,sort_order)=>({trip_id:tripId,photo,sort_order}))
+          urls.map((photo,sort_order)=>({trip_id:tripId,photo,sort_order}))
         );
       }
     }catch(e){ console.log("saveTripPhotos failed:",e.message); }
@@ -2444,6 +2478,34 @@ function App({user}){
     window._setLightbox=setLightboxPhoto;
     return()=>{window._setLightbox=null;};
   },[setLightboxPhoto]);
+  // One-time migration: upload existing base64 photos to Supabase Storage
+  React.useEffect(()=>{
+    if(!sb||!user?.id) return;
+    async function migratePhotos(){
+      // Migrate trip photos
+      const {data:tp}=await sb.from("trip_photos").select("id,photo,trip_id").limit(100);
+      if(tp){
+        const b64tp=tp.filter(r=>r.photo&&r.photo.startsWith("data:"));
+        for(const row of b64tp){
+          const url=await uploadPhotoToStorage(row.photo,`trips/${row.trip_id}`);
+          if(url) await sb.from("trip_photos").update({photo:url}).eq("id",row.id);
+        }
+        if(b64tp.length) console.log(`Migrated ${b64tp.length} trip photos to Storage`);
+      }
+      // Migrate catch photos
+      const {data:cp}=await sb.from("catches").select("id,photo").eq("user_id",user.id).limit(100);
+      if(cp){
+        const b64cp=cp.filter(r=>r.photo&&r.photo.startsWith("data:"));
+        for(const row of b64cp){
+          const url=await uploadPhotoToStorage(row.photo,"catches");
+          if(url) await sb.from("catches").update({photo:url}).eq("id",row.id);
+        }
+        if(b64cp.length) console.log(`Migrated ${b64cp.length} catch photos to Storage`);
+      }
+    }
+    migratePhotos().catch(e=>console.log("Photo migration error:",e.message));
+  },[user?.id]);
+
   // Lightbox via DOM - avoids JSX nesting issues
   React.useEffect(()=>{
     if(!lightboxPhoto){
@@ -2501,6 +2563,11 @@ function App({user}){
   }
 
   async function addCatch(catchData){
+    // Upload photo to storage if it's a base64 data URL
+    if(catchData.photo&&catchData.photo.startsWith("data:")){
+      const url=await uploadPhotoToStorage(catchData.photo,"catches");
+      if(url) catchData={...catchData,photo:url};
+    }
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
     const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
     if(!error&&data) setCatches(c=>[{id:data.id,...catchData},...c]);
