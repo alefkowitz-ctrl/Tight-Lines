@@ -3189,8 +3189,7 @@ function App({user}){
                           <g key={i}>
                             <circle cx={x} cy={y} r={8} fill="rgba(200,168,75,0.3)" stroke="#c8a84b" strokeWidth={1.5}/>
                             <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
-                            <title>{c.species||"Catch"}{c.length?" — "+c.length+'"':""}{c.time?"
-"+c.time:""}</title>
+                            <title>{(c.species||"Catch")+(c.length?" — "+c.length+'"':"")+( c.time?" | "+c.time:"")}</title>
                           </g>
                         );
                       })}
