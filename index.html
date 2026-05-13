@@ -1753,7 +1753,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
-        <button onClick={runMigration} disabled={!!migrationStatus}
+        <button onClick={runPhotoMigration} disabled={!!migrationStatus}
           style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
           {migrationStatus||"🔄 Migrate Photos to Storage"}
         </button>
