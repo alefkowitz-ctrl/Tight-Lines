@@ -487,15 +487,19 @@ async function fetchUSGSTemp(siteNo){
 }
 
 async function fetchUSGSLive(lat,lng){
-  // Try multiple bounding box sizes to find gauges
-  const sizes=[0.5, 1.0, 1.5, 2.5];
+  // Try multiple bounding box sizes to find gauges (2-hour drive = ~2 degrees)
+  const sizes=[0.5, 1.0, 1.5, 2.0, 2.5];
   var lastStatus="", lastCount=0;
   for(var si=0; si<sizes.length; si++){
     var p=sizes[si];
-    var minLng=lng-p, minLat=lat-p, maxLng=lng+p, maxLat=lat+p;
+    // Round to 4 decimal places - USGS rejects high-precision coords
+    var minLng=Math.round((Math.min(lng-p,lng+p))*10000)/10000;
+    var maxLng=Math.round((Math.max(lng-p,lng+p))*10000)/10000;
+    var minLat=Math.round((Math.min(lat-p,lat+p))*10000)/10000;
+    var maxLat=Math.round((Math.max(lat-p,lat+p))*10000)/10000;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
-      var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active";
+      var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST";
       var r=await fetch(url);
       lastStatus="HTTP "+r.status;
       if(!r.ok){ lastStatus+=" (error)"; continue; }
