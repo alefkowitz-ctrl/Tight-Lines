@@ -2243,7 +2243,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
           <div style={{marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
+              {(()=>{ const [identifying,setIdentifying]=React.useState(false); return(
               <button onClick={async()=>{
+                if(identifying) return;
+                setIdentifying(true);
                 const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
                 const details=[...(selectedTrip.catchDetails||[])];
                 while(details.length<selectedTrip.photos.length) details.push({});
@@ -2251,17 +2254,14 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                   if(details[i]?.species) continue; // skip if already identified
                   try{
                     const photoUrl=selectedTrip.photos[i];
-                    let imageSource;
+                    let imageContent;
                     if(photoUrl.startsWith("data:")){
-                      imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};
+                      imageContent={type:"image",source:{type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]}};
                     } else {
-                      // Storage URL - fetch and convert
-                      const imgRes=await fetch(photoUrl);
-                      const blob=await imgRes.blob();
-                      const b64=await new Promise(r=>{const rd=new FileReader();rd.onload=e=>r(e.target.result.split(",")[1]);rd.readAsDataURL(blob);});
-                      imageSource={type:"base64",media_type:blob.type||"image/jpeg",data:b64};
+                      // Use URL source type directly
+                      imageContent={type:"image",source:{type:"url",url:photoUrl}};
                     }
-                    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})});
+                    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[imageContent,{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})});
                     const rd=await res.json();
                     const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                     if(parsed.species) details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
@@ -2273,9 +2273,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 setSelectedTrip(upd);
                 setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
                 if(sb) sb.from("trips").update({catch_details:details}).eq("id",selectedTrip.id);
-              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
-                ✦ Identify Fish
-              </button>
+                setIdentifying(false);
+              }} style={{fontSize:11,padding:"4px 10px",background:identifying?"rgba(200,168,75,0.4)":"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                {identifying?"⏳ Analyzing…":"✦ Identify Fish"}
+              </button>); })()}
             </div>
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i]||{};
@@ -2858,7 +2859,7 @@ function App({user}){
         return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
       }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000))
         .sort((a,b)=>a.dist-b.dist)
-        .slice(0,8);
+        .slice(0,25);
       // Fetch per-site historical max in parallel, fallback to relative scaling
       const [statResults, tempResults]=await Promise.all([
         Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo))),
