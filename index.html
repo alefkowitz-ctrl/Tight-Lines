@@ -3924,6 +3924,87 @@ Be specific with numbers and conditions where available. Plain text only.`, fals
           <button className="back" onClick={()=>setAddOpen(false)}>← Back</button>
           <span className="slide-title">Record a Catch</span>
         </div>
+        <div style={{padding:"20px 16px 80px"}}>
+          <label className="lbl">Photo</label>
+          {form.photo?(
+            <div className="pw">
+              <img src={form.photo} className="p-img" alt="catch" style={{cursor:"pointer"}} onClick={()=>setLightboxPhoto(form.photo)}/>
+              <div className="pov">
+                {form.gps&&<span className="ptag">📍 {form.gps}</span>}
+                {form.time&&<span className="ttag">{form.time}</span>}
+              </div>
+              <button className="px" onClick={()=>setForm(f=>({...f,photo:null,gps:"",time:""}))}>✕</button>
+            </div>
+          ):(
+            <div className="pbtns">
+              <button className="pbtn" onClick={()=>camRef.current.click()}><span className="pi">📷</span>Take Photo</button>
+              <button className="pbtn" onClick={()=>galRef.current.click()}><span className="pi">🖼️</span>Choose from Library</button>
+            </div>
+          )}
+          <p className="hint">Time, GPS & conditions auto-filled from photo — edit if needed.</p>
+          <label className="lbl">Date & Time</label>
+          <input className="inp" placeholder="e.g. May 8, 2026 at 7:30 AM" value={form.time}
+            onChange={e=>setForm(f=>({...f,time:e.target.value}))}/>
+          <label className="lbl">GPS Location</label>
+          <input className="inp" placeholder="e.g. 39.7392° N, 104.9903° W" value={form.gps}
+            onChange={e=>setForm(f=>({...f,gps:e.target.value}))}/>
+          <label className="lbl">Species</label>
+          <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
+            <option value="">Select…</option>
+            {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <label className="lbl">Length (inches)
+            {form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"var(--sky)",fontStyle:"italic"}}>🔍 estimating from photo…</span>}
+            {form.sizeEstimated&&!form.sizeEstimating&&<span style={{marginLeft:8,fontSize:11,color:"#9cd47a",fontStyle:"italic"}}>✨ AI estimated — adjust if needed</span>}
+          </label>
+          <input className="inp" type="number" placeholder="e.g. 18" value={form.length}
+            onChange={e=>setForm(f=>({...f,length:e.target.value,sizeEstimated:false}))}
+            style={form.sizeEstimated?{borderColor:"rgba(90,122,74,0.6)",background:"rgba(90,122,74,0.1)"}:{}}/>
+          <label className="lbl">Flies Used</label>
+          <div className="ftags">{form.flies.map((fly,i)=><div className="ftag" key={i}>🪶 {fly}<button onClick={()=>removeFly(i)}>×</button></div>)}</div>
+          <div className="frow">
+            <input className="inp" placeholder="e.g. Elk Hair Caddis #14" value={form.flyInput}
+              onChange={e=>setForm(f=>({...f,flyInput:e.target.value}))}
+              onKeyDown={e=>e.key==="Enter"&&addFly()}/>
+            <button className="btn" onClick={addFly}>Add</button>
+          </div>
+          <label className="lbl">Conditions Snapshot</label>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Air Temp (°F)</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="65"
+                  value={form.airTemp} onChange={e=>setForm(f=>({...f,airTemp:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Stream CFS</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="250"
+                  value={form.streamCFS} onChange={e=>setForm(f=>({...f,streamCFS:e.target.value}))}/>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Wind (mph)</div>
+                <input className="inp" style={{marginBottom:0}} type="number" placeholder="8"
+                  value={form.windSpeed} onChange={e=>setForm(f=>({...f,windSpeed:e.target.value}))}/>
+              </div>
+              <div>
+                <div className="lbl" style={{marginBottom:4}}>Wind Dir</div>
+                <input className="inp" style={{marginBottom:0}} placeholder="SW"
+                  value={form.windDir} onChange={e=>setForm(f=>({...f,windDir:e.target.value}))}/>
+              </div>
+            </div>
+            <div>
+              <div className="lbl" style={{marginBottom:4}}>Sky / Weather</div>
+              <input className="inp" style={{marginBottom:0}} placeholder="e.g. ☀️ Sunny"
+                value={form.weatherDesc} onChange={e=>setForm(f=>({...f,weatherDesc:e.target.value}))}/>
+            </div>
+          </div>
+          <label className="lbl">Notes</label>
+          <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Where, how, conditions…"
+            value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+          <button className="btn btnp" onClick={submitCatch}>🐟 Save to Log</button>
+        </div>
       </div>
 
       <div className={`slide${batchOpen?" on":""}`} style={{zIndex:200}}>
