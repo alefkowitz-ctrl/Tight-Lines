@@ -956,7 +956,6 @@ function GaugeList({gauges}){
             {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
-          <div className="bar"><div className="bar-f" style={{width:`${g.pct}%`}}/></div>
           {expanded===i&&(
             <GaugeChart siteNo={g.siteNo} siteName={g.name} initialCFS={g.cfs}/>
           )}
@@ -2251,9 +2250,18 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 for(let i=0;i<selectedTrip.photos.length;i++){
                   if(details[i]?.species) continue; // skip if already identified
                   try{
-                    const base64=selectedTrip.photos[i].split(",")[1]||selectedTrip.photos[i];
-                    if(!base64||base64.length<100) continue;
-                    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})});
+                    const photoUrl=selectedTrip.photos[i];
+                    let imageSource;
+                    if(photoUrl.startsWith("data:")){
+                      imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};
+                    } else {
+                      // Storage URL - fetch and convert
+                      const imgRes=await fetch(photoUrl);
+                      const blob=await imgRes.blob();
+                      const b64=await new Promise(r=>{const rd=new FileReader();rd.onload=e=>r(e.target.result.split(",")[1]);rd.readAsDataURL(blob);});
+                      imageSource={type:"base64",media_type:blob.type||"image/jpeg",data:b64};
+                    }
+                    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})});
                     const rd=await res.json();
                     const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                     if(parsed.species) details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
@@ -3079,6 +3087,22 @@ function App({user}){
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
               </div>
+              {catches.length>0&&(()=>{
+                const counts={};catches.forEach(c=>{if(c.species)counts[c.species]=(counts[c.species]||0)+1;});
+                const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+                const max=sorted[0]?.[1]||1;
+                return(<div style={{width:"100%",marginTop:4}}>
+                  {sorted.map(([sp,n])=>(
+                    <div key={sp} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{fontSize:11,color:"var(--stone)",width:110,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sp}</span>
+                      <div style={{flex:1,height:7,background:"rgba(0,0,0,0.3)",borderRadius:4,overflow:"hidden"}}>
+                        <div style={{width:`${(n/max)*100}%`,height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:4,transition:"width .6s"}}/>
+                      </div>
+                      <span style={{fontSize:11,color:"var(--sky)",width:16,textAlign:"right"}}>{n}</span>
+                    </div>
+                  ))}
+                </div>);
+              })()}
 
             </div>
             {catches.length>=3&&(
