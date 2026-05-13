@@ -920,7 +920,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
       <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
         <span style={{fontSize:11,color:"var(--stone)",marginRight:2}}>Show:</span>
         {TIMEFRAMES.map(tf=>(
-          <button key={tf.label} onClick={()=>setDays(tf.days)}
+          <button key={tf.label} onClick={e=>{e.stopPropagation();setDays(tf.days);}}
             style={{
               background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
               border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
@@ -2242,7 +2242,33 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
         )}
         {selectedTrip.photos.length>0&&(
           <div style={{marginTop:12}}>
-            <div className="lbl" style={{marginBottom:8}}>Catches · {selectedTrip.photos.length}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
+              <button onClick={async()=>{
+                const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+                const details=[...(selectedTrip.catchDetails||[])];
+                while(details.length<selectedTrip.photos.length) details.push({});
+                for(let i=0;i<selectedTrip.photos.length;i++){
+                  if(details[i]?.species) continue; // skip if already identified
+                  try{
+                    const base64=selectedTrip.photos[i].split(",")[1]||selectedTrip.photos[i];
+                    if(!base64||base64.length<100) continue;
+                    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})});
+                    const rd=await res.json();
+                    const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+                    if(parsed.species) details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
+                    const upd={...selectedTrip,catchDetails:details};
+                    setSelectedTrip(upd);
+                  }catch{}
+                }
+                const upd={...selectedTrip,catchDetails:details};
+                setSelectedTrip(upd);
+                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
+                if(sb) sb.from("trips").update({catch_details:details}).eq("id",selectedTrip.id);
+              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                ✦ Identify Fish
+              </button>
+            </div>
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i]||{};
               return(
