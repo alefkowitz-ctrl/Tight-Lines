@@ -3076,24 +3076,23 @@ function App({user}){
     setCondShopsLoading(true);
     setCondShops([]);
     try{
+      const prompt="Search for real fly fishing specialty shops near "+label+". Only dedicated fly shops or outfitters. No Bass Pro or Cabelas. Return ONLY a JSON array with fields name, address, website, phone, specialty.";
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:800,
         tools:[{type:"web_search_20250305",name:"web_search"}],
-        messages:[{role:"user",content:'Search for real fly fishing specialty shops near '+label+'. Only actual dedicated fly shops with verified addresses. No Bass Pro or Cabelas. Return ONLY a JSON array: [{name,address,website,phone,specialty}]'"}]
+        messages:[{role:"user",content:prompt}]
       })});
       const d=await res.json();
-      const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
-      const start=txt.indexOf("["),end=txt.lastIndexOf("]");
-      if(start!==-1&&end>start){
-        const parsed=JSON.parse(txt.slice(start,end+1));
+      const txt=(d.content||[]).map(function(b){return b.text||"";}).filter(Boolean).join("").trim();
+      const start=txt.indexOf("["),stop=txt.lastIndexOf("]");
+      if(start!==-1&&stop>start){
+        const parsed=JSON.parse(txt.slice(start,stop+1));
         if(Array.isArray(parsed)&&parsed.length>0) setCondShops(parsed.slice(0,6));
-        else setCondShops([]);
-      } else {
-        setCondShops([]);
       }
-    }catch(e){console.log("fly shops failed:",e.message);setCondShops([]);}
+    }catch(e){console.log("fly shops failed:",e.message);}
     setCondShopsLoading(false);
   }
+
 
 
   async function loadConditions(newLoc){
