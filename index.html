@@ -1554,7 +1554,7 @@ function GuideBook({user}){
       ]);
       if(photoErr) console.log("trip_photos query error:",photoErr.message);
       if(cdErr) console.log("catch_details query error:",cdErr.message);
-      const catchDetails=(cdData?.catch_details)||[];
+      const catchDetails=((cdData?.catch_details)||[]).map(d=>({...d,analyzing:false}));
       // Use trip_photos table first; fall back to trips.photos JSON column
       let photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
       if(photos.length===0 && tripData?.photos?.length>0){
@@ -1644,7 +1644,7 @@ function GuideBook({user}){
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
       wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
       stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-      catch_details:tripData.catchDetails||[]
+      catch_details:(tripData.catchDetails||[]).map(d=>({...d,analyzing:false}))
     }).select().single();
       if(!error && data){
         if(tripData.photos?.length>0) saveTripPhotos(data.id, tripData.photos).catch(e=>console.log("Photo save failed:",e));
@@ -1673,7 +1673,7 @@ function GuideBook({user}){
         weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
         wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
         stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
-        catch_details:tripData.catchDetails||[]
+        catch_details:(tripData.catchDetails||[]).map(d=>({...d,analyzing:false}))
       }).eq("id",id);
       return;
     }
@@ -1730,7 +1730,9 @@ function GuideBook({user}){
         const exif=parseExif(abuf);
         photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
       }catch{}
-      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      // Use EXIF time, fall back to trip date (not today's date)
+      const tripDateFallback=tripForm.date?new Date(tripForm.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true}):new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
       // Fetch conditions
@@ -2297,8 +2299,12 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                       catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
                     } else {
                       try{
-                        const imgRes=await fetch(photoUrl);
-                        if(!imgRes.ok) continue;
+                        const fetchCtrl=new AbortController();
+                        const fetchTid=setTimeout(()=>fetchCtrl.abort(),15000);
+                        let imgRes;
+                        try{imgRes=await fetch(photoUrl,{signal:fetchCtrl.signal});}
+                        finally{clearTimeout(fetchTid);}
+                        if(!imgRes||!imgRes.ok) continue;
                         const blob=await imgRes.blob();
                         const blobUrl=URL.createObjectURL(blob);
                         try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(blobUrl)};}
