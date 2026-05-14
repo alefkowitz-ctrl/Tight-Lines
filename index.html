@@ -3127,55 +3127,62 @@ function App({user}){
               </div>
             )}
             {(()=>{
-              const parseGpsCoord=(gps)=>{
+              const parseGpsCoord=gps=>{
                 if(!gps||gps==="Location not recorded") return null;
-                const nums=(gps||"").match(/-?\d+\.\d+/g);
+                const nums=gps.match(/-?\d+\.\d+/g);
                 if(!nums||nums.length<2) return null;
-                let lat=parseFloat(nums[0]), lng=parseFloat(nums[1]);
-                // Make lng negative for W (North America)
-                if((gps.includes("W")||gps.includes("w"))&&lng>0) lng=-lng;
-                if((gps.includes("S")||gps.includes("s"))&&lat>0) lat=-lat;
-                // Sanity check
+                let lat=parseFloat(nums[0]),lng=parseFloat(nums[1]);
+                if((gps.includes("W"))&&lng>0) lng=-lng;
+                if((gps.includes("S"))&&lat>0) lat=-lat;
                 if(lat<-90||lat>90||lng<-180||lng>180) return null;
                 return{lat,lng};
               };
-              const withGps=catches.filter(c=>c.gps&&parseGpsCoord(c.gps)!==null);
-              if(withGps.length<2) return null;
-              const coords=withGps.map(c=>parseGpsCoord(c.gps)).filter(Boolean);
-              const lats=coords.map(c=>c.lat),lngs=coords.map(c=>c.lng);
-              const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLng=Math.min(...lngs),maxLng=Math.max(...lngs);
-              return(
-              // Project coords to SVG space
-              const W=580,H=220,PAD=20;
-              const latRange=maxLat-minLat||0.01, lngRange=maxLng-minLng||0.01;
-              const toX=lng=>PAD+(lng-minLng)/lngRange*(W-PAD*2);
-              const toY=lat=>H-PAD-(lat-minLat)/latRange*(H-PAD*2);
+              const wg=catches.filter(c=>c.gps&&parseGpsCoord(c.gps));
+              if(wg.length<2) return null;
+              const cr=wg.map(c=>parseGpsCoord(c.gps));
+              const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
+              const lat0=Math.min(...lats),lat1=Math.max(...lats);
+              const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
+              const W=560,H=200,P=16;
+              const tx=lng=>P+(lng-lng0)/((lng1-lng0)||0.01)*(W-P*2);
+              const ty=lat=>H-P-(lat-lat0)/((lat1-lat0)||0.01)*(H-P*2);
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
-                  <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif",letterSpacing:0.5}}>📍 Catch Locations · {withGps.length} mapped</span>
+                  <div style={{padding:"10px 14px 6px"}}>
+                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations · {wg.length} mapped</span>
                   </div>
-                  <div style={{position:"relative",background:"rgba(0,0,0,0.2)",overflow:"hidden"}}>
-                    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
-                      {/* Grid lines */}
+                  <div style={{background:"rgba(0,0,0,0.2)"}}>
+                    <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto",display:"block"}}>
                       {[0.25,0.5,0.75].map(f=>(
                         <React.Fragment key={f}>
-                          <line x1={PAD} x2={W-PAD} y1={PAD+(H-PAD*2)*f} y2={PAD+(H-PAD*2)*f} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-                          <line x1={PAD+(W-PAD*2)*f} x2={PAD+(W-PAD*2)*f} y1={PAD} y2={H-PAD} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+                          <line x1={P} x2={W-P} y1={P+(H-P*2)*f} y2={P+(H-P*2)*f} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+                          <line x1={P+(W-P*2)*f} x2={P+(W-P*2)*f} y1={P} y2={H-P} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
                         </React.Fragment>
                       ))}
-                      {/* Catch pins */}
-                      {coords.map((co,i)=>{
-                        const c=withGps[i];
-                        const x=toX(co.lng), y=toY(co.lat);
+                      {cr.map((co,i)=>{
+                        const c=wg[i];
+                        const x=tx(co.lng),y=ty(co.lat);
+                        const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
                         return(
                           <g key={i}>
-                            <circle cx={x} cy={y} r={8} fill="rgba(200,168,75,0.3)" stroke="#c8a84b" strokeWidth={1.5}/>
+                            <circle cx={x} cy={y} r={9} fill="rgba(200,168,75,0.25)" stroke="#c8a84b" strokeWidth="1.5"/>
                             <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
-                            <title>{(c.species||"Catch")+(c.length?" — "+c.length+'"':"")+( c.time?" | "+c.time:"")}</title>
+                            <title>{tip}</title>
                           </g>
                         );
                       })}
+                    </svg>
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
+                    {wg.slice(0,10).map((c,i)=>(
+                      <span key={i} style={{fontSize:11,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
+                        📍 {c.species||"Catch"}{c.length?" "+c.length+'"':""} 
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
                     </svg>
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 12px"}}>
