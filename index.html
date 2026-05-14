@@ -1653,9 +1653,13 @@ function GuideBook({user, loc}){
         if(tripData.photos?.length>0) saveTripPhotos(data.id, tripData.photos).catch(e=>console.log("Photo save failed:",e));
         return data;
       }
-      console.error("Supabase trip save failed:", error?.message);
+      // Show error to user so they know it didn't save to cloud
+      alert("Trip save failed: "+(error?.message||"Unknown error")+"
+
+The trip will be saved locally on this device only.");
+      console.error("Supabase trip save failed:", error?.message, error?.code);
     }
-    // Fallback: localStorage
+    // Fallback: localStorage only
     const localId = "local-"+Date.now();
     const existing = JSON.parse(localStorage.getItem("tl_trips")||"[]");
     const trip = {id:localId, guest_id:guestId, ...tripData};
