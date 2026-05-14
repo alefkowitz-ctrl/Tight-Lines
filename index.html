@@ -3144,23 +3144,6 @@ function App({user}){
               const coords=withGps.map(c=>parseGpsCoord(c.gps)).filter(Boolean);
               const lats=coords.map(c=>c.lat),lngs=coords.map(c=>c.lng);
               const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLng=Math.min(...lngs),maxLng=Math.max(...lngs);
-              const iconDiv="<div style=\'background:#c8a84b;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5)\'></div>";
-              const markers=coords.map((co,i)=>{
-                const c=withGps[i];
-                const popup=[c.species||"Catch",c.length?c.length+'"':"",c.time||""].filter(Boolean).join(" · ").replace(/'/g,"\'");
-                return "L.marker(["+co.lat+","+co.lng+"],{icon:gi}).addTo(map).bindPopup(\'"+popup+"\');";
-              }).join("");
-              const mapHtml=["<!DOCTYPE html><html><head><meta charset=\'utf-8\'/>",
-                "<link rel=\'stylesheet\' href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'/>",
-                "<scr"+"ipt src=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\'></scr"+"ipt>",
-                "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>",
-                "<\/head><body><div id=\'map\'><\/div><scr"+"ipt>",
-                "var map=L.map(\'map\',{attributionControl:false}).fitBounds([["+minLat+","+minLng+"],["+maxLat+","+maxLng+"]],{padding:[20,20]});",
-                "L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\').addTo(map);",
-                "var gi=L.divIcon({html:\'"+iconDiv+"\',iconSize:[14,14],iconAnchor:[7,7],className:\'\'});",
-                markers,
-                "<\/scr"+"ipt><\/body><\/html>"
-              ].join("");
               return(()=>{
               // Project coords to SVG space
               const W=580,H=220,PAD=20;
