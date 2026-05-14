@@ -1408,6 +1408,9 @@ function GuideBook({user, loc}){
   const [guestsLoading, setGuestsLoading] = useState(true);
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [editingTripCatchIdx, setEditingTripCatchIdx] = useState(null);
+  // Ref so handleTripPhoto always gets current loc, not stale closure value
+  const locRef = useRef(loc);
+  useEffect(()=>{locRef.current=loc;},[loc]);
 
   async function runPhotoMigration(){
     if(!sb||!user?.id) return;
@@ -1735,24 +1738,18 @@ function GuideBook({user, loc}){
       const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
-      // Get location: EXIF GPS → localStorage cache → live geolocation
+      // Get location: EXIF GPS → locRef (always current, no stale closure) → geolocation
       let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
       if(!fetchLat||!fetchLng){
-        // Try localStorage first (set by Conditions tab)
-        try{
-          const cached=localStorage.getItem("tl_loc");
-          if(cached){
-            const c=JSON.parse(cached);
-            if(c?.lat&&c?.lng){fetchLat=c.lat;fetchLng=c.lng;fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";}
-          }
-        }catch{}
-        // If still no location, request fresh geolocation
-        if(!fetchLat||!fetchLng){
+        const currentLoc=locRef.current;
+        if(currentLoc?.lat&&currentLoc?.lng){
+          fetchLat=currentLoc.lat;fetchLng=currentLoc.lng;
+          fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
+        } else {
           try{
             const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,maximumAge:60000,enableHighAccuracy:false}));
             fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
             fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
-            try{localStorage.setItem("tl_loc",JSON.stringify({lat:fetchLat,lng:fetchLng}));}catch{}
           }catch{}
         }
       }
