@@ -3353,16 +3353,19 @@ function App({user}){
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
               const W=560,H=220,P=24;
-              // Bounds: median-based to exclude outliers, then clamp all pins inside
+              // Find median center, exclude points >2 degrees away for bounds only
               const med=arr=>{const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
               const latMed=med(lats),lngMed=med(lngs);
-              const latMAD=med(lats.map(v=>Math.abs(v-latMed)))||0.02;
-              const lngMAD=med(lngs.map(v=>Math.abs(v-lngMed)))||0.02;
-              // View window: median ± 3*MAD, minimum 0.05 degrees
-              const viewLatHalf=Math.max(latMAD*3,0.025),viewLngHalf=Math.max(lngMAD*3,0.025);
-              const latMin=latMed-viewLatHalf,latMax=latMed+viewLatHalf;
-              const lngMin=lngMed-viewLngHalf,lngMax=lngMed+viewLngHalf;
-              // Project and clamp — outlier pins appear at edge rather than off-screen
+              const corePts=cr.filter(c=>Math.abs(c.lat-latMed)<2&&Math.abs(c.lng-lngMed)<2);
+              const viewPts=corePts.length>=2?corePts:cr;
+              const vLats=viewPts.map(c=>c.lat),vLngs=viewPts.map(c=>c.lng);
+              const vLat0=Math.min(...vLats),vLat1=Math.max(...vLats);
+              const vLng0=Math.min(...vLngs),vLng1=Math.max(...vLngs);
+              const latSpread=Math.max(vLat1-vLat0,0.04),lngSpread=Math.max(vLng1-vLng0,0.04);
+              const latMid=(vLat0+vLat1)/2,lngMid=(vLng0+vLng1)/2;
+              const latMin=latMid-latSpread/2-latSpread*0.2,latMax=latMid+latSpread/2+latSpread*0.2;
+              const lngMin=lngMid-lngSpread/2-lngSpread*0.2,lngMax=lngMid+lngSpread/2+lngSpread*0.2;
+              // All pins render but outliers clamp to edge
               const projX=lng=>Math.max(P+6,Math.min(W-P-6,P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2)));
               const ty=lat=>Math.max(P+6,Math.min(H-P-6,H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2)));
               return(
