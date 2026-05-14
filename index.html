@@ -2252,17 +2252,24 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                   if(details[i]?.species) continue; // skip if already identified
                   try{
                     const photoUrl=selectedTrip.photos[i];
-                    let imageContent;
+                    // Fetch image and convert to base64 for Claude
+                    let imageSource;
                     if(photoUrl.startsWith("data:")){
-                      imageContent={type:"image",source:{type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]}};
+                      imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};
                     } else {
-                      // Use URL source type directly
-                      imageContent={type:"image",source:{type:"url",url:photoUrl}};
+                      try{
+                        const imgRes=await fetch(photoUrl);
+                        if(!imgRes.ok) continue;
+                        const arrBuf=await imgRes.arrayBuffer();
+                        const b64=btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
+                        const mime=imgRes.headers.get("content-type")||"image/jpeg";
+                        imageSource={type:"base64",media_type:mime,data:b64};
+                      }catch(fetchErr){console.log("Image fetch failed:",fetchErr.message);continue;}
                     }
                     const controller=new AbortController();
-                    const tid=setTimeout(()=>controller.abort(),20000);
+                    const tid=setTimeout(()=>controller.abort(),25000);
                     let res;
-                    try{ res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[imageContent,{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}); }finally{clearTimeout(tid);}
+                    try{ res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}); }finally{clearTimeout(tid);}
                     const rd=await res.json();
                     const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                     if(parsed.species) details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
@@ -3147,7 +3154,7 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              const W=560,H=200,P=16;
+              const W=560,H=220,P=24;
               const tx=lng=>P+(lng-lng0)/((lng1-lng0)||0.01)*(W-P*2);
               const ty=lat=>H-P-(lat-lat0)/((lat1-lat0)||0.01)*(H-P*2);
               // Flip x axis for Western hemisphere (negative lng)
