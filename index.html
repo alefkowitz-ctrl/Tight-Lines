@@ -1735,20 +1735,24 @@ function GuideBook({user, loc}){
       const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
-      // Fall back to loc (shared from Conditions tab) then geolocation if no EXIF GPS
+      // Get location: EXIF GPS first, then shared loc prop, then fresh geolocation
       let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
       if(!fetchLat||!fetchLng){
         if(loc?.lat&&loc?.lng){
           fetchLat=loc.lat;fetchLng=loc.lng;
           fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
+          console.log("handleTripPhoto: using shared loc",fetchLat,fetchLng);
         } else {
           try{
-            const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000,maximumAge:300000}));
+            console.log("handleTripPhoto: requesting geolocation...");
+            const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,maximumAge:60000,enableHighAccuracy:false}));
             fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
             fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
-          }catch{}
+            console.log("handleTripPhoto: got geolocation",fetchLat,fetchLng);
+          }catch(geoErr){console.log("handleTripPhoto: geolocation failed:",geoErr.message,geoErr.code);}
         }
       }
+      console.log("handleTripPhoto: fetchLat=",fetchLat,"fetchLng=",fetchLng,"t=",t);
       // Fetch conditions using EXIF or device location
       if(fetchLat&&fetchLng){
         // Update GPS on the detail we just added
