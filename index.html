@@ -2272,61 +2272,60 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photosLoading?"…":selectedTrip.photos.length}</div>
               <button onClick={async(e)=>{
-                e.currentTarget.textContent="⏳ Analyzing…";e.currentTarget.disabled=true;
+                const btn=e.currentTarget;
+                btn.textContent="⏳ Analyzing…";btn.disabled=true;
                 const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
                 const details=[...(selectedTrip.catchDetails||[])];
                 while(details.length<selectedTrip.photos.length) details.push({});
-                for(let i=0;i<selectedTrip.photos.length;i++){
-                  if(details[i]?.species) continue; // skip if already identified
-                  try{
-                    const photoUrl=selectedTrip.photos[i];
-                    // Fetch image and convert to base64 for Claude
-                    let imageSource;
-                    // Resize to max 1024px via canvas — prevents timeout on large photos
-                    const resizeToB64=async(src)=>new Promise((res,rej)=>{
-                      const img=new Image();img.crossOrigin="anonymous";
-                      img.onload=()=>{
-                        const MAX=1024;let w=img.naturalWidth,h=img.naturalHeight;
-                        if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-                        const cv=document.createElement("canvas");cv.width=w;cv.height=h;
-                        cv.getContext("2d").drawImage(img,0,0,w,h);
-                        res(cv.toDataURL("image/jpeg",0.82).split(",")[1]);
-                      };
-                      img.onerror=rej;img.src=src;
-                    });
-                    if(photoUrl.startsWith("data:")){
-                      try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(photoUrl)};}
-                      catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
-                    } else {
-                      try{
-                        const fetchCtrl=new AbortController();
-                        const fetchTid=setTimeout(()=>fetchCtrl.abort(),15000);
-                        let imgRes;
-                        try{imgRes=await fetch(photoUrl,{signal:fetchCtrl.signal});}
-                        finally{clearTimeout(fetchTid);}
-                        if(!imgRes||!imgRes.ok) continue;
-                        const blob=await imgRes.blob();
-                        const blobUrl=URL.createObjectURL(blob);
-                        try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(blobUrl)};}
-                        finally{URL.revokeObjectURL(blobUrl);}
-                      }catch(fetchErr){console.log("Image fetch failed:",fetchErr.message);continue;}
-                    }
-                    const controller=new AbortController();
-                    const tid=setTimeout(()=>controller.abort(),25000);
-                    let res;
-                    try{ res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}); }finally{clearTimeout(tid);}
-                    const rd=await res.json();
-                    const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-                    if(parsed.species) details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
-                    const upd={...selectedTrip,catchDetails:details};
-                    setSelectedTrip(upd);
-                  }catch{}
-                }
-                const upd={...selectedTrip,catchDetails:details};
-                setSelectedTrip(upd);
-                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                if(sb) sb.from("trips").update({catch_details:details}).eq("id",selectedTrip.id);
-                e.currentTarget.textContent="✦ Identify Fish";e.currentTarget.disabled=false;
+                const reset=()=>{try{btn.textContent="✦ Identify Fish";btn.disabled=false;}catch{}};
+                try{
+                  for(let i=0;i<selectedTrip.photos.length;i++){
+                    if(details[i]?.species) continue;
+                    try{
+                      const photoUrl=selectedTrip.photos[i];
+                      let imageSource;
+                      const resizeToB64=async(src)=>new Promise((res,rej)=>{
+                        const img=new Image();
+                        img.onload=()=>{
+                          const MAX=1024;let w=img.naturalWidth,h=img.naturalHeight;
+                          if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+                          const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+                          cv.getContext("2d").drawImage(img,0,0,w,h);
+                          res(cv.toDataURL("image/jpeg",0.82).split(",")[1]);
+                        };
+                        img.onerror=()=>rej(new Error("img load failed"));
+                        img.src=src;
+                      });
+                      if(photoUrl.startsWith("data:")){
+                        try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(photoUrl)};}
+                        catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
+                      } else {
+                        try{
+                          const imgRes=await Promise.race([fetch(photoUrl),new Promise((_,r)=>setTimeout(()=>r(new Error("fetch timeout")),12000))]);
+                          if(!imgRes.ok){continue;}
+                          const blob=await imgRes.blob();
+                          const blobUrl=URL.createObjectURL(blob);
+                          try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(blobUrl)};}
+                          finally{URL.revokeObjectURL(blobUrl);}
+                        }catch(fe){console.log("img fetch failed:",fe.message);continue;}
+                      }
+                      if(!imageSource){continue;}
+                      const claudeRes=await Promise.race([
+                        fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}),
+                        new Promise((_,r)=>setTimeout(()=>r(new Error("claude timeout")),20000))
+                      ]);
+                      const rd=await claudeRes.json();
+                      const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+                      if(parsed.species){details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};}
+                      setSelectedTrip(st=>({...st,catchDetails:[...details]}));
+                    }catch(e2){console.log("identify photo",i,"failed:",e2.message);}
+                  }
+                  const upd={...selectedTrip,catchDetails:details};
+                  setSelectedTrip(upd);
+                  setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
+                  if(sb) sb.from("trips").update({catch_details:details.map(d=>({...d,analyzing:false}))}).eq("id",selectedTrip.id);
+                }catch(outerErr){console.log("identify fish outer error:",outerErr.message);}
+                finally{reset();}
               }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                 ✦ Identify Fish
               </button>
