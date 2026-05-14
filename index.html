@@ -3166,17 +3166,20 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              // Use median center + IQR-based bounds to prevent outliers from squishing clusters
+              // Bounds: use core points only (ignore outliers > 3x median deviation)
               const med=arr=>{const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
-              const latMed=med(lats), lngMed=med(lngs);
-              // IQR spread: distance from median to 75th pct, capped so one outlier can't dominate
-              const latQ=Math.max(...lats.map(v=>Math.abs(v-latMed)));
-              const lngQ=Math.max(...lngs.map(v=>Math.abs(v-lngMed)));
-              const latMid=latMed, lngMid=lngMed;
-              const latHalf=Math.max(Math.min(latQ,0.3),0.025), lngHalf=Math.max(Math.min(lngQ,0.3),0.025);
-              const latPad=latHalf*0.25, lngPad=lngHalf*0.25;
-              const latMin=latMid-latHalf-latPad, latMax=latMid+latHalf+latPad;
-              const lngMin=lngMid-lngHalf-lngPad, lngMax=lngMid+lngHalf+lngPad;
+              const latMed=med(lats),lngMed=med(lngs);
+              const latDevs=lats.map(v=>Math.abs(v-latMed)),lngDevs=lngs.map(v=>Math.abs(v-lngMed));
+              const latMadVal=med(latDevs)||0.02, lngMadVal=med(lngDevs)||0.02;
+              const core=cr.filter((_,i)=>latDevs[i]<=latMadVal*4&&lngDevs[i]<=lngMadVal*4);
+              const coreArr=core.length>=2?core:cr;
+              const cLats=coreArr.map(c=>c.lat),cLngs=coreArr.map(c=>c.lng);
+              const cLat0=Math.min(...cLats),cLat1=Math.max(...cLats);
+              const cLng0=Math.min(...cLngs),cLng1=Math.max(...cLngs);
+              const latSpread=Math.max(cLat1-cLat0,0.04),lngSpread=Math.max(cLng1-cLng0,0.04);
+              const latMid=(cLat0+cLat1)/2,lngMid=(cLng0+cLng1)/2;
+              const latMin=latMid-latSpread/2-latSpread*0.2,latMax=latMid+latSpread/2+latSpread*0.2;
+              const lngMin=lngMid-lngSpread/2-lngSpread*0.2,lngMax=lngMid+lngSpread/2+lngSpread*0.2;
               const W=560,H=220,P=24;
               // Simple linear projection — works correctly for any hemisphere
               const projX=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
