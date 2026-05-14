@@ -3317,20 +3317,22 @@ function App({user}){
               const lats=validG.map(g=>g.lat),lngs=validG.map(g=>g.lng);
               const clat=(Math.min(...lats)+Math.max(...lats))/2;
               const clng=(Math.min(...lngs)+Math.max(...lngs))/2;
-              // Build Leaflet map as a data URL so external scripts load correctly
-              const pins=validG.map(g=>{
-                const label=(g.name||"Stream").replace(/\/g,"").replace(/'/g,"").substring(0,40);
-                return "L.circleMarker(["+g.lat+","+g.lng+"],{radius:7,fillColor:'#c8a84b',color:'#8a6020',weight:2,fillOpacity:0.9}).bindPopup('"+label+" — "+Math.round(g.cfs||0)+" CFS').addTo(map);";
-              }).join("");
-              const html="<!DOCTYPE html><html><head><meta charset='utf-8'><link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'><\/script><style>html,body,#m{margin:0;height:100%;width:100%}<\/style><\/head><body><div id='m'><\/div><script>var map=L.map('m',{attributionControl:false,zoomControl:true});L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);"+pins+"map.fitBounds([["+Math.min(...lats)+","+Math.min(...lngs)+"],["+Math.max(...lats)+","+Math.max(...lngs)+"]],{padding:[20,20]});<\/script><\/body><\/html>";
-              const src="data:text/html;charset=utf-8,"+encodeURIComponent(html);
+              // Use OSM embed - simple and reliable
+              const pad=0.4;
+              const osmSrc="https://www.openstreetmap.org/export/embed.html?bbox="+(Math.min(...lngs)-pad)+"%2C"+(Math.min(...lats)-pad)+"%2C"+(Math.max(...lngs)+pad)+"%2C"+(Math.max(...lats)+pad)+"&layer=mapnik";
+              const bigUrl="https://www.openstreetmap.org/?mlat="+clat.toFixed(4)+"&mlon="+clng.toFixed(4)+"#map=9/"+clat.toFixed(4)+"/"+clng.toFixed(4);
               return(
                 <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                   <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters · {validG.length} gauges</span>
-                    <a href={"https://www.openstreetmap.org/?mlat="+clat.toFixed(4)+"&mlon="+clng.toFixed(4)+"#map=9/"+clat.toFixed(4)+"/"+clng.toFixed(4)} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
+                    <a href={bigUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                   </div>
-                  <iframe title="Waters map" src={src} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin"/>
+                  <iframe title="map" src={osmSrc} style={{width:"100%",height:260,border:"none",display:"block"}}/>
+                  <div style={{padding:"8px 14px 10px",display:"flex",flexWrap:"wrap",gap:8}}>
+                    {validG.slice(0,5).map((g,i)=>(
+                      <span key={i} style={{fontSize:11,color:"var(--stone)"}}>📍 {(g.name||"").split(" ").slice(0,4).join(" ")} · {Math.round(g.cfs||0)} CFS</span>
+                    ))}
+                  </div>
                 </div>
               );
             })()}
