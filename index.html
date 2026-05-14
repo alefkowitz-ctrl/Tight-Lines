@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1543,20 +1544,29 @@ function GuideBook({user}){
 
   async function loadTripPhotos(tripId, tripObj){
     if(!sb) return;
-    // Set the trip immediately with photosLoading:true — no id check needed
+    // Set trip immediately with loading state — synchronous, no race condition
     setSelectedTrip({...tripObj,photosLoading:true,photos:[]});
     try{
-      const [{data:cdData},{data:photoRows,error:photoErr}]=await Promise.all([
+      // Fetch from trip_photos table AND trips.photos column as fallback
+      const [{data:cdData,error:cdErr},{data:photoRows,error:photoErr},{data:tripData}]=await Promise.all([
         sb.from("trips").select("catch_details").eq("id",tripId).single(),
-        sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order")
+        sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
+        sb.from("trips").select("photos").eq("id",tripId).single()
       ]);
-      if(photoErr) console.log("trip_photos error:",photoErr.message);
+      if(photoErr) console.log("trip_photos query error:",photoErr.message);
+      if(cdErr) console.log("catch_details query error:",cdErr.message);
       const catchDetails=(cdData?.catch_details)||[];
-      const photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
+      // Use trip_photos table first; fall back to trips.photos JSON column
+      let photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
+      if(photos.length===0 && tripData?.photos?.length>0){
+        console.log("trip_photos empty, using trips.photos fallback, count:",tripData.photos.length);
+        photos=tripData.photos.filter(Boolean);
+      }
+      console.log("loadTripPhotos result: photos=",photos.length,"catchDetails=",catchDetails.length);
       setSelectedTrip(st=>({...st,photos,catchDetails,photosLoading:false}));
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
     }catch(e){
-      console.log("loadTripPhotos failed:",e.message);
+      console.log("loadTripPhotos exception:",e.message);
       setSelectedTrip(st=>({...st,photosLoading:false}));
     }
   }
@@ -3186,22 +3196,24 @@ function App({user}){
                         </React.Fragment>
                       ))}
                       {(()=>{
-                        // Sunflower spiral jitter: place pins on expanding rings so clusters fan out cleanly
+                        // Jitter overlapping pins outward in rings
                         const R=18, placed=[];
                         return cr.map((co,i)=>{
                           const c=wg[i];
                           const ox=projX(co.lng), oy=ty(co.lat);
-                          let x=ox, y=oy, ring=0, slot=0;
-                          outer: for(ring=0;ring<8;ring++){
-                            const pts=ring===0?1:ring*6;
-                            for(let s=0;s<pts;s++){
-                              const a=(s/pts)*Math.PI*2;
-                              x=ox+ring*R*Math.cos(a);
-                              y=oy+ring*R*Math.sin(a);
-                              if(!placed.some(p=>Math.hypot(p.x-x,p.y-y)<R-2)){slot=s;break outer;}
+                          var x=ox, y=oy, found=false;
+                          for(var ring=0;ring<8&&!found;ring++){
+                            var pts=ring===0?1:ring*6;
+                            for(var s=0;s<pts&&!found;s++){
+                              var a=(s/pts)*Math.PI*2;
+                              var cx2=ox+ring*R*Math.cos(a);
+                              var cy2=oy+ring*R*Math.sin(a);
+                              if(!placed.some(function(p){return Math.hypot(p.x-cx2,p.y-cy2)<R-2;})){
+                                x=cx2;y=cy2;found=true;
+                              }
                             }
                           }
-                          placed.push({x,y});
+                          placed.push({x:x,y:y});
                           const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
                           return(
                             <g key={i}>
