@@ -3071,12 +3071,13 @@ function App({user}){
     setCondReportLoading(false);
   }
 
-  async function fetchCondShops(label){
+  async function fetchCondShops(label, lat, lng){
     if(!label) return;
     setCondShopsLoading(true);
     setCondShops([]);
     try{
-      const prompt="Search for real fly fishing specialty shops near "+label+". Only dedicated fly shops or outfitters. No Bass Pro or Cabelas. Return ONLY a JSON array with fields name, address, website, phone, specialty.";
+      const coordStr=lat&&lng?" (coordinates: "+lat.toFixed(4)+","+lng.toFixed(4)+")":" ";
+      const prompt="Search for fly fishing specialty shops near "+label+coordStr+". Only include shops in this exact location — not other cities or states with similar names. Only dedicated fly shops or fly fishing outfitters. No Bass Pro or Cabelas. Return ONLY a JSON array: [{name, address, city, state, website, phone, specialty}]";
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:800,
         tools:[{type:"web_search_20250305",name:"web_search"}],
@@ -3101,7 +3102,7 @@ function App({user}){
     const{lat,lng}=newLoc;
     setWxLoading(true);setWxError(null);setCondReport(null);
     // Fetch fly shops for this location
-    fetchCondShops(newLoc.label);
+    fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
     try{
       const d=await fetchWeather(lat,lng);
       const c=d.current;
