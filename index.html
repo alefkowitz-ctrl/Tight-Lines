@@ -3183,18 +3183,6 @@ function App({user}){
                 </div>
               );
             })()}
-                    </svg>
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 12px"}}>
-                    {withGps.slice(0,10).map((c,i)=>(
-                      <span key={i} style={{fontSize:11,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
-                        📍 {c.species||"Catch"}{c.length?` ${c.length}"`:""}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            )}
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>(
               <div className="cc" key={c.id}>
