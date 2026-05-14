@@ -2254,36 +2254,29 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                     const photoUrl=selectedTrip.photos[i];
                     // Fetch image and convert to base64 for Claude
                     let imageSource;
-                    // Helper: resize any blob/dataUrl to max 1024px and return base64 jpeg
+                    // Resize to max 1024px via canvas before encoding — prevents timeout on large photos
                     const resizeToB64=async(src)=>new Promise((res,rej)=>{
-                      const img=new Image();
-                      img.crossOrigin="anonymous";
+                      const img=new Image();img.crossOrigin="anonymous";
                       img.onload=()=>{
-                        const MAX=1024;
-                        let w=img.naturalWidth,h=img.naturalHeight;
+                        const MAX=1024;let w=img.naturalWidth,h=img.naturalHeight;
                         if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
                         const cv=document.createElement("canvas");cv.width=w;cv.height=h;
                         cv.getContext("2d").drawImage(img,0,0,w,h);
                         res(cv.toDataURL("image/jpeg",0.82).split(",")[1]);
                       };
-                      img.onerror=rej;
-                      img.src=src;
+                      img.onerror=rej;img.src=src;
                     });
                     if(photoUrl.startsWith("data:")){
-                      try{
-                        const b64=await resizeToB64(photoUrl);
-                        imageSource={type:"base64",media_type:"image/jpeg",data:b64};
-                      }catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
+                      try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(photoUrl)};}
+                      catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
                     } else {
                       try{
                         const imgRes=await fetch(photoUrl);
                         if(!imgRes.ok) continue;
                         const blob=await imgRes.blob();
                         const blobUrl=URL.createObjectURL(blob);
-                        try{
-                          const b64=await resizeToB64(blobUrl);
-                          imageSource={type:"base64",media_type:"image/jpeg",data:b64};
-                        }finally{URL.revokeObjectURL(blobUrl);}
+                        try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(blobUrl)};}
+                        finally{URL.revokeObjectURL(blobUrl);}
                       }catch(fetchErr){console.log("Image fetch failed:",fetchErr.message);continue;}
                     }
                     const controller=new AbortController();
@@ -3174,10 +3167,9 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              // Minimum 0.02° spread (~1.5 mi) so tightly-clustered pins don't bunch at center
-              const latSpread=Math.max(lat1-lat0,0.02), lngSpread=Math.max(lng1-lng0,0.02);
+              const latSpread=Math.max(lat1-lat0,0.04), lngSpread=Math.max(lng1-lng0,0.04);
               const latMid=(lat0+lat1)/2, lngMid=(lng0+lng1)/2;
-              const latPad=latSpread*0.18, lngPad=lngSpread*0.18;
+              const latPad=latSpread*0.2, lngPad=lngSpread*0.2;
               const latMin=latMid-latSpread/2-latPad,latMax=latMid+latSpread/2+latPad;
               const lngMin=lngMid-lngSpread/2-lngPad,lngMax=lngMid+lngSpread/2+lngPad;
               const W=560,H=220,P=24;
@@ -3197,18 +3189,31 @@ function App({user}){
                           <line x1={P+(W-P*2)*f} x2={P+(W-P*2)*f} y1={P} y2={H-P} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
                         </React.Fragment>
                       ))}
-                      {cr.map((co,i)=>{
-                        const c=wg[i];
-                        const x=projX(co.lng),y=ty(co.lat);
-                        const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
-                        return(
-                          <g key={i}>
-                            <circle cx={x} cy={y} r={9} fill="rgba(200,168,75,0.25)" stroke="#c8a84b" strokeWidth="1.5"/>
-                            <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
-                            <title>{tip}</title>
-                          </g>
-                        );
-                      })}
+                      {(()=>{
+                        // Jitter pins that project to nearly the same pixel so they don't overlap
+                        const THRESH=14; // px — pins within this distance get jittered
+                        const placed=[];
+                        return cr.map((co,i)=>{
+                          const c=wg[i];
+                          let x=projX(co.lng),y=ty(co.lat);
+                          // Spiral outward until clear of all placed pins
+                          let angle=0,radius=0,step=0;
+                          while(placed.some(p=>Math.hypot(p.x-x,p.y-y)<THRESH)){
+                            step++;radius=THRESH*0.7*Math.ceil(step/8);angle=(step%8)*(Math.PI/4);
+                            x=projX(co.lng)+radius*Math.cos(angle);
+                            y=ty(co.lat)+radius*Math.sin(angle);
+                          }
+                          placed.push({x,y});
+                          const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
+                          return(
+                            <g key={i}>
+                              <circle cx={x} cy={y} r={9} fill="rgba(200,168,75,0.25)" stroke="#c8a84b" strokeWidth="1.5"/>
+                              <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
+                              <title>{tip}</title>
+                            </g>
+                          );
+                        });
+                      })()}
                     </svg>
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
