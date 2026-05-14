@@ -2396,7 +2396,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                         <input className="inp" style={{marginBottom:0,fontSize:12}} value={cd.time||""}
                           onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],time:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                       </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                         <div>
                           <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
                           <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.airTemp||""}
@@ -2407,6 +2407,54 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                           <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.streamCFS||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],streamCFS:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
+                      </div>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>GPS (lat, lng) — e.g. 39.7392, -104.9903</div>
+                        <div style={{display:"flex",gap:6}}>
+                          <input className="inp" style={{marginBottom:0,fontSize:12,flex:1}} placeholder="39.7392, -104.9903" value={cd.gps||""}
+                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],gps:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                          <button onClick={async(e)=>{
+                            e.stopPropagation();
+                            // Try to parse GPS from field
+                            const gpsVal=cd.gps||"";
+                            const nums=gpsVal.match(/-?\d+\.?\d*/g);
+                            let lat=null,lng=null;
+                            if(nums&&nums.length>=2){lat=parseFloat(nums[0]);lng=parseFloat(nums[1]);}
+                            // Fall back to browser geolocation
+                            if(!lat||!lng){
+                              try{
+                                const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:8000}));
+                                lat=pos.coords.latitude;lng=pos.coords.longitude;
+                                // Save GPS to field
+                                const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});
+                                d[i]={...d[i],gps:`${lat.toFixed(4)}°N, ${Math.abs(lng).toFixed(4)}°W`};
+                                const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);
+                              }catch{alert("Could not get location. Enter GPS manually.");return;}
+                            }
+                            // Parse date from catch time field
+                            e.currentTarget.textContent="⏳";e.currentTarget.disabled=true;
+                            try{
+                              const timeStr=cd.time||selectedTrip.date;
+                              const d2=new Date(timeStr.replace(" at "," "));
+                              const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:selectedTrip.date;
+                              const hourStr=!isNaN(d2)?String(d2.getHours()).padStart(2,"0"):"12";
+                              const today=new Date().toISOString().split("T")[0];
+                              const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(lat,lng,dateStr,hourStr):null;
+                              if(conds){
+                                const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});
+                                d[i]={...d[i],...conds};
+                                const upd={...selectedTrip,catchDetails:d};
+                                setSelectedTrip(upd);
+                                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
+                                if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);
+                              }else{alert("No historical conditions found for this date/location.");}
+                            }catch(err){alert("Conditions fetch failed: "+err.message);}
+                            finally{e.currentTarget.textContent="📍 Fetch";e.currentTarget.disabled=false;}
+                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Crimson Pro',serif"}}>
+                            📍 Fetch
+                          </button>
+                        </div>
+                        <div style={{fontSize:10,color:"var(--stone)",marginTop:4}}>Enter GPS then tap Fetch to auto-fill conditions, or tap Fetch to use current location</div>
                       </div>
                     </div>
                   )}
