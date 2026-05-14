@@ -2254,21 +2254,36 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                     const photoUrl=selectedTrip.photos[i];
                     // Fetch image and convert to base64 for Claude
                     let imageSource;
+                    // Helper: resize any blob/dataUrl to max 1024px and return base64 jpeg
+                    const resizeToB64=async(src)=>new Promise((res,rej)=>{
+                      const img=new Image();
+                      img.crossOrigin="anonymous";
+                      img.onload=()=>{
+                        const MAX=1024;
+                        let w=img.naturalWidth,h=img.naturalHeight;
+                        if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+                        const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+                        cv.getContext("2d").drawImage(img,0,0,w,h);
+                        res(cv.toDataURL("image/jpeg",0.82).split(",")[1]);
+                      };
+                      img.onerror=rej;
+                      img.src=src;
+                    });
                     if(photoUrl.startsWith("data:")){
-                      imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};
+                      try{
+                        const b64=await resizeToB64(photoUrl);
+                        imageSource={type:"base64",media_type:"image/jpeg",data:b64};
+                      }catch{imageSource={type:"base64",media_type:"image/jpeg",data:photoUrl.split(",")[1]};}
                     } else {
                       try{
                         const imgRes=await fetch(photoUrl);
                         if(!imgRes.ok) continue;
                         const blob=await imgRes.blob();
-                        const mime=blob.type||"image/jpeg";
-                        const b64=await new Promise((res,rej)=>{
-                          const r=new FileReader();
-                          r.onload=e=>res(e.target.result.split(",")[1]);
-                          r.onerror=rej;
-                          r.readAsDataURL(blob);
-                        });
-                        imageSource={type:"base64",media_type:mime,data:b64};
+                        const blobUrl=URL.createObjectURL(blob);
+                        try{
+                          const b64=await resizeToB64(blobUrl);
+                          imageSource={type:"base64",media_type:"image/jpeg",data:b64};
+                        }finally{URL.revokeObjectURL(blobUrl);}
                       }catch(fetchErr){console.log("Image fetch failed:",fetchErr.message);continue;}
                     }
                     const controller=new AbortController();
@@ -3159,8 +3174,12 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              const latPad=(lat1-lat0)*0.15||0.05, lngPad=(lng1-lng0)*0.15||0.05;
-              const latMin=lat0-latPad,latMax=lat1+latPad,lngMin=lng0-lngPad,lngMax=lng1+lngPad;
+              // Minimum 0.02° spread (~1.5 mi) so tightly-clustered pins don't bunch at center
+              const latSpread=Math.max(lat1-lat0,0.02), lngSpread=Math.max(lng1-lng0,0.02);
+              const latMid=(lat0+lat1)/2, lngMid=(lng0+lng1)/2;
+              const latPad=latSpread*0.18, lngPad=lngSpread*0.18;
+              const latMin=latMid-latSpread/2-latPad,latMax=latMid+latSpread/2+latPad;
+              const lngMin=lngMid-lngSpread/2-lngPad,lngMax=lngMid+lngSpread/2+lngPad;
               const W=560,H=220,P=24;
               const tx=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
               const ty=lat=>H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2);
