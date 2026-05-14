@@ -2868,7 +2868,8 @@ function App({user}){
     el.onclick=(e)=>{ setLightboxPhoto(null); };
     return()=>{ const el2=document.getElementById("gc-lightbox"); if(el2) el2.remove(); };
   },[lightboxPhoto]);
-  const [loc,setLoc]=useState(null);
+  // Init loc from localStorage so Guide tab has it immediately
+  const [loc,setLoc]=useState(()=>{try{const s=localStorage.getItem("tl_loc");return s?JSON.parse(s):null;}catch{return null;}});
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
   // Auto-detect user location on first load
@@ -2944,6 +2945,7 @@ function App({user}){
 
   async function loadConditions(newLoc){
     setLoc(newLoc);
+    try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
     setWxLoading(true);setWxError(null);
     try{
