@@ -2957,13 +2957,11 @@ function App({user}){
   const [loc,setLoc]=useState(()=>{try{const s=localStorage.getItem("tl_loc");return s?JSON.parse(s):null;}catch{return null;}});
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
-  // Auto-detect user location on first load
+  // Auto-detect user location on every load (cached loc shows immediately, then refreshes)
   React.useEffect(()=>{
-    if(loc) return; // already have location
     if(!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(async pos=>{
       const{latitude:lat,longitude:lng}=pos.coords;
-      // Reverse geocode to get label
       try{
         const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
         const d=await r.json();
@@ -3355,14 +3353,18 @@ function App({user}){
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
               const W=560,H=220,P=24;
-              // Use all points for bounds with generous padding
-              const latSpread=Math.max(lat1-lat0,0.04),lngSpread=Math.max(lng1-lng0,0.04);
-              const latMid=(lat0+lat1)/2,lngMid=(lng0+lng1)/2;
-              const latMin=latMid-latSpread/2-latSpread*0.25,latMax=latMid+latSpread/2+latSpread*0.25;
-              const lngMin=lngMid-lngSpread/2-lngSpread*0.25,lngMax=lngMid+lngSpread/2+lngSpread*0.25;
-              // Clamp projection so no pin goes outside the SVG area
-              const projX=lng=>Math.max(P+8,Math.min(W-P-8,P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2)));
-              const ty=lat=>Math.max(P+8,Math.min(H-P-8,H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2)));
+              // Bounds: median-based to exclude outliers, then clamp all pins inside
+              const med=arr=>{const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+              const latMed=med(lats),lngMed=med(lngs);
+              const latMAD=med(lats.map(v=>Math.abs(v-latMed)))||0.02;
+              const lngMAD=med(lngs.map(v=>Math.abs(v-lngMed)))||0.02;
+              // View window: median ± 3*MAD, minimum 0.05 degrees
+              const viewLatHalf=Math.max(latMAD*3,0.025),viewLngHalf=Math.max(lngMAD*3,0.025);
+              const latMin=latMed-viewLatHalf,latMax=latMed+viewLatHalf;
+              const lngMin=lngMed-viewLngHalf,lngMax=lngMed+viewLngHalf;
+              // Project and clamp — outlier pins appear at edge rather than off-screen
+              const projX=lng=>Math.max(P+6,Math.min(W-P-6,P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2)));
+              const ty=lat=>Math.max(P+6,Math.min(H-P-6,H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2)));
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 6px"}}>
