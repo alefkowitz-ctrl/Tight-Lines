@@ -1541,35 +1541,21 @@ function GuideBook({user}){
 
   async function loadTripPhotos(tripId){
     if(!sb) return;
+    setSelectedTrip(st=>st?.id===tripId?{...st,photosLoading:true}:st);
     try{
-      // Load catch_details first (fast)
-      const {data:cdData}=await sb.from("trips").select("catch_details").eq("id",tripId).single();
+      const [{data:cdData},{data:photoRows,error:photoErr}]=await Promise.all([
+        sb.from("trips").select("catch_details").eq("id",tripId).single(),
+        sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order")
+      ]);
+      if(photoErr) console.log("trip_photos error:",photoErr.message);
       const catchDetails=(cdData?.catch_details)||[];
-      
-      // Get photo IDs first (no photo data)
-      const {data:photoIds}=await sb.from("trip_photos")
-        .select("id,sort_order")
-        .eq("trip_id",tripId)
-        .order("sort_order");
-      
-      if(!photoIds?.length){
-        setSelectedTrip(st=>st?.id===tripId?{...st,catchDetails}:st);
-        return;
-      }
-      
-      // Fetch each photo individually to avoid timeout
-      const photos=[];
-      for(const row of photoIds){
-        const {data:pd}=await sb.from("trip_photos")
-          .select("photo")
-          .eq("id",row.id)
-          .single();
-        if(pd?.photo) photos.push(pd.photo);
-      }
-      
-      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails}:st);
+      const photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
+      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails,photosLoading:false}:st);
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
-    }catch(e){ console.log("loadTripPhotos failed:",e.message); }
+    }catch(e){
+      console.log("loadTripPhotos failed:",e.message);
+      setSelectedTrip(st=>st?.id===tripId?{...st,photosLoading:false}:st);
+    }
   }
 
   async function saveTripPhotos(tripId, photos){
@@ -2239,10 +2225,10 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             <p style={{fontSize:13,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
-        {selectedTrip.photos.length>0&&(
+        {(selectedTrip.photosLoading||selectedTrip.photos.length>0)&&(
           <div style={{marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photos.length}</div>
+              <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photosLoading?"…":selectedTrip.photos.length}</div>
               <button onClick={async(e)=>{
                 e.currentTarget.textContent="⏳ Analyzing…";e.currentTarget.disabled=true;
                 const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
@@ -2254,7 +2240,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                     const photoUrl=selectedTrip.photos[i];
                     // Fetch image and convert to base64 for Claude
                     let imageSource;
-                    // Resize to max 1024px via canvas before encoding — prevents timeout on large photos
+                    // Resize to max 1024px via canvas — prevents timeout on large photos
                     const resizeToB64=async(src)=>new Promise((res,rej)=>{
                       const img=new Image();img.crossOrigin="anonymous";
                       img.onload=()=>{
@@ -2299,6 +2285,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                 ✦ Identify Fish
               </button>
             </div>
+            {selectedTrip.photosLoading&&<div className="loading" style={{padding:20,fontSize:13}}>Loading catches…</div>}
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i]||{};
               return(
@@ -3167,15 +3154,16 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              const latSpread=Math.max(lat1-lat0,0.04), lngSpread=Math.max(lng1-lng0,0.04);
+              // Enforce minimum 0.05 degree spread so pins never collapse to a dot
+              const latSpread=Math.max(lat1-lat0,0.05), lngSpread=Math.max(lng1-lng0,0.05);
               const latMid=(lat0+lat1)/2, lngMid=(lng0+lng1)/2;
-              const latPad=latSpread*0.2, lngPad=lngSpread*0.2;
-              const latMin=latMid-latSpread/2-latPad,latMax=latMid+latSpread/2+latPad;
-              const lngMin=lngMid-lngSpread/2-lngPad,lngMax=lngMid+lngSpread/2+lngPad;
+              const latPad=latSpread*0.22, lngPad=lngSpread*0.22;
+              const latMin=latMid-latSpread/2-latPad, latMax=latMid+latSpread/2+latPad;
+              const lngMin=lngMid-lngSpread/2-lngPad, lngMax=lngMid+lngSpread/2+lngPad;
               const W=560,H=220,P=24;
-              const tx=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
+              // Simple linear projection — works correctly for any hemisphere
+              const projX=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
               const ty=lat=>H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2);
-              const projX=lng=>lngMin<0?W-P-(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2):tx(lng);
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 6px"}}>
@@ -3190,24 +3178,24 @@ function App({user}){
                         </React.Fragment>
                       ))}
                       {(()=>{
-                        // Jitter pins that project to nearly the same pixel so they don't overlap
-                        const THRESH=14; // px — pins within this distance get jittered
+                        const THRESH=16;
                         const placed=[];
                         return cr.map((co,i)=>{
                           const c=wg[i];
                           let x=projX(co.lng),y=ty(co.lat);
-                          // Spiral outward until clear of all placed pins
-                          let angle=0,radius=0,step=0;
-                          while(placed.some(p=>Math.hypot(p.x-x,p.y-y)<THRESH)){
-                            step++;radius=THRESH*0.7*Math.ceil(step/8);angle=(step%8)*(Math.PI/4);
-                            x=projX(co.lng)+radius*Math.cos(angle);
-                            y=ty(co.lat)+radius*Math.sin(angle);
+                          let step=0;
+                          while(placed.some(p=>Math.hypot(p.x-x,p.y-y)<THRESH)&&step<40){
+                            step++;
+                            const r=THRESH*0.75*Math.ceil(step/8);
+                            const a=(step%8)*(Math.PI/4);
+                            x=projX(co.lng)+r*Math.cos(a);
+                            y=ty(co.lat)+r*Math.sin(a);
                           }
                           placed.push({x,y});
                           const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
                           return(
                             <g key={i}>
-                              <circle cx={x} cy={y} r={9} fill="rgba(200,168,75,0.25)" stroke="#c8a84b" strokeWidth="1.5"/>
+                              <circle cx={x} cy={y} r={8} fill="rgba(200,168,75,0.25)" stroke="#c8a84b" strokeWidth="1.5"/>
                               <circle cx={x} cy={y} r={3} fill="#c8a84b"/>
                               <title>{tip}</title>
                             </g>
