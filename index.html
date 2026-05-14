@@ -158,6 +158,89 @@ select.inp{-webkit-appearance:none;}
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback } = React;
 
+// ── EXIF Parser ───────────────────────────────────────────────────────────────
+function parseExif(buffer){
+  const view=new DataView(buffer);
+  const result={time:null,gps:null,lat:null,lng:null};
+  if(view.getUint16(0)!==0xFFD8) return result; // not JPEG
+  let offset=2;
+  while(offset<view.byteLength-2){
+    const marker=view.getUint16(offset);
+    offset+=2;
+    if(marker===0xFFE1){ // APP1 - EXIF
+      const segLen=view.getUint16(offset);
+      const exifStart=offset+2;
+      // Check for "Exif" header
+      if(view.getUint32(exifStart)===0x45786966){
+        const tiffOffset=exifStart+6;
+        const littleEndian=view.getUint16(tiffOffset)===0x4949;
+        const get16=(o)=>view.getUint16(tiffOffset+o,littleEndian);
+        const get32=(o)=>view.getUint32(tiffOffset+o,littleEndian);
+        const getString=(o,len)=>{
+          let s="";
+          for(let i=0;i<len;i++){const c=view.getUint8(tiffOffset+o+i);if(c===0)break;s+=String.fromCharCode(c);}
+          return s.trim();
+        };
+        const getRational=(o)=>{const num=get32(o),den=get32(o+4);return den?num/den:0;};
+        const readIFD=(ifdOffset)=>{
+          try{
+            const count=get16(ifdOffset);
+            for(let i=0;i<count;i++){
+              const entryOffset=ifdOffset+2+i*12;
+              const tag=get16(entryOffset);
+              const type=get16(entryOffset+2);
+              const numValues=get32(entryOffset+4);
+              const valueOffset=entryOffset+8;
+              const dataSize=[0,1,1,2,4,8,1,1,2,4,8,4,8][type]||1;
+              const totalSize=dataSize*numValues;
+              const dataOffset=totalSize>4?get32(valueOffset):valueOffset-tiffOffset;
+              if(tag===0x9003||tag===0x0132){ // DateTimeOriginal or DateTime
+                const dt=getString(totalSize>4?get32(valueOffset):valueOffset-tiffOffset,20);
+                // Format: "YYYY:MM:DD HH:MM:SS"
+                if(dt&&dt.length>=19){
+                  const[date,time]=dt.split(" ");
+                  const[y,mo,d]=date.split(":");
+                  const[h,mi,s]=time.split(":");
+                  if(y&&y!=="0000"){
+                    const dateObj=new Date(+y,+mo-1,+d,+h,+mi,+s||0);
+                    result.time=dateObj.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+                  }
+                }
+              }
+              if(tag===0x8825){ // GPS IFD pointer
+                const gpsIFDOffset=get32(valueOffset);
+                const gpsCount=get16(gpsIFDOffset);
+                let latD=null,lngD=null,latRef="N",lngRef="W";
+                for(let g=0;g<gpsCount;g++){
+                  const ge=gpsIFDOffset+2+g*12;
+                  const gtag=get16(ge);
+                  const gvo=ge+8;
+                  if(gtag===1) latRef=getString(get32(gvo)>4?get32(gvo):gvo-tiffOffset,1)||"N";
+                  if(gtag===3) lngRef=getString(get32(gvo)>4?get32(gvo):gvo-tiffOffset,1)||"W";
+                  if(gtag===2){const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
+                  if(gtag===4){const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
+                }
+                if(latD!=null&&lngD!=null){
+                  result.lat=latRef==="S"?-latD:latD;
+                  result.lng=lngRef==="W"?-lngD:lngD;
+                  result.gps=result.lat.toFixed(4)+"°N, "+Math.abs(result.lng).toFixed(4)+"°W";
+                }
+              }
+            }
+          }catch(e){}
+        };
+        const ifd0=get32(4);
+        readIFD(ifd0);
+      }
+      offset+=segLen;
+    } else if((marker&0xFF00)===0xFF00){
+      offset+=view.getUint16(offset);
+    } else break;
+  }
+  return result;
+}
+
+
 // ── Supabase Config ───────────────────────────────────────────────────────────
 // Replace these with your actual Supabase project URL and anon key
 const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
