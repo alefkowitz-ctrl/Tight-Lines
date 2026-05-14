@@ -240,6 +240,22 @@ function parseExif(buffer){
   return result;
 }
 
+// ── Storage Upload Helper (module-level, used by both App and GuideBook) ──────
+async function uploadPhotoToStorage(base64DataUrl, folder){
+  if(!sb) return null;
+  try{
+    const res=await fetch(base64DataUrl);
+    const blob=await res.blob();
+    const ext=blob.type.split("/")[1]||"jpg";
+    const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const {data,error}=await sb.storage.from("trip-photos").upload(fileName,blob,{contentType:blob.type,upsert:false});
+    if(error){console.log("Storage upload error:",error.message);return null;}
+    const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
+    return publicUrl;
+  }catch(e){console.log("uploadPhotoToStorage failed:",e.message);return null;}
+}
+
+
 
 // ── Supabase Config ───────────────────────────────────────────────────────────
 // Replace these with your actual Supabase project URL and anon key
@@ -3008,18 +3024,20 @@ function App({user}){
   }
 
   async function addCatch(catchData){
-    // Upload photo to storage if it's a base64 data URL
+    // Upload photo to storage first, fall back to null if it fails
     if(catchData.photo&&catchData.photo.startsWith("data:")){
       const url=await uploadPhotoToStorage(catchData.photo,"catches");
-      if(url) catchData={...catchData,photo:url};
+      catchData={...catchData,photo:url||null}; // don't store huge base64 in DB
     }
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
+    console.log("addCatch: inserting for user",user.id,"species",catchData.species);
     const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
+    console.log("addCatch result: data=",data?.id,"error=",error?.message);
     if(error){
       console.log("Catch insert error:",error.message,"code:",error.code);
       alert("Catch save failed: "+error.message);
     } else if(data){
-      setCatches(c=>[{...catchData,id:data.id,photo:catchData.photo},...c]);
+      setCatches(c=>[{...catchData,id:data.id},...c]);
     }
   }
 
