@@ -3268,36 +3268,23 @@ function App({user}){
               </div>
             )}
             {loc&&gauges.length>0&&(()=>{
-              // Build map with all nearby gauges as pins
-              const iconDiv="<div style=\'background:#1e5c4a;width:10px;height:10px;border-radius:50%;border:2px solid #c8a84b;\'></div>";
-              const markers=gauges.map(g=>{
-                const popup=(g.name||"Stream").replace(/'/g,"\'")+" | "+Math.round(g.cfs||0)+" CFS";
-                return "L.marker(["+g.lat+","+g.lng+"],{icon:gi}).addTo(map).bindPopup(\'"+popup+"\');";
-              }).filter((_,i)=>gauges[i]&&gauges[i].lat&&gauges[i].lng).join("");
-              if(!markers) return null;
-              const lats=gauges.filter(g=>g.lat).map(g=>g.lat);
-              const lngs=gauges.filter(g=>g.lng).map(g=>g.lng);
-              if(!lats.length) return null;
-              const minLat=Math.min(...lats)-0.1, maxLat=Math.max(...lats)+0.1;
-              const minLng=Math.min(...lngs)-0.1, maxLng=Math.max(...lngs)+0.1;
-              const mapHtml=["<!DOCTYPE html><html><head><meta charset=\'utf-8\'/>",
-                "<link rel=\'stylesheet\' href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'/>",
-                "<scr"+"ipt src=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\'></scr"+"ipt>",
-                "<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;}<\/style>",
-                "<\/head><body><div id=\'map\'><\/div><scr"+"ipt>",
-                "var map=L.map(\'map\',{attributionControl:false}).fitBounds([["+minLat+","+minLng+"],["+maxLat+","+maxLng+"]]);",
-                "L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\').addTo(map);",
-                "var gi=L.divIcon({html:\'"+iconDiv+"\',iconSize:[10,10],iconAnchor:[5,5],className:\'\'});",
-                markers,
-                "<\/scr"+"ipt><\/body><\/html>"
-              ].join("");
+              const validG=gauges.filter(g=>g.lat&&g.lng);
+              if(!validG.length) return null;
+              const lats=validG.map(g=>g.lat),lngs=validG.map(g=>g.lng);
+              const clat=((Math.min(...lats)+Math.max(...lats))/2).toFixed(4);
+              const clng=((Math.min(...lngs)+Math.max(...lngs))/2).toFixed(4);
+              const bbox=(Math.min(...lngs)-0.3)+"%2C"+(Math.min(...lats)-0.3)+"%2C"+(Math.max(...lngs)+0.3)+"%2C"+(Math.max(...lats)+0.3);
+              const osmUrl="https://www.openstreetmap.org/export/embed.html?bbox="+bbox+"&layer=mapnik&marker="+clat+"%2C"+clng;
               return(
                 <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                   <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters Map</span>
-                    <span style={{fontSize:11,color:"var(--stone)"}}>tap pins for flow data</span>
+                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters · {validG.length} gauges</span>
+                    <a href={"https://www.openstreetmap.org/?mlat="+clat+"&mlon="+clng+"#map=9/"+clat+"/"+clng} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                   </div>
-                  <iframe title="Waters map" srcDoc={mapHtml} style={{width:"100%",height:260,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin allow-popups"/>
+                  <iframe title="Waters map" src={osmUrl} style={{width:"100%",height:280,border:"none",display:"block"}}/>
+                  <div style={{padding:"8px 14px 10px",fontSize:11,color:"var(--stone)",display:"flex",flexWrap:"wrap",gap:8}}>
+                    {validG.slice(0,4).map((g,i)=><span key={i}>📍 {(g.name||"").split(" ").slice(0,3).join(" ")} {Math.round(g.cfs||0)} CFS</span>)}
+                  </div>
                 </div>
               );
             })()}
