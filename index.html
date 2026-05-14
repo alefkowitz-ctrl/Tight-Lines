@@ -1403,7 +1403,7 @@ function TripLocationWeather({tripForm, setTripForm}){
 const FISHING_STYLES = ["Nymphing","Dry Fly","Streamer","Wet Fly","Euro Nymphing","Indicator","Sight Fishing"];
 const TRIP_TYPES = ["Wade","Float","Boat","Stillwater"];
 
-function GuideBook({user}){
+function GuideBook({user, loc}){
   const [guests, setGuests] = useState([]);
   const [guestsLoading, setGuestsLoading] = useState(true);
   const [migrationStatus, setMigrationStatus] = useState(null);
@@ -1735,14 +1735,19 @@ function GuideBook({user}){
       const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
-      // Fall back to device location if no EXIF GPS — same as catch cards
+      // Fall back to loc (shared from Conditions tab) then geolocation if no EXIF GPS
       let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
       if(!fetchLat||!fetchLng){
-        try{
-          const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000,maximumAge:300000}));
-          fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
+        if(loc?.lat&&loc?.lng){
+          fetchLat=loc.lat;fetchLng=loc.lng;
           fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
-        }catch{}
+        } else {
+          try{
+            const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000,maximumAge:300000}));
+            fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
+            fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
+          }catch{}
+        }
       }
       // Fetch conditions using EXIF or device location
       if(fetchLat&&fetchLng){
@@ -3409,7 +3414,7 @@ function App({user}){
             <UpcomingTrips user={user}/>
             <TripPlanner defaultLocation={loc?.label||""}/>
           </>}
-          {tab==="guide"&&<GuideBook user={user}/>}
+          {tab==="guide"&&<GuideBook user={user} loc={loc}/>}
         </div>
 
         {tab==="log"&&(
