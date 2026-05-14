@@ -2260,9 +2260,14 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
                       try{
                         const imgRes=await fetch(photoUrl);
                         if(!imgRes.ok) continue;
-                        const arrBuf=await imgRes.arrayBuffer();
-                        const b64=btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
-                        const mime=imgRes.headers.get("content-type")||"image/jpeg";
+                        const blob=await imgRes.blob();
+                        const mime=blob.type||"image/jpeg";
+                        const b64=await new Promise((res,rej)=>{
+                          const r=new FileReader();
+                          r.onload=e=>res(e.target.result.split(",")[1]);
+                          r.onerror=rej;
+                          r.readAsDataURL(blob);
+                        });
                         imageSource={type:"base64",media_type:mime,data:b64};
                       }catch(fetchErr){console.log("Image fetch failed:",fetchErr.message);continue;}
                     }
@@ -3154,11 +3159,12 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
+              const latPad=(lat1-lat0)*0.15||0.05, lngPad=(lng1-lng0)*0.15||0.05;
+              const latMin=lat0-latPad,latMax=lat1+latPad,lngMin=lng0-lngPad,lngMax=lng1+lngPad;
               const W=560,H=220,P=24;
-              const tx=lng=>P+(lng-lng0)/((lng1-lng0)||0.01)*(W-P*2);
-              const ty=lat=>H-P-(lat-lat0)/((lat1-lat0)||0.01)*(H-P*2);
-              // Flip x axis for Western hemisphere (negative lng)
-              const projX=lng=>lng0<0?W-P-(lng-lng0)/((lng1-lng0)||0.01)*(W-P*2):tx(lng);
+              const tx=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
+              const ty=lat=>H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2);
+              const projX=lng=>lngMin<0?W-P-(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2):tx(lng);
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 6px"}}>
