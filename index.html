@@ -3154,12 +3154,17 @@ function App({user}){
               const lats=cr.map(c=>c.lat),lngs=cr.map(c=>c.lng);
               const lat0=Math.min(...lats),lat1=Math.max(...lats);
               const lng0=Math.min(...lngs),lng1=Math.max(...lngs);
-              // Enforce minimum 0.05 degree spread so pins never collapse to a dot
-              const latSpread=Math.max(lat1-lat0,0.05), lngSpread=Math.max(lng1-lng0,0.05);
-              const latMid=(lat0+lat1)/2, lngMid=(lng0+lng1)/2;
-              const latPad=latSpread*0.22, lngPad=lngSpread*0.22;
-              const latMin=latMid-latSpread/2-latPad, latMax=latMid+latSpread/2+latPad;
-              const lngMin=lngMid-lngSpread/2-lngPad, lngMax=lngMid+lngSpread/2+lngPad;
+              // Use median center + IQR-based bounds to prevent outliers from squishing clusters
+              const med=arr=>{const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+              const latMed=med(lats), lngMed=med(lngs);
+              // IQR spread: distance from median to 75th pct, capped so one outlier can't dominate
+              const latQ=Math.max(...lats.map(v=>Math.abs(v-latMed)));
+              const lngQ=Math.max(...lngs.map(v=>Math.abs(v-lngMed)));
+              const latMid=latMed, lngMid=lngMed;
+              const latHalf=Math.max(Math.min(latQ,0.3),0.025), lngHalf=Math.max(Math.min(lngQ,0.3),0.025);
+              const latPad=latHalf*0.25, lngPad=lngHalf*0.25;
+              const latMin=latMid-latHalf-latPad, latMax=latMid+latHalf+latPad;
+              const lngMin=lngMid-lngHalf-lngPad, lngMax=lngMid+lngHalf+lngPad;
               const W=560,H=220,P=24;
               // Simple linear projection — works correctly for any hemisphere
               const projX=lng=>P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2);
