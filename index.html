@@ -3049,11 +3049,44 @@ function App({user}){
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
+  const [condShops,setCondShops]=useState([]);
+  const [condShopsLoading,setCondShopsLoading]=useState(false);
+  const [condReport,setCondReport]=useState(null);
+  const [condReportLoading,setCondReportLoading]=useState(false);
+
+  async function generateCondReport(loc, weather, gauges){
+    if(!loc||!weather) return;
+    setCondReportLoading(true);
+    try{
+      const gaugeInfo=gauges.slice(0,5).map(g=>`${g.name}: ${Math.round(g.cfs||0)} CFS (${g.label||""})`).join(", ");
+      const prompt=`Location: ${loc.label}. Weather: ${weather.temp}°F, ${weather.desc}, wind ${weather.wind}mph ${weather.windDir}, pressure ${weather.pressure}" (${weather.pressureTrend?.label}). Nearby streams: ${gaugeInfo||"no gauge data"}. Month: ${new Date().toLocaleString("en-US",{month:"long"})}.
+
+Write a 2-3 paragraph fly fishing conditions report. Cover: current conditions and how they affect fishing, which types of water are fishing best, top fly recommendations. Be specific and practical. Plain text only.`;
+      const txt=await askClaude(prompt,false,500);
+      setCondReport(txt);
+    }catch(e){console.log("cond report failed:",e.message);}
+    setCondReportLoading(false);
+  }
+
+  async function fetchCondShops(label){
+    if(!label) return;
+    setCondShopsLoading(true);
+    try{
+      const txt=await askClaude(`Find fly fishing specialty shops near ${label}. Only dedicated fly shops or outfitters. JSON array only, no other text: [{"name":"","address":"","website":"","phone":"","specialty":""}]`,true,400);
+      const clean=txt.replace(/```json|```/g,"").trim();
+      const shops=JSON.parse(clean);
+      if(Array.isArray(shops)) setCondShops(shops.slice(0,6));
+    }catch(e){console.log("fly shops fetch failed:",e.message);}
+    setCondShopsLoading(false);
+  }
+
   async function loadConditions(newLoc){
     setLoc(newLoc);
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
-    setWxLoading(true);setWxError(null);
+    setWxLoading(true);setWxError(null);setCondReport(null);
+    // Fetch fly shops for this location
+    fetchCondShops(newLoc.label);
     try{
       const d=await fetchWeather(lat,lng);
       const c=d.current;
@@ -3107,6 +3140,8 @@ function App({user}){
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }catch{setGaugeError("Could not load stream data.");}
     finally{setGaugeLoading(false);}
+    // Auto-generate conditions report after everything loads
+    generateCondReport(newLoc, weather, gauges);
   }
 
   async function handlePhoto(e){
@@ -3288,25 +3323,28 @@ function App({user}){
                 </div>
               );
             })()}
-            {loc&&weather&&(
-              <div style={{marginBottom:12}}>
-                <button onClick={async(e)=>{
-                  const btn=e.currentTarget;
-                  btn.textContent="⏳ Generating…";btn.disabled=true;
-                  try{
-                    const gaugeInfo=gauges.slice(0,5).map(g=>`${g.name}: ${Math.round(g.cfs||0)} CFS (${g.label||""})`).join(", ");
-                    const prompt=`Location: ${loc.label}. Weather: ${weather.temp}°F, ${weather.desc}, wind ${weather.wind}mph ${weather.windDir}, pressure ${weather.pressure}" (${weather.pressureTrend?.label}). Nearby streams: ${gaugeInfo||"no gauge data"}. Month: ${new Date().toLocaleString("en-US",{month:"long"})}.
-
-Write a 2-3 paragraph fly fishing conditions report for this area. Cover: current conditions and how they affect fishing, which types of water are fishing best right now, top fly recommendations for this time of year and these conditions. Be specific and practical. Plain text only.`;
-                    const txt=await askClaude(prompt,false,500);
-                    const el=document.getElementById("ai-conditions-result");
-                    if(el){el.textContent=txt;el.style.display="block";}
-                  }catch(e2){const el=document.getElementById("ai-conditions-result");if(el){el.textContent="Could not generate report.";el.style.display="block";}}
-                  btn.textContent="✦ AI Conditions Report";btn.disabled=false;
-                }} className="btn btnp" style={{width:"100%",marginBottom:8}}>
-                  ✦ AI Conditions Report
-                </button>
-                <div id="ai-conditions-result" style={{display:"none",background:"rgba(0,0,0,0.25)",borderRadius:12,padding:"14px 16px",fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap"}}/>
+            {loc&&(condReport||condReportLoading)&&(
+              <div className="card">
+                <div className="ctitle">✦ AI Conditions Report<button className="rfsh" onClick={()=>generateCondReport(loc,weather,gauges)}>↻</button></div>
+                {condReportLoading&&<div className="loading">Generating report…</div>}
+                {condReport&&<div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap",marginTop:4}}>{condReport}</div>}
+              </div>
+            )}
+            {loc&&(
+              <div className="card">
+                <div className="ctitle">🪝 Nearby Fly Shops</div>
+                <div className="csub">{condShopsLoading?"Searching…":"Fly fishing specialty shops near "+loc.label}</div>
+                {condShopsLoading&&<div className="loading">Finding fly shops…</div>}
+                {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:13,color:"var(--stone)",padding:"8px 0"}}>Loading nearby shops…</div>}
+                {condShops.map((s,i)=>(
+                  <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                    <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
+                    {s.address&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
+                    {s.specialty&&<div style={{fontSize:12,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
+                    {s.website&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
+                    {s.phone&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.phone}</div>}
+                  </div>
+                ))}
               </div>
             )}
             <RegsLink label={loc?.label}/>
