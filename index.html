@@ -3015,7 +3015,12 @@ function App({user}){
     }
     if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
     const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
-    if(!error&&data) setCatches(c=>[{id:data.id,...catchData},...c]);
+    if(error){
+      console.log("Catch insert error:",error.message,"code:",error.code);
+      alert("Catch save failed: "+error.message);
+    } else if(data){
+      setCatches(c=>[{...catchData,id:data.id,photo:catchData.photo},...c]);
+    }
   }
 
   async function deleteCatch(id){
