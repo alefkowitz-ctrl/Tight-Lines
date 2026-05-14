@@ -1735,24 +1735,27 @@ function GuideBook({user, loc}){
       const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
-      // Get location: EXIF GPS first, then shared loc prop, then fresh geolocation
+      // Get location: EXIF GPS → localStorage cache → live geolocation
       let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
       if(!fetchLat||!fetchLng){
-        if(loc?.lat&&loc?.lng){
-          fetchLat=loc.lat;fetchLng=loc.lng;
-          fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
-          console.log("handleTripPhoto: using shared loc",fetchLat,fetchLng);
-        } else {
+        // Try localStorage first (set by Conditions tab)
+        try{
+          const cached=localStorage.getItem("tl_loc");
+          if(cached){
+            const c=JSON.parse(cached);
+            if(c?.lat&&c?.lng){fetchLat=c.lat;fetchLng=c.lng;fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";}
+          }
+        }catch{}
+        // If still no location, request fresh geolocation
+        if(!fetchLat||!fetchLng){
           try{
-            console.log("handleTripPhoto: requesting geolocation...");
             const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,maximumAge:60000,enableHighAccuracy:false}));
             fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
             fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
-            console.log("handleTripPhoto: got geolocation",fetchLat,fetchLng);
-          }catch(geoErr){console.log("handleTripPhoto: geolocation failed:",geoErr.message,geoErr.code);}
+            try{localStorage.setItem("tl_loc",JSON.stringify({lat:fetchLat,lng:fetchLng}));}catch{}
+          }catch{}
         }
       }
-      console.log("handleTripPhoto: fetchLat=",fetchLat,"fetchLng=",fetchLng,"t=",t);
       // Fetch conditions using EXIF or device location
       if(fetchLat&&fetchLng){
         // Update GPS on the detail we just added
