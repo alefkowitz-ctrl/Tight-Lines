@@ -1735,15 +1735,26 @@ function GuideBook({user}){
       const t=photoTime||tripDateFallback;
       const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
-      // Fetch conditions
-      if(photoLat&&photoLng){
+      // Fall back to device location if no EXIF GPS — same as catch cards
+      let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
+      if(!fetchLat||!fetchLng){
+        try{
+          const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000,maximumAge:300000}));
+          fetchLat=pos.coords.latitude;fetchLng=pos.coords.longitude;
+          fetchGps=fetchLat.toFixed(4)+"°N, "+Math.abs(fetchLng).toFixed(4)+"°W";
+        }catch{}
+      }
+      // Fetch conditions using EXIF or device location
+      if(fetchLat&&fetchLng){
+        // Update GPS on the detail we just added
+        setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,idx)=>idx===(f.catchDetails.length-1)?{...d,gps:fetchGps||d.gps}:d)}));
         try{
           let dateStr=null,hourStr="12";
           const d2=new Date(t.replace(" at "," "));
           if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
           const today=new Date().toISOString().split("T")[0];
-          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr):null;
-          if(conds) setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,i)=>i===(f.catchDetails.length-1)?{...d,...conds}:d)}));
+          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr):null;
+          if(conds) setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,idx)=>idx===(f.catchDetails.length-1)?{...d,...conds}:d)}));
         }catch{}
       }
       // Claude vision — resize to 1024px max, 20s timeout
