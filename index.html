@@ -3074,24 +3074,27 @@ function App({user}){
   async function fetchCondShops(label){
     if(!label) return;
     setCondShopsLoading(true);
+    setCondShops([]);
     try{
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:600,
-        system:"You output only valid JSON arrays. No explanation, no markdown, no prose. Start your response with [ and end with ].",
-        messages:[{role:'user',content:'Fly fishing shops near '+label+'. Return a JSON array of real local fly shops. Format: name, address, website, phone, specialty fields. 3-6 shops only.'}]
+        model:"claude-sonnet-4-6",max_tokens:800,
+        tools:[{type:"web_search_20250305",name:"web_search"}],
+        messages:[{role:"user",content:"Search for real fly fishing specialty shops near "+label+". Only include actual dedicated fly shops or fly fishing outfitters with verified addresses. Do not include Bass Pro, Cabelas, or general sporting goods. Return ONLY a JSON array, no other text: [{"name":"","address":"","website":"","phone":"","specialty":""}]"}]
       })});
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
-      // Extract JSON array even if there's surrounding text
-      // Extract JSON array safely without regex backslash issues
       const start=txt.indexOf("["),end=txt.lastIndexOf("]");
       if(start!==-1&&end>start){
         const parsed=JSON.parse(txt.slice(start,end+1));
-        if(Array.isArray(parsed)) setCondShops(parsed.slice(0,6));
+        if(Array.isArray(parsed)&&parsed.length>0) setCondShops(parsed.slice(0,6));
+        else setCondShops([]);
+      } else {
+        setCondShops([]);
       }
-    }catch(e){console.log("fly shops fetch failed:",e.message);setCondShops([]);}
+    }catch(e){console.log("fly shops failed:",e.message);setCondShops([]);}
     setCondShopsLoading(false);
   }
+
 
   async function loadConditions(newLoc){
     setLoc(newLoc);
