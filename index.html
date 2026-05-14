@@ -3144,7 +3144,7 @@ function App({user}){
               const coords=withGps.map(c=>parseGpsCoord(c.gps)).filter(Boolean);
               const lats=coords.map(c=>c.lat),lngs=coords.map(c=>c.lng);
               const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLng=Math.min(...lngs),maxLng=Math.max(...lngs);
-              return(()=>{
+              return(
               // Project coords to SVG space
               const W=580,H=220,PAD=20;
               const latRange=maxLat-minLat||0.01, lngRange=maxLng-minLng||0.01;
@@ -3187,7 +3187,7 @@ function App({user}){
                   </div>
                 </div>
               );
-            })()}
+            )}
             {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>(
               <div className="cc" key={c.id}>
