@@ -1573,14 +1573,17 @@ function GuideBook({user}){
   async function saveTripPhotos(tripId, photos){
     if(!sb) return;
     try{
-      // Upload base64 photos to Storage, get back URLs
-      const urls=await uploadPhotosToStorage(photos, `trips/${tripId}`);
-      // Delete existing then re-insert with URLs
+      // Upload any base64 photos to Storage first, keep existing URLs as-is
+      const urls=await uploadPhotosToStorage(photos||[], `trips/${tripId}`);
+      console.log("saveTripPhotos: uploading",photos?.length,"photos, got",urls.length,"urls for trip",tripId);
+      // Always delete + reinsert so removals are persisted too
       await sb.from("trip_photos").delete().eq("trip_id",tripId);
       if(urls.length>0){
-        await sb.from("trip_photos").insert(
+        const {error}=await sb.from("trip_photos").insert(
           urls.map((photo,sort_order)=>({trip_id:tripId,photo,sort_order}))
         );
+        if(error) console.log("trip_photos insert error:",error.message);
+        else console.log("saveTripPhotos: saved",urls.length,"photos to DB");
       }
     }catch(e){ console.log("saveTripPhotos failed:",e.message); }
   }
@@ -1659,6 +1662,8 @@ function GuideBook({user}){
 
   async function updateTripInDb(id, tripData){
     if(sb && user?.id && !String(user.id).startsWith("local")){
+      // Save photos first (await so UI state reflects actual saved URLs)
+      await saveTripPhotos(id, tripData.photos||[]);
       await sb.from("trips").update({
         date:tripData.date, location:tripData.location, type:tripData.type,
         styles:tripData.styles, catches:tripData.catches, flies:tripData.flies,
@@ -1670,7 +1675,6 @@ function GuideBook({user}){
         stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
         catch_details:tripData.catchDetails||[]
       }).eq("id",id);
-      if(tripData.photos?.length>0) saveTripPhotos(id, tripData.photos).catch(()=>{});
       return;
     }
     // localStorage fallback
@@ -1793,10 +1797,19 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
 
   async function deleteGuest(id){ await deletGuestFromDb(id); setGuests(gs=>gs.filter(g=>g.id!==id)); const stored=JSON.parse(localStorage.getItem("tl_guests")||"[]"); localStorage.setItem("tl_guests",JSON.stringify(stored.filter(g=>g.id!==id))); setView("list"); }
   async function deleteTrip(guestId, tripId){
-    await deleteTripFromDb(tripId);
-    const stored=JSON.parse(localStorage.getItem("tl_trips")||"[]"); localStorage.setItem("tl_trips",JSON.stringify(stored.filter(t=>t.id!==tripId)));
+    if(!window.confirm("Delete this trip and all its photos? This cannot be undone.")) return;
+    try{
+      // Delete photos from trip_photos table first
+      if(sb && !String(tripId).startsWith("local")){
+        await sb.from("trip_photos").delete().eq("trip_id",tripId);
+      }
+      await deleteTripFromDb(tripId);
+    }catch(e){ console.log("deleteTrip error:",e.message); }
+    const stored=JSON.parse(localStorage.getItem("tl_trips")||"[]");
+    localStorage.setItem("tl_trips",JSON.stringify(stored.filter(t=>t.id!==tripId)));
     setGuests(gs=>gs.map(g=>g.id===guestId?{...g,trips:(g.trips||[]).filter(t=>t.id!==tripId)}:g));
     setSelectedGuest(g=>({...g,trips:(g.trips||[]).filter(t=>t.id!==tripId)}));
+    setView("guest");
   }
 
   // Guest list
@@ -2182,12 +2195,15 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
             })}
           </div>
         )}
-        <button className="btn btnp" onClick={async()=>{
+        <button className="btn btnp" onClick={async(e)=>{
+          e.currentTarget.textContent="Saving…";e.currentTarget.disabled=true;
           await updateTripInDb(selectedTrip.id, tripForm);
           const updated={...selectedTrip,...tripForm};
           setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?{...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?updated:t)}:g));
           setSelectedTrip(updated);
           setView("tripDetail");
+          // Reload photos from DB to confirm they persisted
+          loadTripPhotos(selectedTrip.id, updated);
         }}>Save Changes</button>
       </div>
     </div>
@@ -2415,7 +2431,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
   });
   setView("editTrip");
 }}>✏️</button>
-          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);setView("guest");}}>🗑</button>
+          <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);}}>🗑</button>
         </div>
         {(selectedTrip.photos?.length>0||report)&&(
           <button className="btn" style={{width:"100%",marginTop:8,padding:12,fontSize:15,background:"linear-gradient(135deg,#1a3a45,#2c5f6e)"}}
