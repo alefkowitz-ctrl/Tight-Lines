@@ -3058,12 +3058,15 @@ function App({user}){
     if(!loc||!weather) return;
     setCondReportLoading(true);
     try{
-      const gaugeInfo=gauges.slice(0,5).map(g=>`${g.name}: ${Math.round(g.cfs||0)} CFS (${g.label||""})`).join(", ");
-      const prompt=`Location: ${loc.label}. Weather: ${weather.temp}°F, ${weather.desc}, wind ${weather.wind}mph ${weather.windDir}, pressure ${weather.pressure}" (${weather.pressureTrend?.label}). Nearby streams: ${gaugeInfo||"no gauge data"}. Month: ${new Date().toLocaleString("en-US",{month:"long"})}.
-
-Write a 2-3 paragraph fly fishing conditions report. Cover: current conditions and how they affect fishing, which types of water are fishing best, top fly recommendations. Be specific and practical. Plain text only.`;
-      const txt=await askClaude(prompt,false,500);
-      setCondReport(txt);
+      const gaugeInfo=(gauges||[]).slice(0,5).map(g=>`${g.name}: ${Math.round(g.cfs||0)} CFS (${g.label||""})`).join(", ");
+      const prompt=`Location: ${loc.label}. Weather: ${weather.temp}°F, ${weather.desc}, wind ${weather.wind}mph ${weather.windDir}, pressure ${weather.pressure}" (${weather.pressureTrend?.label}). Nearby streams: ${gaugeInfo||"no gauge data"}. Month: ${new Date().toLocaleString("en-US",{month:"long"})}. Write a 2-3 paragraph fly fishing conditions report. Cover: current conditions and how they affect fishing, which types of water are fishing best, top fly recommendations. Be specific and practical. Plain text only.`;
+      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        model:"claude-sonnet-4-6",max_tokens:600,
+        messages:[{role:"user",content:prompt}]
+      })});
+      const d=await res.json();
+      const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
+      if(txt) setCondReport(txt);
     }catch(e){console.log("cond report failed:",e.message);}
     setCondReportLoading(false);
   }
@@ -3072,11 +3075,17 @@ Write a 2-3 paragraph fly fishing conditions report. Cover: current conditions a
     if(!label) return;
     setCondShopsLoading(true);
     try{
-      const txt=await askClaude(`Find fly fishing specialty shops near ${label}. Only dedicated fly shops or outfitters. JSON array only, no other text: [{"name":"","address":"","website":"","phone":"","specialty":""}]`,true,400);
+      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        model:"claude-sonnet-4-6",max_tokens:600,
+        tools:[{type:"web_search_20250305",name:"web_search"}],
+        messages:[{role:"user",content:`Find fly fishing specialty shops near ${label}. Only dedicated fly shops or fly fishing outfitters. JSON array only, no markdown: [{"name":"","address":"","website":"","phone":"","specialty":""}]`}]
+      })});
+      const d=await res.json();
+      const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
       const clean=txt.replace(/```json|```/g,"").trim();
       const shops=JSON.parse(clean);
       if(Array.isArray(shops)) setCondShops(shops.slice(0,6));
-    }catch(e){console.log("fly shops fetch failed:",e.message);}
+    }catch(e){console.log("fly shops fetch failed:",e.message);setCondShops([]);}
     setCondShopsLoading(false);
   }
 
@@ -3306,20 +3315,22 @@ Write a 2-3 paragraph fly fishing conditions report. Cover: current conditions a
               const validG=gauges.filter(g=>g.lat&&g.lng);
               if(!validG.length) return null;
               const lats=validG.map(g=>g.lat),lngs=validG.map(g=>g.lng);
-              const clat=((Math.min(...lats)+Math.max(...lats))/2).toFixed(4);
-              const clng=((Math.min(...lngs)+Math.max(...lngs))/2).toFixed(4);
-              const bbox=(Math.min(...lngs)-0.3)+"%2C"+(Math.min(...lats)-0.3)+"%2C"+(Math.max(...lngs)+0.3)+"%2C"+(Math.max(...lats)+0.3);
-              const osmUrl="https://www.openstreetmap.org/export/embed.html?bbox="+bbox+"&layer=mapnik&marker="+clat+"%2C"+clng;
+              const clat=(Math.min(...lats)+Math.max(...lats))/2;
+              const clng=(Math.min(...lngs)+Math.max(...lngs))/2;
+              // Build Leaflet map as a data URL so external scripts load correctly
+              const pins=validG.map(g=>{
+                const label=(g.name||"Stream").replace(/\/g,"").replace(/'/g,"").substring(0,40);
+                return "L.circleMarker(["+g.lat+","+g.lng+"],{radius:7,fillColor:'#c8a84b',color:'#8a6020',weight:2,fillOpacity:0.9}).bindPopup('"+label+" — "+Math.round(g.cfs||0)+" CFS').addTo(map);";
+              }).join("");
+              const html="<!DOCTYPE html><html><head><meta charset='utf-8'><link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'><\/script><style>html,body,#m{margin:0;height:100%;width:100%}<\/style><\/head><body><div id='m'><\/div><script>var map=L.map('m',{attributionControl:false,zoomControl:true});L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);"+pins+"map.fitBounds([["+Math.min(...lats)+","+Math.min(...lngs)+"],["+Math.max(...lats)+","+Math.max(...lngs)+"]],{padding:[20,20]});<\/script><\/body><\/html>";
+              const src="data:text/html;charset=utf-8,"+encodeURIComponent(html);
               return(
                 <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                   <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters · {validG.length} gauges</span>
-                    <a href={"https://www.openstreetmap.org/?mlat="+clat+"&mlon="+clng+"#map=9/"+clat+"/"+clng} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
+                    <a href={"https://www.openstreetmap.org/?mlat="+clat.toFixed(4)+"&mlon="+clng.toFixed(4)+"#map=9/"+clat.toFixed(4)+"/"+clng.toFixed(4)} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                   </div>
-                  <iframe title="Waters map" src={osmUrl} style={{width:"100%",height:280,border:"none",display:"block"}}/>
-                  <div style={{padding:"8px 14px 10px",fontSize:11,color:"var(--stone)",display:"flex",flexWrap:"wrap",gap:8}}>
-                    {validG.slice(0,4).map((g,i)=><span key={i}>📍 {(g.name||"").split(" ").slice(0,3).join(" ")} {Math.round(g.cfs||0)} CFS</span>)}
-                  </div>
+                  <iframe title="Waters map" src={src} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin"/>
                 </div>
               );
             })()}
