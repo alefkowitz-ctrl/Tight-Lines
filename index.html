@@ -1540,9 +1540,10 @@ function GuideBook({user}){
     return results;
   }
 
-  async function loadTripPhotos(tripId){
+  async function loadTripPhotos(tripId, tripObj){
     if(!sb) return;
-    setSelectedTrip(st=>st?.id===tripId?{...st,photosLoading:true}:st);
+    // Set the trip immediately with photosLoading:true — no id check needed
+    setSelectedTrip({...tripObj,photosLoading:true,photos:[]});
     try{
       const [{data:cdData},{data:photoRows,error:photoErr}]=await Promise.all([
         sb.from("trips").select("catch_details").eq("id",tripId).single(),
@@ -1551,11 +1552,11 @@ function GuideBook({user}){
       if(photoErr) console.log("trip_photos error:",photoErr.message);
       const catchDetails=(cdData?.catch_details)||[];
       const photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
-      setSelectedTrip(st=>st?.id===tripId?{...st,photos,catchDetails,photosLoading:false}:st);
+      setSelectedTrip(st=>({...st,photos,catchDetails,photosLoading:false}));
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
     }catch(e){
       console.log("loadTripPhotos failed:",e.message);
-      setSelectedTrip(st=>st?.id===tripId?{...st,photosLoading:false}:st);
+      setSelectedTrip(st=>({...st,photosLoading:false}));
     }
   }
 
@@ -1999,7 +2000,7 @@ Write in second person ("you"). Be specific, friendly, and professional. Plain t
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
-        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedTrip(trip);setView("tripDetail");loadTripPhotos(trip.id);}}>
+        <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setView("tripDetail");loadTripPhotos(trip.id,trip);}}>
           <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
           {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
@@ -3184,18 +3185,20 @@ function App({user}){
                         </React.Fragment>
                       ))}
                       {(()=>{
-                        const THRESH=16;
-                        const placed=[];
+                        // Sunflower spiral jitter: place pins on expanding rings so clusters fan out cleanly
+                        const R=18, placed=[];
                         return cr.map((co,i)=>{
                           const c=wg[i];
-                          let x=projX(co.lng),y=ty(co.lat);
-                          let step=0;
-                          while(placed.some(p=>Math.hypot(p.x-x,p.y-y)<THRESH)&&step<40){
-                            step++;
-                            const r=THRESH*0.75*Math.ceil(step/8);
-                            const a=(step%8)*(Math.PI/4);
-                            x=projX(co.lng)+r*Math.cos(a);
-                            y=ty(co.lat)+r*Math.sin(a);
+                          const ox=projX(co.lng), oy=ty(co.lat);
+                          let x=ox, y=oy, ring=0, slot=0;
+                          outer: for(ring=0;ring<8;ring++){
+                            const pts=ring===0?1:ring*6;
+                            for(let s=0;s<pts;s++){
+                              const a=(s/pts)*Math.PI*2;
+                              x=ox+ring*R*Math.cos(a);
+                              y=oy+ring*R*Math.sin(a);
+                              if(!placed.some(p=>Math.hypot(p.x-x,p.y-y)<R-2)){slot=s;break outer;}
+                            }
                           }
                           placed.push({x,y});
                           const tip=(c.species||"Catch")+(c.length?" "+c.length+'"':"")+( c.time?" | "+c.time:"");
