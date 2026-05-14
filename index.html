@@ -3079,7 +3079,7 @@ function App({user}){
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:800,
         tools:[{type:"web_search_20250305",name:"web_search"}],
-        messages:[{role:"user",content:"Search for real fly fishing specialty shops near "+label+". Only include actual dedicated fly shops or fly fishing outfitters with verified addresses. Do not include Bass Pro, Cabelas, or general sporting goods. Return ONLY a JSON array, no other text: [{"name":"","address":"","website":"","phone":"","specialty":""}]"}]
+        messages:[{role:"user",content:'Search for real fly fishing specialty shops near '+label+'. Only actual dedicated fly shops with verified addresses. No Bass Pro or Cabelas. Return ONLY a JSON array: [{name,address,website,phone,specialty}]'"}]
       })});
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
