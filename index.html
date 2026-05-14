@@ -3078,14 +3078,15 @@ function App({user}){
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-haiku-4-5-20251001",max_tokens:600,
         system:"You output only valid JSON arrays. No explanation, no markdown, no prose. Start your response with [ and end with ].",
-        messages:[{role:"user",content:"Fly fishing shops near "+label+". Return JSON array: [{"name":"","address":"","website":"","phone":"","specialty":""}]. Include 3-6 shops. Real shops only."}]
+        messages:[{role:'user',content:'Fly fishing shops near '+label+'. Return a JSON array of real local fly shops. Format: name, address, website, phone, specialty fields. 3-6 shops only.'}]
       })});
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
       // Extract JSON array even if there's surrounding text
-      const match=txt.match(/\[[\s\S]*\]/);
-      if(match){
-        const parsed=JSON.parse(match[0]);
+      // Extract JSON array safely without regex backslash issues
+      const start=txt.indexOf("["),end=txt.lastIndexOf("]");
+      if(start!==-1&&end>start){
+        const parsed=JSON.parse(txt.slice(start,end+1));
         if(Array.isArray(parsed)) setCondShops(parsed.slice(0,6));
       }
     }catch(e){console.log("fly shops fetch failed:",e.message);setCondShops([]);}
