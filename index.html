@@ -1654,9 +1654,7 @@ function GuideBook({user, loc}){
         return data;
       }
       // Show error to user so they know it didn't save to cloud
-      alert("Trip save failed: "+(error?.message||"Unknown error")+"
-
-The trip will be saved locally on this device only.");
+      alert("Trip save failed: "+(error?.message||"Unknown error")+". The trip was saved locally on this device only.");
       console.error("Supabase trip save failed:", error?.message, error?.code);
     }
     // Fallback: localStorage only
