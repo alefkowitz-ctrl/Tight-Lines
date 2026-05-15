@@ -620,13 +620,11 @@ async function fetchUSGSLive(lat,lng){
       }
     }catch(e){console.log("USGS ring",ri,"error:",e.message);}
   }
-  // Also fetch Colorado DWR (Division of Water Resources) gauges
+  // Also fetch Colorado DWR (Division of Water Resources) gauges via proxy (CORS blocked)
   // Many key CO fishing streams like South Boulder Creek use DWR, not USGS
   try{
-    var dLat=Math.round(lat*10000)/10000;
-    var dLng=Math.round(lng*10000)/10000;
-    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&includeThirdParty=true&modified=2000-01-01&measInterval=HOUR&parameterCode=DISCHRG&county=BOULDER,JEFFERSON,CLEAR+CREEK,GILPIN&apiKey=";
-    var dr=await fetch(dwr_url);
+    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&includeThirdParty=true&modified=2000-01-01&measInterval=HOUR&parameterCode=DISCHRG&county=BOULDER,JEFFERSON,CLEAR+CREEK,GILPIN";
+    var dr=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:dwr_url})});
     if(dr.ok){
       var dd=await dr.json();
       var dwr_stations=(dd.ResultList||[]);
