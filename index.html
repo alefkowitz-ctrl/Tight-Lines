@@ -2948,6 +2948,46 @@ function TripPlanner({defaultLocation}){
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
+
+function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,setGaugeInput,gaugeAdding,addSavedGauge,removeSavedGauge,fetchSavedGaugeData,cfsLabel}){
+  const [sgData,setSgData]=React.useState([]);
+  React.useEffect(()=>{
+    if(!savedGauges.length) return;
+    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
+  },[savedGauges.length]);
+  return(
+    <div className="card" style={{marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
+        <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:11,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
+      </div>
+      {showAddGauge&&(
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
+            placeholder="USGS site # or waterdata.usgs.gov URL"
+            style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+          <button onClick={addSavedGauge} disabled={gaugeAdding}
+            style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+            {gaugeAdding?"…":"Save"}
+          </button>
+        </div>
+      )}
+      {sgData.map((g,i)=>(
+        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+          <div>
+            <div style={{fontSize:13,color:"var(--foam)"}}>{g.name||g.site_no}</div>
+            <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
+            <button onClick={()=>removeSavedGauge(g.id)} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function App({user}){
   const [tab,setTab]=useState("conditions");
   const [addOpen,setAddOpen]=useState(false);
@@ -3386,44 +3426,18 @@ function App({user}){
                   )}
                 </>}
               </div>
-              {savedGauges.length>0&&(()=>{
-                const [sgData,setSgData]=React.useState([]);
-                React.useEffect(()=>{
-                  if(!savedGauges.length) return;
-                  Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
-                },[savedGauges.length]);
-                return(
-                  <div className="card" style={{marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                      <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
-                      <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:11,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
-                    </div>
-                    {showAddGauge&&(
-                      <div style={{display:"flex",gap:6,marginBottom:10}}>
-                        <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
-                          placeholder="USGS site # or waterdata.usgs.gov URL"
-                          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
-                        <button onClick={addSavedGauge} disabled={gaugeAdding}
-                          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
-                          {gaugeAdding?"…":"Save"}
-                        </button>
-                      </div>
-                    )}
-                    {sgData.map((g,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-                        <div>
-                          <div style={{fontSize:13,color:"var(--foam)"}}>{g.name}</div>
-                          <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
-                          <button onClick={()=>removeSavedGauge(g.id)} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+              {savedGauges.length>0&&<SavedGaugesList
+                savedGauges={savedGauges}
+                showAddGauge={showAddGauge}
+                setShowAddGauge={setShowAddGauge}
+                gaugeInput={gaugeInput}
+                setGaugeInput={setGaugeInput}
+                gaugeAdding={gaugeAdding}
+                addSavedGauge={addSavedGauge}
+                removeSavedGauge={removeSavedGauge}
+                fetchSavedGaugeData={fetchSavedGaugeData}
+                cfsLabel={cfsLabel}
+              />}
               {/* Add gauge button even when no saved gauges yet */}
               {savedGauges.length===0&&(
                 <div style={{marginBottom:12}}>
