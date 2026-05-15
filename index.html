@@ -3141,6 +3141,9 @@ function App({user}){
         const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
         return hasWaterword&&!hasNonFishable;
       };
+      // Debug: log all gauge names to console
+      console.log("USGS raw gauges:",ts.length);
+      ts.forEach(function(t){console.log(" USGS name:",t.sourceInfo?.siteName,"| lat:",t.sourceInfo?.geoLocation?.geogLocation?.latitude);});
       const rawParsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
