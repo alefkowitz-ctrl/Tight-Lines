@@ -588,22 +588,28 @@ async function fetchUSGSTemp(siteNo){
 }
 
 async function fetchUSGSLive(lat,lng){
-  // 50 miles = ~0.72 degrees. Single call, no retry loop.
-  var p=0.75;
-  var minLng=Math.round((lng-p)*10000)/10000;
-  var maxLng=Math.round((lng+p)*10000)/10000;
-  var minLat=Math.round((lat-p)*10000)/10000;
-  var maxLat=Math.round((lat+p)*10000)/10000;
-  var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-  try{
-    var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST";
-    var r=await fetch(url);
-    if(r.ok){
+  // Try 50mi bbox first, fall back to 30mi if USGS rejects it
+  // USGS bbox format: minLng,minLat,maxLng,maxLat (4 decimal places max)
+  var sizes=[0.75, 0.5, 0.4];
+  for(var si=0;si<sizes.length;si++){
+    var p=sizes[si];
+    var minLng=Math.round((lng-p)*10000)/10000;
+    var maxLng=Math.round((lng+p)*10000)/10000;
+    var minLat=Math.round((lat-p)*10000)/10000;
+    var maxLat=Math.round((lat+p)*10000)/10000;
+    var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
+    // Remove siteType filter — catches more gauges including diversions
+    var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060";
+    try{
+      var r=await fetch(url);
+      console.log("USGS bbox="+bbox+" status="+r.status);
+      if(!r.ok){continue;}
       var d=await r.json();
       var ts=(d.value&&d.value.timeSeries)||[];
+      console.log("USGS returned "+ts.length+" gauges");
       if(ts.length>0) return d;
-    }
-  }catch(e){ console.log("USGS fetch error:",e.message); }
+    }catch(e){console.log("USGS error:",e.message);}
+  }
   return{value:{timeSeries:[]}};
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
