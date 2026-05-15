@@ -3130,10 +3130,15 @@ function App({user}){
       const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","rocky flats","buffer zone"," rfp","landfill"," plant","facility","treatment"];
       const isFishable=name=>{
         const n=name.toLowerCase();
-        // Must be a creek, river, run, fork, branch, stream, or slough
-        const waterWords=["creek","river"," run"," fork","branch","stream","slough","gulch","canyon"," rio "," cr "," cr."," ck "," fk ","south boulder","clear creek","platte","arkansas","colorado r"];const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
-        // Must not contain non-fishable keywords
-        const hasNonFishable=NON_FISHABLE.some(kw=>n.includes(kw));
+        // Extract stream name only — before near/at/below/above/nr/abv
+        const splitWords=["near ","at ","below ","above "," nr "," abv "," ab "," bl "];
+        var streamPart=n;
+        for(var si=0;si<splitWords.length;si++){var si2=n.indexOf(splitWords[si]);if(si2>5){streamPart=n.substring(0,si2);break;}}
+        // Must contain a water body word
+        const waterWords=["creek","river"," run"," fork","branch","stream","slough","gulch","canyon"," rio "," cr"," ck"," fk","south boulder","clear creek","platte","arkansas","colorado r"];
+        const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
+        // Only check non-fishable keywords against stream name, not location suffix
+        const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
         return hasWaterword&&!hasNonFishable;
       };
       const rawParsed=ts.map(t=>{
