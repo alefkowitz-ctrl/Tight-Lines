@@ -3158,17 +3158,14 @@ function App({user}){
         .sort((a,b)=>a.dist-b.dist)
         .slice(0,50);
       // Fetch per-site historical max in parallel, fallback to relative scaling
-      const [statResults, tempResults]=await Promise.all([
-        Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo))),
-        Promise.all(rawParsed.map(g=>fetchUSGSTemp(g.siteNo)))
-      ]);
-      const parsed=rawParsed.map((g,i)=>{
-        const histMax=statResults[i];
+              // Skip stat API (returns 400 for most sites) — use relative scaling
+        const maxCFS=Math.max(...rawParsed.map(x=>x.cfs||0),1);
+        const tempResults=await Promise.all(rawParsed.map(g=>fetchUSGSTemp(g.siteNo)));
+        const parsed=rawParsed.map((g,i)=>{
         const waterTempF=tempResults[i];
-        const pct=g.cfs!=null?(histMax?Math.min(Math.round((g.cfs/histMax)*100),100):Math.min(Math.round((g.cfs/Math.max(...rawParsed.map(x=>x.cfs||0),1))*95),100)):0;
-        // Re-label using historical pct now that we have it
-        const{label,cls}=cfsLabel(g.cfs, histMax?pct:null);
-        return{...g,pct,histMax,waterTempF,label,cls};
+        const pct=g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS)*95),100):0;
+        const{label,cls}=cfsLabel(g.cfs,null);
+        return{...g,pct,histMax:null,waterTempF,label,cls};
       });
       setGauges(parsed);
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
