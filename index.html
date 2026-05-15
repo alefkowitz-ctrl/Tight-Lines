@@ -1877,24 +1877,39 @@ function GuideBook({user, loc}){
       setGuests(gs=>gs.map(g=>g.id===guest.id?{...g,trips:(g.trips||[]).map(t=>t.id===trip.id?{...t,reportText:txt}:t)}:g));
     }
     try{
-      const txt = await askClaude(`You are a fly fishing guide writing a trip summary for a client.
-Client: ${guest.name}
-Date: ${trip.date}
-Location: ${trip.location||"Not specified"}
-Trip type: ${trip.type}
-Fishing styles: ${trip.styles.join(", ")||"Not specified"}
-Estimated catches: ${trip.catches}
-Flies that worked: ${trip.flies.join(", ")||"Not specified"}
-Gear used: ${trip.gear||"Not specified"}
-Guide notes: ${trip.guideNotes||"None"}
+      // Build catch details summary if available
+      const catchSummary=(trip.catchDetails||[]).filter(c=>c.species).map(c=>{
+        let s=c.species+(c.length?" ("+c.length+'"'+")":'');
+        if(c.airTemp) s+=" | "+c.airTemp+"°F";
+        if(c.streamCFS) s+=" | "+c.streamCFS+" CFS";
+        if(c.time) s+=" | "+c.time;
+        return s;
+      }).join("; ");
+      const conditionsSummary=[
+        trip.weatherConditions&&("Weather: "+trip.weatherConditions),
+        trip.airTemp&&("Air: "+trip.airTemp+"°F"),
+        trip.waterTemp&&("Water: "+trip.waterTemp+"°F"),
+        trip.streamCFS&&("Flow: "+trip.streamCFS+" CFS "+( trip.streamCondition||"")),
+        trip.windSpeed&&("Wind: "+trip.windSpeed+"mph "+( trip.windDir||"")),
+        trip.pressure&&("Pressure: "+trip.pressure+'"'),
+      ].filter(Boolean).join(", ");
 
-Write a warm, encouraging 3-4 paragraph trip report the guide can share with the client. Include:
-1. A highlight of how the day went
-2. What was working and why (flies, techniques, conditions)
-3. 2-3 specific, kind suggestions for improvement framed positively
-4. An encouraging closing note
+      const txt = await askClaude("You are a fly fishing guide writing a trip summary for a client. Only use the specific facts provided below. Do not invent, assume, or embellish any details not explicitly given. If information is not provided, do not mention it.
 
-Write in second person ("you"). Be specific, friendly, and professional. Plain text only, no JSON.`, false, 600);
+FACTS:
+Client: "+guest.name+"
+Date: "+trip.date+"
+Location: "+(trip.location||"not specified")+"
+Trip type: "+trip.type+"
+Fishing styles: "+(trip.styles.join(", ")||"not specified")+"
+Estimated catches: "+trip.catches+"
+Flies that worked: "+(trip.flies.join(", ")||"not specified")+"
+Gear: "+(trip.gear||"not specified")+"
+Conditions: "+(conditionsSummary||"not recorded")+"
+Catch details: "+(catchSummary||"not recorded")+"
+Guide notes: "+(trip.guideNotes||"none")+"
+
+Write a warm 2-3 paragraph trip summary using ONLY the facts above. Do not suggest improvements unless the guide notes mention something specific. Do not mention conditions, flies, or techniques that are not listed above. Write in second person. Plain text only.", false, 500);
       setReport(txt);
       saveReport(txt);
     }catch(e){ setReport("Could not generate report. " + e.message); }
