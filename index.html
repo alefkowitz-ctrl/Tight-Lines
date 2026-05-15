@@ -3145,7 +3145,6 @@ function App({user}){
   },[user?.id]);
 
   async function fetchSavedGaugeData(gauge){
-    // Parse USGS site number from URL or abbrev
     try{
       var siteNo=gauge.site_no;
       if(!siteNo&&gauge.url){
@@ -3153,16 +3152,20 @@ function App({user}){
         if(m) siteNo=m[1];
       }
       if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");
+      // Add 8s timeout so it doesn't hang forever
+      var controller=new AbortController();
+      var timer=setTimeout(()=>controller.abort(),8000);
+      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060",{signal:controller.signal});
+      clearTimeout(timer);
       if(!r.ok) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
       var d=await r.json();
       var ts=(d.value&&d.value.timeSeries)||[];
       if(!ts.length) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
       var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
       var cfs=raw!=null?parseFloat(raw):null;
-      var name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||gauge.name;
-      var{label,cls}=cfsLabel(cfs,null);
-      return{...gauge,cfs,label,cls,name};
+      var name=(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||gauge.name;
+      var lbl=cfsLabel(cfs,null);
+      return{...gauge,cfs,label:lbl.label,cls:lbl.cls,name};
     }catch(e){return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};}
   }
 
