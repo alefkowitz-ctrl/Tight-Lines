@@ -3145,7 +3145,7 @@ function App({user}){
         const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
         const name=t.sourceInfo?.siteName??"Unknown";
         return{name,cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
-      }).filter(s=>s.fishable&&(s.cfs===null||(s.cfs>=0&&s.cfs<500000)))
+      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000)
         .sort((a,b)=>a.dist-b.dist)
         .slice(0,50);
       // Fetch per-site historical max in parallel, fallback to relative scaling
