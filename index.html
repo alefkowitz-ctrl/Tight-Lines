@@ -3131,7 +3131,7 @@ function App({user}){
       const isFishable=name=>{
         const n=name.toLowerCase();
         // Must be a creek, river, run, fork, branch, stream, or slough
-        const waterWords=["creek","river"," run"," fork","branch","stream","slough","gulch","canyon"," rio "];const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
+        const waterWords=["creek","river"," run"," fork","branch","stream","slough","gulch","canyon"," rio "," cr "," cr."," ck "," fk ","south boulder","clear creek","platte","arkansas","colorado r"];const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
         // Must not contain non-fishable keywords
         const hasNonFishable=NON_FISHABLE.some(kw=>n.includes(kw));
         return hasWaterword&&!hasNonFishable;
