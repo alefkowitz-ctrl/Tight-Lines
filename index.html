@@ -620,44 +620,6 @@ async function fetchUSGSLive(lat,lng){
       }
     }catch(e){console.log("USGS ring",ri,"error:",e.message);}
   }
-  // Also fetch Colorado DWR (Division of Water Resources) gauges via proxy (CORS blocked)
-  // Many key CO fishing streams like South Boulder Creek use DWR, not USGS
-  try{
-    // DWR telemetry stations — use the dataset endpoint which returns latest values directly
-    var dwr_url="https://dwr.state.co.us/Rest/Get/api/v2/telemetrystations/telemetrystation/?format=json&includeThirdParty=true&parameterCode=DISCHRG&latitude="+lat+"&longitude="+lng+"&radius=50&units=miles";
-    var dr=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:dwr_url})});
-    if(dr.ok){
-      var dd=await dr.json();
-      var dwr_stations=(dd.ResultList||[]);
-      console.log("DWR returned",dwr_stations.length,"stations");
-      // Convert DWR station list format to USGS timeSeries format
-      // Each station needs a separate data fetch — do them in parallel for speed
-      var dwr_with_data=await Promise.all(dwr_stations.slice(0,30).map(async function(s){
-        if(!s.latitude||!s.longitude||!s.abbrev) return null;
-        try{
-          var data_url="https://dwr.state.co.us/Rest/Get/api/v2/telemetrystations/telemetrystationdataset/?format=json&abbrev="+s.abbrev+"&parameterCode=DISCHRG&includeThirdParty=true";
-          var dr2=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:data_url})});
-          if(!dr2.ok) return null;
-          var dd2=await dr2.json();
-          var latest=(dd2.ResultList||[])[0];
-          var cfs=latest?parseFloat(latest.measValue||latest.value||0):null;
-          if(cfs===null||isNaN(cfs)) return null;
-          return{
-            sourceInfo:{
-              siteName:s.stationName||s.abbrev,
-              siteCode:[{value:"DWR-"+s.abbrev}],
-              geoLocation:{geogLocation:{latitude:s.latitude,longitude:s.longitude}}
-            },
-            values:[{value:[{value:String(cfs)}]}]
-          };
-        }catch(e2){return null;}
-      }));
-      var dwr_ts=dwr_with_data.filter(Boolean);
-      console.log("DWR stations with data:",dwr_ts.length);
-      var newDwr=dedup(dwr_ts);
-      allTs=allTs.concat(newDwr);
-    }
-  }catch(e){console.log("DWR fetch error:",e.message);}
     return{value:{timeSeries:allTs}};
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
@@ -3096,10 +3058,74 @@ function App({user}){
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
+  const [savedGauges,setSavedGauges]=useState([]);
+  const [showAddGauge,setShowAddGauge]=useState(false);
+  const [gaugeInput,setGaugeInput]=useState("");
+  const [gaugeAdding,setGaugeAdding]=useState(false);
   const [condShops,setCondShops]=useState([]);
   const [condShopsLoading,setCondShopsLoading]=useState(false);
   const [condReport,setCondReport]=useState(null);
   const [condReportLoading,setCondReportLoading]=useState(false);
+
+  // Load saved gauges from Supabase
+  React.useEffect(()=>{
+    if(!sb||!user||String(user.id).startsWith("local")) return;
+    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{
+      if(data) setSavedGauges(data);
+    });
+  },[user]);
+
+  async function fetchSavedGaugeData(gauge){
+    // Parse USGS site number from URL or abbrev
+    try{
+      var siteNo=gauge.site_no;
+      if(!siteNo&&gauge.url){
+        var m=gauge.url.match(/sites?[=\/]([0-9]{8,})/i);
+        if(m) siteNo=m[1];
+      }
+      if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
+      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");
+      if(!r.ok) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
+      var d=await r.json();
+      var ts=(d.value&&d.value.timeSeries)||[];
+      if(!ts.length) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
+      var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
+      var cfs=raw!=null?parseFloat(raw):null;
+      var name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||gauge.name;
+      var{label,cls}=cfsLabel(cfs,null);
+      return{...gauge,cfs,label,cls,name};
+    }catch(e){return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};}
+  }
+
+  async function addSavedGauge(){
+    if(!gaugeInput.trim()) return;
+    setGaugeAdding(true);
+    // Extract site number from USGS URL or treat as site number directly
+    var url=gaugeInput.trim();
+    var siteNo=null;
+    var m=url.match(/sites?[=\/]([0-9]{8,})/i)||url.match(/monitoring-location\/USGS-([0-9]+)/i)||url.match(/^([0-9]{8,15})$/);
+    if(m) siteNo=m[1];
+    if(!siteNo){setGaugeAdding(false);alert("Please enter a USGS site number or URL from waterdata.usgs.gov");return;}
+    // Fetch name from USGS
+    var name="Custom Gauge";
+    try{
+      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");
+      if(r.ok){var d=await r.json();var ts=(d.value&&d.value.timeSeries)||[];if(ts.length) name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||name;}
+    }catch(e){}
+    var newGauge={user_id:user.id,site_no:siteNo,name:name,url:url};
+    if(sb&&!String(user.id).startsWith("local")){
+      var{data}=await sb.from("saved_gauges").insert(newGauge).select().single();
+      if(data) setSavedGauges(gs=>[...gs,data]);
+    } else {
+      setSavedGauges(gs=>[...gs,{...newGauge,id:"local-"+Date.now()}]);
+    }
+    setGaugeInput("");setShowAddGauge(false);setGaugeAdding(false);
+  }
+
+  async function removeSavedGauge(id){
+    setSavedGauges(gs=>gs.filter(g=>g.id!==id));
+    if(sb&&!String(user.id).startsWith("local")) await sb.from("saved_gauges").delete().eq("id",id);
+  }
 
   async function generateCondReport(loc, weather, gauges){
     if(!loc||!weather) return;
@@ -3359,6 +3385,68 @@ function App({user}){
                   )}
                 </>}
               </div>
+              {savedGauges.length>0&&(()=>{
+                const [sgData,setSgData]=React.useState([]);
+                React.useEffect(()=>{
+                  Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData);
+                },[savedGauges.length]);
+                return(
+                  <div className="card" style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
+                      <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:11,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
+                    </div>
+                    {showAddGauge&&(
+                      <div style={{display:"flex",gap:6,marginBottom:10}}>
+                        <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
+                          placeholder="USGS site # or waterdata.usgs.gov URL"
+                          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+                        <button onClick={addSavedGauge} disabled={gaugeAdding}
+                          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+                          {gaugeAdding?"…":"Save"}
+                        </button>
+                      </div>
+                    )}
+                    {sgData.map((g,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                        <div>
+                          <div style={{fontSize:13,color:"var(--foam)"}}>{g.name}</div>
+                          <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
+                          <button onClick={()=>removeSavedGauge(g.id)} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+              {/* Add gauge button even when no saved gauges yet */}
+              {savedGauges.length===0&&(
+                <div style={{marginBottom:12}}>
+                  {showAddGauge?(
+                    <div className="card">
+                      <div style={{fontSize:13,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
+                      <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Paste a USGS site number or waterdata.usgs.gov URL for any stream not showing above.</div>
+                      <div style={{display:"flex",gap:6}}>
+                        <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
+                          placeholder="e.g. 06729500 or full URL"
+                          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+                        <button onClick={addSavedGauge} disabled={gaugeAdding}
+                          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+                          {gaugeAdding?"…":"Save"}
+                        </button>
+                      </div>
+                      <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:11,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  ):(
+                    <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:12,cursor:"pointer"}}>
+                      ⭐ Add a custom gauge (e.g. South Boulder Creek)
+                    </button>
+                  )}
+                </div>
+              )}
               {(()=>{
                 const [gaugesOpen,setGaugesOpen]=React.useState(false);
                 return(
