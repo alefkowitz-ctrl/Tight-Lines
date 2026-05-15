@@ -623,26 +623,37 @@ async function fetchUSGSLive(lat,lng){
   // Also fetch Colorado DWR (Division of Water Resources) gauges via proxy (CORS blocked)
   // Many key CO fishing streams like South Boulder Creek use DWR, not USGS
   try{
-    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&includeThirdParty=true&modified=2000-01-01&measInterval=HOUR&parameterCode=DISCHRG&county=BOULDER,JEFFERSON,CLEAR+CREEK,GILPIN";
+    // DWR telemetry stations near point — correct endpoint with lat/lng radius
+    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystation/?format=json&includeThirdParty=true&parameterCode=DISCHRG&latitude="+lat+"&longitude="+lng+"&radius=50&units=miles";
     var dr=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:dwr_url})});
     if(dr.ok){
       var dd=await dr.json();
       var dwr_stations=(dd.ResultList||[]);
-      // Convert DWR format to USGS timeSeries format
-      var dwr_ts=dwr_stations.filter(function(s){
-        if(!s.latitude||!s.longitude) return false;
-        var d2=Math.sqrt(Math.pow(s.latitude-lat,2)+Math.pow(s.longitude-lng,2));
-        return d2<=0.75; // within 50mi
-      }).map(function(s){
-        return{
-          sourceInfo:{
-            siteName:s.stationName||s.abbrev||"Unknown",
-            siteCode:[{value:"DWR-"+(s.abbrev||s.usgsStationId||Math.random())}],
-            geoLocation:{geogLocation:{latitude:s.latitude,longitude:s.longitude}}
-          },
-          values:[{value:[{value:String(s.measValue||s.value||0)}]}]
-        };
-      });
+      console.log("DWR returned",dwr_stations.length,"stations");
+      // Convert DWR station list format to USGS timeSeries format
+      // Each station needs a separate data fetch — do them in parallel for speed
+      var dwr_with_data=await Promise.all(dwr_stations.slice(0,30).map(async function(s){
+        if(!s.latitude||!s.longitude||!s.abbrev) return null;
+        try{
+          var data_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&abbrev="+s.abbrev+"&parameterCode=DISCHRG&includeThirdParty=true";
+          var dr2=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:data_url})});
+          if(!dr2.ok) return null;
+          var dd2=await dr2.json();
+          var latest=(dd2.ResultList||[])[0];
+          var cfs=latest?parseFloat(latest.measValue||latest.value||0):null;
+          if(cfs===null||isNaN(cfs)) return null;
+          return{
+            sourceInfo:{
+              siteName:s.stationName||s.abbrev,
+              siteCode:[{value:"DWR-"+s.abbrev}],
+              geoLocation:{geogLocation:{latitude:s.latitude,longitude:s.longitude}}
+            },
+            values:[{value:[{value:String(cfs)}]}]
+          };
+        }catch(e2){return null;}
+      }));
+      var dwr_ts=dwr_with_data.filter(Boolean);
+      console.log("DWR stations with data:",dwr_ts.length);
       var newDwr=dedup(dwr_ts);
       allTs=allTs.concat(newDwr);
     }
