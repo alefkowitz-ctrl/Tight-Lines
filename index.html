@@ -613,21 +613,43 @@ async function fetchUSGSLive(lat,lng){
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
       var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
-      console.log("USGS ring",(ri+1),"("+Math.round(rings[ri]*69)+"mi) status:",r.status);
       if(r.ok){
         var d=await r.json();
-        var ring_ts=(d.value&&d.value.timeSeries)||[];
-        console.log("USGS ring",(ri+1),"returned",ring_ts.length,"gauges");
-        ring_ts.forEach(function(t){
-          var n=t.sourceInfo&&t.sourceInfo.siteName;
-          if(n&&n.toLowerCase().indexOf("boulder")>-1) console.log("  BOULDER GAUGE FOUND:",n);
-        });
-        var newTs=dedup(ring_ts);
+        var newTs=dedup((d.value&&d.value.timeSeries)||[]);
         allTs=allTs.concat(newTs);
       }
     }catch(e){console.log("USGS ring",ri,"error:",e.message);}
   }
-  return{value:{timeSeries:allTs}};
+  // Also fetch Colorado DWR (Division of Water Resources) gauges
+  // Many key CO fishing streams like South Boulder Creek use DWR, not USGS
+  try{
+    var dLat=Math.round(lat*10000)/10000;
+    var dLng=Math.round(lng*10000)/10000;
+    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&includeThirdParty=true&modified=2000-01-01&measInterval=HOUR&parameterCode=DISCHRG&county=BOULDER,JEFFERSON,CLEAR+CREEK,GILPIN&apiKey=";
+    var dr=await fetch(dwr_url);
+    if(dr.ok){
+      var dd=await dr.json();
+      var dwr_stations=(dd.ResultList||[]);
+      // Convert DWR format to USGS timeSeries format
+      var dwr_ts=dwr_stations.filter(function(s){
+        if(!s.latitude||!s.longitude) return false;
+        var d2=Math.sqrt(Math.pow(s.latitude-lat,2)+Math.pow(s.longitude-lng,2));
+        return d2<=0.75; // within 50mi
+      }).map(function(s){
+        return{
+          sourceInfo:{
+            siteName:s.stationName||s.abbrev||"Unknown",
+            siteCode:[{value:"DWR-"+(s.abbrev||s.usgsStationId||Math.random())}],
+            geoLocation:{geogLocation:{latitude:s.latitude,longitude:s.longitude}}
+          },
+          values:[{value:[{value:String(s.measValue||s.value||0)}]}]
+        };
+      });
+      var newDwr=dedup(dwr_ts);
+      allTs=allTs.concat(newDwr);
+    }
+  }catch(e){console.log("DWR fetch error:",e.message);}
+    return{value:{timeSeries:allTs}};
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
