@@ -3127,7 +3127,7 @@ function App({user}){
       const ts=d.value?.timeSeries??[];
       if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
       // Keywords that indicate non-fishable sites
-      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep"];
+      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","rocky flats","buffer zone"," rfp","landfill"," plant","facility","treatment"];
       const isFishable=name=>{
         const n=name.toLowerCase();
         // Must be a creek, river, run, fork, branch, stream, or slough
@@ -3145,7 +3145,7 @@ function App({user}){
         const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
         const name=t.sourceInfo?.siteName??"Unknown";
         return{name,cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
-      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000)
+      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>0&&s.cfs<500000)
         .sort((a,b)=>a.dist-b.dist)
         .slice(0,50);
       // Fetch per-site historical max in parallel, fallback to relative scaling
