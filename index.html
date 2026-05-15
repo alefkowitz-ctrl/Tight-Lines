@@ -623,8 +623,8 @@ async function fetchUSGSLive(lat,lng){
   // Also fetch Colorado DWR (Division of Water Resources) gauges via proxy (CORS blocked)
   // Many key CO fishing streams like South Boulder Creek use DWR, not USGS
   try{
-    // DWR telemetry stations near point — correct endpoint with lat/lng radius
-    var dwr_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystation/?format=json&includeThirdParty=true&parameterCode=DISCHRG&latitude="+lat+"&longitude="+lng+"&radius=50&units=miles";
+    // DWR telemetry stations — use the dataset endpoint which returns latest values directly
+    var dwr_url="https://dwr.state.co.us/Rest/Get/api/v2/telemetrystations/telemetrystation/?format=json&includeThirdParty=true&parameterCode=DISCHRG&latitude="+lat+"&longitude="+lng+"&radius=50&units=miles";
     var dr=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:dwr_url})});
     if(dr.ok){
       var dd=await dr.json();
@@ -635,7 +635,7 @@ async function fetchUSGSLive(lat,lng){
       var dwr_with_data=await Promise.all(dwr_stations.slice(0,30).map(async function(s){
         if(!s.latitude||!s.longitude||!s.abbrev) return null;
         try{
-          var data_url="https://dwr.state.co.us/Rest/GET/api/v2/telemetrystations/telemetrystationdataset/?format=json&abbrev="+s.abbrev+"&parameterCode=DISCHRG&includeThirdParty=true";
+          var data_url="https://dwr.state.co.us/Rest/Get/api/v2/telemetrystations/telemetrystationdataset/?format=json&abbrev="+s.abbrev+"&parameterCode=DISCHRG&includeThirdParty=true";
           var dr2=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:data_url})});
           if(!dr2.ok) return null;
           var dd2=await dr2.json();
