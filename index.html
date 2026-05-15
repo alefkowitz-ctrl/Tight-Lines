@@ -613,9 +613,16 @@ async function fetchUSGSLive(lat,lng){
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
       var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
+      console.log("USGS ring",(ri+1),"("+Math.round(rings[ri]*69)+"mi) status:",r.status);
       if(r.ok){
         var d=await r.json();
-        var newTs=dedup((d.value&&d.value.timeSeries)||[]);
+        var ring_ts=(d.value&&d.value.timeSeries)||[];
+        console.log("USGS ring",(ri+1),"returned",ring_ts.length,"gauges");
+        ring_ts.forEach(function(t){
+          var n=t.sourceInfo&&t.sourceInfo.siteName;
+          if(n&&n.toLowerCase().indexOf("boulder")>-1) console.log("  BOULDER GAUGE FOUND:",n);
+        });
+        var newTs=dedup(ring_ts);
         allTs=allTs.concat(newTs);
       }
     }catch(e){console.log("USGS ring",ri,"error:",e.message);}
