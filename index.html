@@ -3126,6 +3126,16 @@ function App({user}){
       const d=await fetchUSGSLive(lat,lng);
       const ts=d.value?.timeSeries??[];
       if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
+      // Keywords that indicate non-fishable sites
+      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep"];
+      const isFishable=name=>{
+        const n=name.toLowerCase();
+        // Must be a creek, river, run, fork, branch, stream, or slough
+        const hasWaterword=/(creek|river|run|fork|branch|stream|slough|gulch|canyon|rio|rio grande)/.test(n);
+        // Must not contain non-fishable keywords
+        const hasNonFishable=NON_FISHABLE.some(kw=>n.includes(kw));
+        return hasWaterword&&!hasNonFishable;
+      };
       const rawParsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
@@ -3133,10 +3143,11 @@ function App({user}){
         const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
         const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
         const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-        return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
-      }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000))
+        const name=t.sourceInfo?.siteName??"Unknown";
+        return{name,cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
+      }).filter(s=>s.fishable&&(s.cfs===null||(s.cfs>=0&&s.cfs<500000)))
         .sort((a,b)=>a.dist-b.dist)
-        .slice(0,25);
+        .slice(0,50);
       // Fetch per-site historical max in parallel, fallback to relative scaling
       const [statResults, tempResults]=await Promise.all([
         Promise.all(rawParsed.map(g=>fetchUSGSStat(g.siteNo))),
@@ -3297,13 +3308,32 @@ function App({user}){
                   )}
                 </>}
               </div>
-              <div className="card">
-                <div className="ctitle">💧 Stream Gauges<button className="rfsh" onClick={()=>loadConditions(loc)}>↻</button></div>
-                <div className="csub">Live USGS · {gauges.length} gauges within 50mi{lastUpd&&` · ${lastUpd}`}</div>
-                {gaugeLoading&&<div className="loading">Loading gauges…</div>}
-                {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
-                {!gaugeLoading&&<GaugeList gauges={gauges}/>}
-              </div>
+              {(()=>{
+                const [gaugesOpen,setGaugesOpen]=React.useState(false);
+                return(
+                  <div className="card">
+                    <div className="ctitle" style={{cursor:"pointer",userSelect:"none"}} onClick={()=>setGaugesOpen(o=>!o)}>
+                      💧 Stream Gauges
+                      <span style={{fontSize:12,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}}>{gaugesOpen?"▲ collapse":"▼ expand"}</span>
+                      <button className="rfsh" onClick={e=>{e.stopPropagation();loadConditions(loc);}}>↻</button>
+                    </div>
+                    <div className="csub">Live USGS · {gauges.length} gauges within 50mi{lastUpd&&` · ${lastUpd}`}</div>
+                    {gaugeLoading&&<div className="loading">Loading gauges…</div>}
+                    {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
+                    {gaugesOpen&&!gaugeLoading&&<GaugeList gauges={gauges}/>}
+                    {!gaugesOpen&&!gaugeLoading&&gauges.length>0&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                        {gauges.slice(0,5).map((g,i)=>(
+                          <span key={i} style={{fontSize:11,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"3px 10px",color:"var(--stone)"}}>
+                            {g.name.split(" ").slice(0,3).join(" ")} · {Math.round(g.cfs||0)} CFS
+                          </span>
+                        ))}
+                        {gauges.length>5&&<span style={{fontSize:11,color:"var(--stone)",padding:"3px 6px"}}>+{gauges.length-5} more</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </>}
             <div className="card">
               <div className="ctitle">🌙 Moon Phase</div>
