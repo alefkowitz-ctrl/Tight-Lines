@@ -588,29 +588,39 @@ async function fetchUSGSTemp(siteNo){
 }
 
 async function fetchUSGSLive(lat,lng){
-  // Try 50mi bbox first, fall back to 30mi if USGS rejects it
-  // USGS bbox format: minLng,minLat,maxLng,maxLat (4 decimal places max)
-  var sizes=[0.75, 0.5, 0.4];
-  for(var si=0;si<sizes.length;si++){
-    var p=sizes[si];
+  // Fetch in concentric rings so nearest gauges are always included
+  // USGS returns gauges in arbitrary order and caps results, so nearby gauges
+  // get lost when the full 50mi bbox returns too many results
+  var allTs=[];
+  var seen={};
+  function dedup(ts){
+    return ts.filter(function(t){
+      var sno=(t.sourceInfo&&t.sourceInfo.siteCode&&t.sourceInfo.siteCode[0]&&t.sourceInfo.siteCode[0].value)||Math.random();
+      if(seen[sno]) return false;
+      seen[sno]=true;return true;
+    });
+  }
+  // Ring 1: 20mi (~0.3 deg) — always get nearest gauges first
+  // Ring 2: 35mi (~0.5 deg) — medium distance
+  // Ring 3: 50mi (~0.75 deg) — full radius
+  var rings=[0.3, 0.5, 0.75];
+  for(var ri=0;ri<rings.length;ri++){
+    var p=rings[ri];
     var minLng=Math.round((lng-p)*10000)/10000;
     var maxLng=Math.round((lng+p)*10000)/10000;
     var minLat=Math.round((lat-p)*10000)/10000;
     var maxLat=Math.round((lat+p)*10000)/10000;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-    // Remove siteType filter — catches more gauges including diversions
-    var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060";
     try{
-      var r=await fetch(url);
-      console.log("USGS bbox="+bbox+" status="+r.status);
-      if(!r.ok){continue;}
-      var d=await r.json();
-      var ts=(d.value&&d.value.timeSeries)||[];
-      console.log("USGS returned "+ts.length+" gauges");
-      if(ts.length>0) return d;
-    }catch(e){console.log("USGS error:",e.message);}
+      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
+      if(r.ok){
+        var d=await r.json();
+        var newTs=dedup((d.value&&d.value.timeSeries)||[]);
+        allTs=allTs.concat(newTs);
+      }
+    }catch(e){console.log("USGS ring",ri,"error:",e.message);}
   }
-  return{value:{timeSeries:[]}};
+  return{value:{timeSeries:allTs}};
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
@@ -3141,9 +3151,6 @@ function App({user}){
         const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
         return hasWaterword&&!hasNonFishable;
       };
-      // Debug: log all gauge names to console
-      console.log("USGS raw gauges:",ts.length);
-      ts.forEach(function(t){console.log(" USGS name:",t.sourceInfo?.siteName,"| lat:",t.sourceInfo?.geoLocation?.geogLocation?.latitude);});
       const rawParsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
         const{label,cls}=cfsLabel(cfs);
