@@ -3455,6 +3455,11 @@ function App({user}){
                       🎣 {weather.pressureNote}
                     </div>
                   )}
+                  {wxForecast&&<>
+                    <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
+                      <WeekForecast data={wxForecast}/>
+                    </div>
+                  </>}
                 </>}
               </div>
               {savedGauges.length>0&&<SavedGaugesList
@@ -3498,37 +3503,21 @@ function App({user}){
               <div className="ctitle">🌙 Moon Phase</div>
               <MoonCard/>
             </div>
-            {weather&&(
-              <div className="card">
-                <div className="ctitle">🌤 7-Day Forecast</div>
-                <WeekForecast data={wxForecast}/>
+
+            {loc&&(
+              <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
+                <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
+                  <a href={"https://www.openstreetmap.org/?mlat="+loc.lat+"&mlon="+loc.lng+"#map=10/"+loc.lat+"/"+loc.lng} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
+                </div>
+                <iframe title="map" src={"https://www.openstreetmap.org/export/embed.html?bbox="+(loc.lng-0.75)+"%2C"+(loc.lat-0.75)+"%2C"+(loc.lng+0.75)+"%2C"+(loc.lat+0.75)+"&layer=mapnik&marker="+loc.lat+"%2C"+loc.lng} style={{width:"100%",height:260,border:"none",display:"block"}}/>
+                {gauges.length>0&&<div style={{padding:"8px 14px 10px",display:"flex",flexWrap:"wrap",gap:8}}>
+                  {gauges.slice(0,5).map((g,i)=>(
+                    <span key={i} style={{fontSize:11,color:"var(--stone)"}}>📍 {(g.name||"").split(" ").slice(0,4).join(" ")} · {Math.round(g.cfs||0)} CFS</span>
+                  ))}
+                </div>}
               </div>
             )}
-            {loc&&gauges.length>0&&(()=>{
-              const validG=gauges.filter(g=>g.lat&&g.lng);
-              if(!validG.length) return null;
-              const lats=validG.map(g=>g.lat),lngs=validG.map(g=>g.lng);
-              const clat=(Math.min(...lats)+Math.max(...lats))/2;
-              const clng=(Math.min(...lngs)+Math.max(...lngs))/2;
-              // Use OSM embed - simple and reliable
-              const pad=0.4;
-              const osmSrc="https://www.openstreetmap.org/export/embed.html?bbox="+(Math.min(...lngs)-pad)+"%2C"+(Math.min(...lats)-pad)+"%2C"+(Math.max(...lngs)+pad)+"%2C"+(Math.max(...lats)+pad)+"&layer=mapnik";
-              const bigUrl="https://www.openstreetmap.org/?mlat="+clat.toFixed(4)+"&mlon="+clng.toFixed(4)+"#map=9/"+clat.toFixed(4)+"/"+clng.toFixed(4);
-              return(
-                <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
-                  <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters · {validG.length} gauges</span>
-                    <a href={bigUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
-                  </div>
-                  <iframe title="map" src={osmSrc} style={{width:"100%",height:260,border:"none",display:"block"}}/>
-                  <div style={{padding:"8px 14px 10px",display:"flex",flexWrap:"wrap",gap:8}}>
-                    {validG.slice(0,5).map((g,i)=>(
-                      <span key={i} style={{fontSize:11,color:"var(--stone)"}}>📍 {(g.name||"").split(" ").slice(0,4).join(" ")} · {Math.round(g.cfs||0)} CFS</span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
             {loc&&weather&&(
               <div className="card">
                 <div className="ctitle">✦ AI Conditions Report{condReport&&<button className="rfsh" onClick={()=>generateCondReport(loc,weather,gauges)}>↻</button>}</div>
