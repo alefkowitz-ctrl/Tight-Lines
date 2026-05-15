@@ -1894,22 +1894,29 @@ function GuideBook({user, loc}){
         trip.pressure&&("Pressure: "+trip.pressure+'"'),
       ].filter(Boolean).join(", ");
 
-      const txt = await askClaude("You are a fly fishing guide writing a trip summary for a client. Only use the specific facts provided below. Do not invent, assume, or embellish any details not explicitly given. If information is not provided, do not mention it.
-
-FACTS:
-Client: "+guest.name+"
-Date: "+trip.date+"
-Location: "+(trip.location||"not specified")+"
-Trip type: "+trip.type+"
-Fishing styles: "+(trip.styles.join(", ")||"not specified")+"
-Estimated catches: "+trip.catches+"
-Flies that worked: "+(trip.flies.join(", ")||"not specified")+"
-Gear: "+(trip.gear||"not specified")+"
-Conditions: "+(conditionsSummary||"not recorded")+"
-Catch details: "+(catchSummary||"not recorded")+"
-Guide notes: "+(trip.guideNotes||"none")+"
-
-Write a warm 2-3 paragraph trip summary using ONLY the facts above. Do not suggest improvements unless the guide notes mention something specific. Do not mention conditions, flies, or techniques that are not listed above. Write in second person. Plain text only.", false, 500);
+      const promptParts=[
+        "You are a fly fishing guide writing a trip summary for a client.",
+        "Only use the specific facts provided below.",
+        "Do not invent, assume, or embellish any details not explicitly given.",
+        "If information is not provided, do not mention it.",
+        "FACTS:",
+        "Client: "+guest.name,
+        "Date: "+trip.date,
+        "Location: "+(trip.location||"not specified"),
+        "Trip type: "+trip.type,
+        "Fishing styles: "+(trip.styles.join(", ")||"not specified"),
+        "Estimated catches: "+trip.catches,
+        "Flies that worked: "+(trip.flies.join(", ")||"not specified"),
+        "Gear: "+(trip.gear||"not specified"),
+        "Conditions: "+(conditionsSummary||"not recorded"),
+        "Catch details: "+(catchSummary||"not recorded"),
+        "Guide notes: "+(trip.guideNotes||"none"),
+        "Write a warm 2-3 paragraph trip summary using ONLY the facts above.",
+        "Do not suggest improvements unless guide notes mention something specific.",
+        "Do not mention conditions, flies, or techniques not listed above.",
+        "Write in second person. Plain text only."
+      ];
+      const txt = await askClaude(promptParts.join(" "), false, 500);
       setReport(txt);
       saveReport(txt);
     }catch(e){ setReport("Could not generate report. " + e.message); }
