@@ -3101,8 +3101,7 @@ function App({user}){
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
     setWxLoading(true);setWxError(null);setCondReport(null);
-    // Fetch fly shops for this location
-    fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
+    // Fly shops load on demand (button) to keep initial load fast
     try{
       const d=await fetchWeather(lat,lng);
       const c=d.current;
@@ -3156,8 +3155,7 @@ function App({user}){
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }catch{setGaugeError("Could not load stream data.");}
     finally{setGaugeLoading(false);}
-    // Auto-generate conditions report after everything loads
-    generateCondReport(newLoc, weather, gauges);
+    // AI report loads on demand to keep initial load fast
   }
 
   async function handlePhoto(e){
@@ -3343,9 +3341,14 @@ function App({user}){
                 </div>
               );
             })()}
-            {loc&&(condReport||condReportLoading)&&(
+            {loc&&weather&&(
               <div className="card">
-                <div className="ctitle">✦ AI Conditions Report<button className="rfsh" onClick={()=>generateCondReport(loc,weather,gauges)}>↻</button></div>
+                <div className="ctitle">✦ AI Conditions Report{condReport&&<button className="rfsh" onClick={()=>generateCondReport(loc,weather,gauges)}>↻</button>}</div>
+                {!condReport&&!condReportLoading&&(
+                  <button onClick={()=>generateCondReport(loc,weather,gauges)} className="btn btnp" style={{width:"100%",marginTop:4}}>
+                    ✦ Generate Conditions Report
+                  </button>
+                )}
                 {condReportLoading&&<div className="loading">Generating report…</div>}
                 {condReport&&<div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap",marginTop:4}}>{condReport}</div>}
               </div>
@@ -3353,9 +3356,13 @@ function App({user}){
             {loc&&(
               <div className="card">
                 <div className="ctitle">🪝 Nearby Fly Shops</div>
-                <div className="csub">{condShopsLoading?"Searching…":"Fly fishing specialty shops near "+loc.label}</div>
-                {condShopsLoading&&<div className="loading">Finding fly shops…</div>}
-                {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:13,color:"var(--stone)",padding:"8px 0"}}>Loading nearby shops…</div>}
+                <div className="csub">Dedicated fly shops near {loc.label}</div>
+                {condShopsLoading&&<div className="loading">Searching…</div>}
+                {!condShopsLoading&&condShops.length===0&&(
+                  <button onClick={()=>fetchCondShops(loc.label,loc.lat,loc.lng)} className="btn btnp" style={{width:"100%",marginTop:4}}>
+                    🔍 Find Nearby Fly Shops
+                  </button>
+                )}
                 {condShops.map((s,i)=>(
                   <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
                     <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
