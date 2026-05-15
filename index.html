@@ -3070,10 +3070,11 @@ function App({user}){
   // Load saved gauges from Supabase
   React.useEffect(()=>{
     if(!sb||!user||String(user.id).startsWith("local")) return;
-    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{
+    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data,error})=>{
       if(data) setSavedGauges(data);
-    });
-  },[user]);
+      if(error) console.log("saved_gauges load error:",error.message,"code:",error.code);
+    }).catch(e=>console.log("saved_gauges fetch error:",e.message));
+  },[user?.id]);
 
   async function fetchSavedGaugeData(gauge){
     // Parse USGS site number from URL or abbrev
@@ -3388,7 +3389,8 @@ function App({user}){
               {savedGauges.length>0&&(()=>{
                 const [sgData,setSgData]=React.useState([]);
                 React.useEffect(()=>{
-                  Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData);
+                  if(!savedGauges.length) return;
+                  Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
                 },[savedGauges.length]);
                 return(
                   <div className="card" style={{marginBottom:12}}>
