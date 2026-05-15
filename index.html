@@ -1025,7 +1025,7 @@ function GaugeList({gauges}){
       {gauges.map((g,i)=>(
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
-            <span className="gname">{g.name}</span>
+            <span className="gname">{g.name}</span>{g.distMi!=null&&<span style={{fontSize:10,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
             <span className={`gbadge ${g.cls}`}>{g.label}</span>
           </div>
           <div className="grow">
@@ -3144,8 +3144,9 @@ function App({user}){
         const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
         const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
         const name=t.sourceInfo?.siteName??"Unknown";
-        return{name,cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
-      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>0&&s.cfs<500000)
+        const distMi=Math.round(dist*69); // ~69 miles per degree
+        return{name,cfs,label,cls,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
+      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000)
         .sort((a,b)=>a.dist-b.dist)
         .slice(0,50);
       // Fetch per-site historical max in parallel, fallback to relative scaling
