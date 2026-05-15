@@ -588,51 +588,22 @@ async function fetchUSGSTemp(siteNo){
 }
 
 async function fetchUSGSLive(lat,lng){
-  // Try multiple bounding box sizes to find gauges (2-hour drive = ~2 degrees)
-  const sizes=[0.5, 1.0, 1.5, 2.0, 2.5];
-  var lastStatus="", lastCount=0;
-  for(var si=0; si<sizes.length; si++){
-    var p=sizes[si];
-    // Round to 4 decimal places - USGS rejects high-precision coords
-    var minLng=Math.round((Math.min(lng-p,lng+p))*10000)/10000;
-    var maxLng=Math.round((Math.max(lng-p,lng+p))*10000)/10000;
-    var minLat=Math.round((Math.min(lat-p,lat+p))*10000)/10000;
-    var maxLat=Math.round((Math.max(lat-p,lat+p))*10000)/10000;
-    var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-    try{
-      var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST";
-      var r=await fetch(url);
-      lastStatus="HTTP "+r.status;
-      if(!r.ok){ lastStatus+=" (error)"; continue; }
+  // 50 miles = ~0.72 degrees. Single call, no retry loop.
+  var p=0.75;
+  var minLng=Math.round((lng-p)*10000)/10000;
+  var maxLng=Math.round((lng+p)*10000)/10000;
+  var minLat=Math.round((lat-p)*10000)/10000;
+  var maxLat=Math.round((lat+p)*10000)/10000;
+  var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
+  try{
+    var url="https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST";
+    var r=await fetch(url);
+    if(r.ok){
       var d=await r.json();
       var ts=(d.value&&d.value.timeSeries)||[];
-      lastCount=ts.length;
       if(ts.length>0) return d;
-    }catch(e){ lastStatus="fetch error: "+e.message; }
-  }
-  // Store debug info globally
-  window._usgsDebug="bbox sizes tried: "+sizes.join(",")+". Last status: "+lastStatus+". Last count: "+lastCount+". Coords: "+lat+","+lng;
-  // Last resort: try new USGS API
-  try{
-    var p2=1.5;
-    var bbox2=(lng-p2)+","+(lat-p2)+","+(lng+p2)+","+(lat+p2);
-    var url2="https://api.waterdata.usgs.gov/ogcapi/v0/collections/observations/items?f=json&bbox="+bbox2+"&parameter_code=00060&limit=20";
-    var r2=await fetch(url2);
-    if(r2.ok){
-      var d2=await r2.json();
-      var features=d2.features||[];
-      if(features.length>0){
-        var ts2=features.map(function(f){
-          var fp=f.properties||{};
-          return{
-            sourceInfo:{siteName:fp.monitoring_location_name||fp.monitoring_location_id||"Unknown"},
-            values:[{value:[{value:String(fp.value||fp.result||"0")}]}]
-          };
-        });
-        return{value:{timeSeries:ts2}};
-      }
     }
-  }catch(e2){}
+  }catch(e){ console.log("USGS fetch error:",e.message); }
   return{value:{timeSeries:[]}};
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
@@ -3300,7 +3271,7 @@ function App({user}){
               </div>
               <div className="card">
                 <div className="ctitle">💧 Stream Gauges<button className="rfsh" onClick={()=>loadConditions(loc)}>↻</button></div>
-                <div className="csub">Live USGS · {gauges.length} gauges within ~2hr radius{lastUpd&&` · ${lastUpd}`}</div>
+                <div className="csub">Live USGS · {gauges.length} gauges within 50mi{lastUpd&&` · ${lastUpd}`}</div>
                 {gaugeLoading&&<div className="loading">Loading gauges…</div>}
                 {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
                 {!gaugeLoading&&<GaugeList gauges={gauges}/>}
