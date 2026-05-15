@@ -3466,31 +3466,29 @@ function App({user}){
                 fetchSavedGaugeData={fetchSavedGaugeData}
                 cfsLabel={cfsLabel}
               />}
-              {/* Add gauge button even when no saved gauges yet */}
-              {savedGauges.length===0&&(
-                <div style={{marginBottom:12}}>
-                  {showAddGauge?(
-                    <div className="card">
-                      <div style={{fontSize:13,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
-                      <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Paste a USGS site number or waterdata.usgs.gov URL for any stream not showing above.</div>
-                      <div style={{display:"flex",gap:6}}>
-                        <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
-                          placeholder="e.g. 06729500 or full URL"
-                          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
-                        <button onClick={addSavedGauge} disabled={gaugeAdding}
-                          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
-                          {gaugeAdding?"…":"Save"}
-                        </button>
-                      </div>
-                      <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:11,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
+              {/* Add gauge UI - always visible */}
+              <div style={{marginBottom:12}}>
+                {showAddGauge?(
+                  <div className="card">
+                    <div style={{fontSize:13,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
+                    <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Paste a USGS site number or waterdata.usgs.gov URL for any stream not showing above.</div>
+                    <div style={{display:"flex",gap:6}}>
+                      <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
+                        placeholder="e.g. 06729500 or full URL"
+                        style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+                      <button onClick={addSavedGauge} disabled={gaugeAdding}
+                        style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+                        {gaugeAdding?"…":"Save"}
+                      </button>
                     </div>
-                  ):(
-                    <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:12,cursor:"pointer"}}>
-                      ⭐ Add a custom gauge (e.g. South Boulder Creek)
-                    </button>
-                  )}
-                </div>
-              )}
+                    <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:11,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
+                  </div>
+                ):(
+                  <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:12,cursor:"pointer"}}>
+                    ⭐ Pin a gauge (e.g. South Boulder Creek)
+                  </button>
+                )}
+              </div>
               <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)}/>
             </>}
             <div className="card">
