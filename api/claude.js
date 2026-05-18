@@ -18,54 +18,59 @@ export default async function handler(req, res) {
 
   // Anthropic API — handles both plain and web-search tool calls
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    };
+
     // First call
     let response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "interleaved-thinking-2025-05-14"
-      },
+      headers,
       body: JSON.stringify(body)
     });
     let data = await response.json();
 
-    // If model used web_search tool, run the agentic loop until stop_reason=end_turn
+    // Agentic loop: web_search tool returns tool_use blocks
+    // The search RESULTS come back as tool_result_block inside the tool_use content
+    // We just need to keep calling until stop_reason === "end_turn"
     let iterations = 0;
     while (data.stop_reason === "tool_use" && iterations < 5) {
       iterations++;
       const toolUseBlocks = (data.content || []).filter(b => b.type === "tool_use");
       if (!toolUseBlocks.length) break;
 
-      // Build tool results — web_search results are already in the response
-      // We need to send them back for the model to continue
+      // For web_search_20250305, the search results are already embedded 
+      // in the tool_use block's content. Pass them back as tool_results.
+      const toolResults = toolUseBlocks.map(b => {
+        // web_search results come back in b.content as an array of result blocks
+        const resultContent = Array.isArray(b.content) 
+          ? b.content 
+          : (b.content ? [{ type: "text", text: String(b.content) }] : [{ type: "text", text: "No results" }]);
+        
+        return {
+          type: "tool_result",
+          tool_use_id: b.id,
+          content: resultContent
+        };
+      });
+
       const messages = [
         ...(body.messages || []),
         { role: "assistant", content: data.content },
-        {
-          role: "user",
-          content: toolUseBlocks.map(b => ({
-            type: "tool_result",
-            tool_use_id: b.id,
-            content: b.type === "web_search_20250305" ? (b.content || "") : JSON.stringify(b.input)
-          }))
-        }
+        { role: "user", content: toolResults }
       ];
 
       response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": process.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01"
-        },
+        headers,
         body: JSON.stringify({ ...body, messages })
       });
       data = await response.json();
     }
 
-    res.status(response.status).json(data);
+    res.status(200).json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
