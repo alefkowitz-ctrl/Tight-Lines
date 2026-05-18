@@ -3043,8 +3043,17 @@ Research:
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({overview:rpt.overview||"",recommendation:rpt.recommendation||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
           } else {
-            // Last resort: show the raw search text in a readable way
-            setReport({overview:searchTxt.slice(0,500),recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
+            console.log("Format call output:", formatTxt.slice(0,300));
+            // JSON failed - try one more time with a simpler prompt
+            try{
+              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else. Start with { and end with }. Use this data to write a fly fishing forecast:\n"+cleanSearch.slice(0,1500),false,800);
+              const s2=retryTxt.indexOf("{"),e2=retryTxt.lastIndexOf("}");
+              if(s2!==-1&&e2>s2){
+                const rpt2=JSON.parse(retryTxt.slice(s2,e2+1));
+                if(rpt2.overview||rpt2.rivers){setReport({overview:rpt2.overview||"",recommendation:rpt2.recommendation||"",rivers:rpt2.rivers||[],hatches:rpt2.hatches||"",bestTimes:rpt2.bestTimes||"",tips:rpt2.tips||"",flyBoxEssentials:rpt2.flyBoxEssentials||[]});return;}
+              }
+            }catch(re){console.log("retry failed:",re.message);}
+            setReport({overview:cleanSearch.slice(0,600).replace(/[#*]/g,""),recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
           }
         }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
