@@ -2994,14 +2994,20 @@ function TripPlanner({defaultLocation}){
 Format your response as: SHOP REPORTS: [summary] | HISTORICAL PATTERNS: [summary]`,true,2000);
           addStep("Conditions found, formatting report…","active");
           // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
-          const formatTxt=await askClaude(`You are a fly fishing expert. Based on fly shop reports for ${loc.label} on ${ds}, output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
+          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current conditions: flows ${gs}, weather ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}.
 
-CRITICAL: Only include streams that were explicitly mentioned in fly shop reports in the research below. Do not add any stream from your own knowledge or from USGS gauge data. If a stream isn't in a fly shop report, leave it out entirely. It is better to have fewer streams than to include one that isn't in a shop report.
+Output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
 
-{"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow","conditions":"conditions","techniques":"specific techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatching now","bestTimes":"best times of day","tips":"local insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}
+Use the fly shop research below to identify WHICH streams to include. For each stream a shop mentions, write a full expert forecast combining: what the shop says now + current flow levels + today's weather + your knowledge of historical patterns on that stream at these conditions.
+
+NEVER refuse or write "insufficient data" or "contact local shops". Always produce a complete actionable report. If only one stream has shop data, write a thorough forecast for that one stream.
+
+The conditions field must include a forecast — not just current state. Example: "Flows at 87 CFS and climbing — prime window before runoff. At these levels, fish concentrate in soft seams below riffles. This window typically lasts 3-5 days before flows blow out."
+
+{"overview":"2-3 sentence expert synthesis","recommendation":"specific best bet with reasoning","rivers":[{"name":"stream name","cfs":"current flow","conditions":"current state + forecast window","techniques":"specific time/water/presentation","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active now based on season+weather","bestTimes":"specific times based on TODAY's weather","tips":"one insider tip a local guide would share","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}
 
 Research:
-`+searchTxt.slice(0,2000),false,1000);
+`+searchTxt.slice(0,2000),false,1200);
           let rpt=null;
           try{rpt=JSON.parse(formatTxt.trim());}catch{}
           if(!rpt)rpt=extractJSON(formatTxt);
