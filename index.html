@@ -2997,9 +2997,8 @@ Do not include any stream not mentioned by a fly shop. Do not add commentary or 
           let liveFlows="";
           try{
             // Extract stream names from search results
-            const streamsLine=searchTxt.match(/STREAMS:\s*([^
-]+)/);
-            const streamNames=streamsLine?streamsLine[1].split(",").map(s=>s.trim()).filter(Boolean):[];
+            const streamsLine=searchTxt.split("\n").find(l=>l.startsWith("STREAMS:"));
+            const streamNames=streamsLine?streamsLine.replace("STREAMS:","").split(",").map(s=>s.trim()).filter(Boolean):[];
             if(streamNames.length>0){
               // Fetch flows for each stream using USGS site search
               const flowResults=await Promise.all(streamNames.slice(0,4).map(async name=>{
