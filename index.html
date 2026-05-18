@@ -2985,7 +2985,13 @@ function TripPlanner({defaultLocation}){
         const gs=pg.map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No gauge data";
         try{
           // Step 1: web search for current conditions (returns prose - that's fine)
-          const searchTxt=await askClaude(`Search for current fly fishing reports from fly shop websites near ${loc.label}. Search for "fly shop fishing report ${loc.label}" and "[city near ${loc.label}] fly shop conditions". Only summarize streams that are explicitly mentioned in fly shop reports — do not include any stream that doesn't appear in an actual fly shop report. Include the shop name for each stream mentioned. Current date: ${ds}.`,true,1500);
+          const searchTxt=await askClaude(`Search for two things near ${loc.label} for ${ds}:
+
+1. CURRENT FLY SHOP REPORTS: Search "[nearby city] fly shop fishing report" and "[region] fishing conditions ${ds.split(",").slice(-1)[0]||""}". List every stream mentioned in shop reports with the shop name, current conditions, and flies they recommend.
+
+2. HISTORICAL PATTERNS: Search "[stream name] fishing report [month name]" for each stream found above. Find reports from past years with similar flow conditions (within 20% of current: ${gs}). What flies, techniques, and times of day worked historically under these conditions?
+
+Format your response as: SHOP REPORTS: [summary] | HISTORICAL PATTERNS: [summary]`,true,2000);
           addStep("Conditions found, formatting report…","active");
           // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
           const formatTxt=await askClaude(`You are a fly fishing expert. Based on fly shop reports for ${loc.label} on ${ds}, output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
