@@ -3037,16 +3037,17 @@ The conditions field must include a forecast — not just current state. Example
 Research:
 `+cleanSearch.slice(0,2000),false,1200);
           let rpt=null;
-          try{rpt=JSON.parse(formatTxt.trim());}catch{}
-          if(!rpt)rpt=extractJSON(formatTxt);
-          if(!rpt){const s=formatTxt.indexOf("{"),e=formatTxt.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(formatTxt.slice(s,e+1));}catch{}}
+          const cleanFmt=formatTxt.replace(/```json|```/g,"").trim();
+          try{rpt=JSON.parse(cleanFmt);}catch{}
+          if(!rpt)rpt=extractJSON(cleanFmt);
+          if(!rpt){const s=cleanFmt.indexOf("{"),e=cleanFmt.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(cleanFmt.slice(s,e+1));}catch{}}
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({overview:rpt.overview||"",recommendation:rpt.recommendation||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
           } else {
             console.log("Format call output:", formatTxt.slice(0,300));
             // JSON failed - try one more time with a simpler prompt
             try{
-              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else. Start with { and end with }. Use this data to write a fly fishing forecast:\n"+cleanSearch.slice(0,1500),false,800);
+              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else, no markdown fences. Start your response with { and end with }:\n"+cleanSearch.slice(0,1500),false,800);
               const s2=retryTxt.indexOf("{"),e2=retryTxt.lastIndexOf("}");
               if(s2!==-1&&e2>s2){
                 const rpt2=JSON.parse(retryTxt.slice(s2,e2+1));
