@@ -427,8 +427,21 @@ async function askClaude(prompt, useSearch=false, maxTokens=1200){
   return(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
 }
 async function geocode(q){
-  const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&countrycodes=us&addressdetails=1`,{headers:{"Accept-Language":"en"}});
-  return r.json();
+  // Search with extra detail for natural features and small places
+  const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=us&addressdetails=1&extratags=1`,{headers:{"Accept-Language":"en"}});
+  const results=await r.json();
+  // Sort: exact name matches and water features first, counties last
+  return results.sort((a,b)=>{
+    const aIsWater=["river","stream","waterway","creek"].some(t=>(a.type||a.class||"").includes(t));
+    const bIsWater=["river","stream","waterway","creek"].some(t=>(b.type||b.class||"").includes(t));
+    const aIsCounty=(a.type||"").includes("county")||(a.address?.county&&!a.address?.city&&!a.address?.town&&!a.address?.village&&!a.address?.hamlet);
+    const bIsCounty=(b.type||"").includes("county")||(b.address?.county&&!b.address?.city&&!b.address?.town&&!b.address?.village&&!b.address?.hamlet);
+    if(aIsWater&&!bIsWater)return -1;
+    if(!aIsWater&&bIsWater)return 1;
+    if(aIsCounty&&!bIsCounty)return 1;
+    if(!aIsCounty&&bIsCounty)return -1;
+    return 0;
+  });
 }
 async function reverseGeocode(lat,lng){
   const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,{headers:{"Accept-Language":"en"}});
@@ -699,9 +712,17 @@ async function fetchUSGSHistory(lat,lng){
 
 function cleanLabel(item){
   const a=item.address||{};
-  const n=a.river||a.stream||a.waterway||a.city||a.town||a.village||a.county||item.display_name.split(",")[0];
+  // For water features, use the water name + nearest named place for context
+  const water=a.river||a.stream||a.waterway||a.creek||a.brook;
+  if(water){
+    const nearby=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
+    const st=a.state||"";
+    return nearby?(st?`${water}, ${nearby}, ${st}`:`${water}, ${nearby}`):(st?`${water}, ${st}`:water);
+  }
+  // For named places, prefer specific over general
+  const place=a.hamlet||a.village||a.town||a.city||a.suburb||a.neighbourhood||a.county||item.display_name.split(",")[0];
   const st=a.state||"";
-  return st?`${n}, ${st}`:n;
+  return st?`${place}, ${st}`:place;
 }
 function locIcon(item){
   const t=(item.type||item.class||"").toLowerCase();
@@ -1285,7 +1306,7 @@ ${(trip.flies||[]).length>0?`
 ${reportText?`
 <div class="section">
   <div class="section-title">Guide's Trip Report</div>
-  <div class="report-text">${reportText.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
+  <div class="report-text">${(()=>{let t=reportText.replace(/#+\s*/g,"").replace(/\*\*/g,"").replace(/\*/g,"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");t=t.replace(/\n\n/g,"</p><p>").replace(/\n/g,"<br/>");return"<p>"+t+"</p>";})()}</div>
 </div>
 `:""}
 
@@ -2072,7 +2093,8 @@ function GuideBook({user, loc}){
         "Do not mention conditions, flies, or techniques not listed above.",
         "Write in second person. Plain text only."
       ];
-      const txt = await askClaude(promptParts.join(" "), false, 500);
+      const rawTxt = await askClaude(promptParts.join(" "), false, 500);
+      const txt = rawTxt.replace(/^#+\s*/gm,"").replace(/\*\*/g,"").replace(/\*/g,"").trim();
       setReport(txt);
       saveReport(txt);
     }catch(e){ setReport("Could not generate report. " + e.message); }
@@ -2964,7 +2986,7 @@ function TripPlanner({defaultLocation}){
           // Two separate smaller calls to stay under rate limit
           // Fetch real shops using web search
           try{
-            const shopTxt=await askClaude(`Search the web for fly fishing specialty shops near ${loc.label}. Only include dedicated fly fishing retailers or outfitters that sell fly fishing gear, flies, and equipment. Do NOT include hardware stores, sporting goods chains like Bass Pro or Cabelas, or general outdoor stores. Only real shops you can verify exist with working websites. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,true,500);
+            const shopTxt=await askClaude(`Search the web for fly fishing specialty shops and outfitters within 60 miles of ${loc.label}. Include shops in nearby towns — expand search to find all options in the region. Only dedicated fly fishing retailers or outfitters. No Bass Pro or Cabelas. Sort by distance. JSON array only, no other text: [{"name":"","rating":0,"reviews":0,"specialty":"","address":"","distanceMiles":0,"website":"https://"}]`,true,500);
             const sd=extractJSON(shopTxt);
             if(Array.isArray(sd)&&sd.length>0) setShops(sd.slice(0,4));
           }catch(e){ console.log("Shop search failed:",e.message); }
@@ -3374,7 +3396,7 @@ function App({user}){
     setCondShops([]);
     try{
       const coordStr=lat&&lng?" (coordinates: "+lat.toFixed(4)+","+lng.toFixed(4)+")":" ";
-      const prompt="Search for fly fishing specialty shops near "+label+coordStr+". Only include shops in this exact location — not other cities or states with similar names. Only dedicated fly shops or fly fishing outfitters. No Bass Pro or Cabelas. Return ONLY a JSON array: [{name, address, city, state, website, phone, specialty}]";
+      const prompt="Search the web for fly fishing specialty shops and outfitters within 60 miles of "+label+coordStr+". Include shops in nearby towns — expand the search radius to find options. Only dedicated fly fishing retailers or outfitters that sell flies and gear. No Bass Pro, Cabelas, or general sporting goods stores. Sort by distance from the location. Return ONLY a JSON array, no markdown: [{name, address, city, state, distanceMiles, website, phone, specialty}]";
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:800,
         tools:[{type:"web_search_20250305",name:"web_search"}],
