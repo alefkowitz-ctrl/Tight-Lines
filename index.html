@@ -3044,7 +3044,7 @@ Research:
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({overview:rpt.overview||"",recommendation:rpt.recommendation||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
           } else {
-            console.log("Format call output:", formatTxt.slice(0,300));
+            console.log("Format call output:", formatTxt.slice(0,300)); console.log("cleanFmt:", cleanFmt.slice(0,300)); const testS=cleanFmt.indexOf("{"),testE=cleanFmt.lastIndexOf("}"); console.log("JSON slice:", cleanFmt.slice(testS,testS+100));
             // JSON failed - try one more time with a simpler prompt
             try{
               const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else, no markdown fences. Start your response with { and end with }:\n"+cleanSearch.slice(0,1500),false,800);
