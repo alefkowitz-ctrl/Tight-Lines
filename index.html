@@ -3395,32 +3395,36 @@ function App({user}){
     setCondShopsLoading(true);
     setCondShops([]);
     try{
-      const coordStr=lat&&lng?" (coordinates: "+lat.toFixed(4)+","+lng.toFixed(4)+")":" ";
-      const prompt="Search the web for fly fishing specialty shops and outfitters within 60 miles of "+label+coordStr+". Include shops in nearby towns — expand the search radius to find options. Only dedicated fly fishing retailers or outfitters that sell flies and gear. No Bass Pro, Cabelas, or general sporting goods stores. Sort by distance from the location. Return ONLY a JSON array, no markdown: [{name, address, city, state, distanceMiles, website, phone, specialty}]";
-      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:1000,
+      const coordStr=lat&&lng?" near coordinates "+lat.toFixed(4)+","+lng.toFixed(4):"";
+      // Step 1: web search
+      const searchRes=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        model:"claude-haiku-4-5-20251001",max_tokens:1500,
         tools:[{type:"web_search_20250305",name:"web_search"}],
-        messages:[{role:"user",content:prompt}]
+        messages:[{role:"user",content:"Search for fly fishing specialty shops and outfitters within 60 miles of "+label+coordStr+". Find shops in nearby towns too. Only dedicated fly shops, not Bass Pro or Cabelas. List each shop with name, address, city, phone, website, and approximate distance from "+label+"."}]
       })});
-      const d=await res.json();
-      console.log("shops API response:",JSON.stringify(d).slice(0,500));
-      if(d.error){console.log("shops API error:",d.error);throw new Error(d.error.message||"API error");}
-      const txt=(d.content||[]).map(function(b){return b.text||"";}).filter(Boolean).join("").trim();
-      console.log("shops text:",txt.slice(0,300));
-      // Try to extract JSON array from response
+      const searchData=await searchRes.json();
+      if(searchData.error) throw new Error(searchData.error.message||"Search failed");
+      const searchTxt=(searchData.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
+      if(!searchTxt){setCondShopsLoading(false);return;}
+      // Step 2: format into JSON
+      const formatRes=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        model:"claude-haiku-4-5-20251001",max_tokens:800,
+        messages:[{role:"user",content:'Extract fly shops from this text into a JSON array. Output ONLY the raw JSON array, no explanation, no markdown. Format: [{"name":"","address":"","city":"","state":"","distanceMiles":0,"website":"","phone":"","specialty":""}]\n\n'+searchTxt}]
+      })});
+      const formatData=await formatRes.json();
+      if(formatData.error) throw new Error(formatData.error.message||"Format failed");
+      const txt=(formatData.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
       const clean=txt.replace(/```json|```/g,"").trim();
       const start=clean.indexOf("["),stop=clean.lastIndexOf("]");
       if(start!==-1&&stop>start){
         try{
           const parsed=JSON.parse(clean.slice(start,stop+1));
-          if(Array.isArray(parsed)&&parsed.length>0){setCondShops(parsed.slice(0,6));return;}
-        }catch(pe){console.log("JSON parse failed:",pe.message);}
+          if(Array.isArray(parsed)&&parsed.length>0){setCondShops(parsed.slice(0,6));setCondShopsLoading(false);return;}
+        }catch(pe){console.log("shops parse failed:",pe.message);}
       }
-      console.log("No shops array found in response");
     }catch(e){console.log("fly shops failed:",e.message);}
     setCondShopsLoading(false);
   }
-
 
 
   async function loadConditions(newLoc){
