@@ -2982,19 +2982,19 @@ function TripPlanner({defaultLocation}){
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
-        const gs=pg.map(g=>`${g.name}: ${g.cfs?.toFixed(0)??"N/A"} CFS (${g.label})`).join("; ")||"No gauge data";
+        // No gauge data passed to report — streams come from fly shop reports only, not USGS list
         try{
           // Step 1: web search for current conditions (returns prose - that's fine)
-          const searchTxt=await askClaude(`Search for two things near ${loc.label} for ${ds}:
+          const searchTxt=await askClaude(`Search for fishing conditions near ${loc.label} for ${ds}. Do two searches:
 
-1. CURRENT FLY SHOP REPORTS: Search "[nearby city] fly shop fishing report" and "[region] fishing conditions ${ds.split(",").slice(-1)[0]||""}". List every stream mentioned in shop reports with the shop name, current conditions, and flies they recommend.
+1. Search "[nearest city] fly shop fishing report" and "[region] fishing report ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long"})}". List every stream mentioned with the shop name, current conditions, flies recommended, and any flow or CFS data mentioned.
 
-2. HISTORICAL PATTERNS: Search "[stream name] fishing report [month name]" for each stream found above. Find reports from past years with similar flow conditions (within 20% of current: ${gs}). What flies, techniques, and times of day worked historically under these conditions?
+2. For each stream found, search "[stream name] USGS flow" or "[stream name] CFS" to find current flow levels. Also search "[stream name] fishing report ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long"})}" for historical patterns at similar conditions.
 
-Format your response as: SHOP REPORTS: [summary] | HISTORICAL PATTERNS: [summary]`,true,2000);
+Only include streams that appear in actual fly shop reports. Format: SHOP REPORTS: [summary with flows] | HISTORICAL: [what worked at these conditions in past years]`,true,2000);
           addStep("Conditions found, formatting report…","active");
           // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
-          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current conditions: flows ${gs}, weather ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}.
+          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current weather: ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}. Flow data is included in the research below.
 
 Output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
 
