@@ -3231,9 +3231,12 @@ function App({user}){
     navigator.geolocation.getCurrentPosition(async pos=>{
       const{latitude:lat,longitude:lng}=pos.coords;
       try{
-        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
         const d=await r.json();
-        const label=d.address?.city||d.address?.town||d.address?.county||`${lat.toFixed(2)},${lng.toFixed(2)}`;
+        const a=d.address||{};
+        const city=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
+        const state=a.state_code||a.state||"";
+        const label=city&&state?`${city}, ${state}`:city||(state||`${lat.toFixed(2)}, ${lng.toFixed(2)}`);
         loadConditions({lat,lng,label});
       }catch{loadConditions({lat,lng,label:`${lat.toFixed(2)}, ${lng.toFixed(2)}`});}
     },()=>{},{timeout:8000});
