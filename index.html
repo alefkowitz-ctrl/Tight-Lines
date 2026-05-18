@@ -3005,11 +3005,20 @@ Respond with ONLY raw JSON (no markdown, no explanation, start with {): {"overvi
           try{ rpt=JSON.parse(reportTxt.trim()); }catch{}
           // Try extractJSON helper
           if(!rpt) rpt=extractJSON(reportTxt);
-          // Try finding JSON block manually with regex
+          // Try finding JSON block with regex - find outermost { }
           if(!rpt){
             try{
-              const m=reportTxt.match(/\{[^]*\}/);
-              if(m) rpt=JSON.parse(m[0]);
+              const start=reportTxt.indexOf("{");
+              const end=reportTxt.lastIndexOf("}");
+              if(start!==-1&&end>start) rpt=JSON.parse(reportTxt.slice(start,end+1));
+            }catch{}
+          }
+          // If still no JSON, ask Claude to extract it
+          if(!rpt&&reportTxt.length>100){
+            try{
+              const fixTxt=await askClaude("Extract the JSON object from this text and return ONLY the raw JSON, nothing else:\n\n"+reportTxt.slice(0,3000),false,1200);
+              try{rpt=JSON.parse(fixTxt.trim());}catch{}
+              if(!rpt)rpt=extractJSON(fixTxt);
             }catch{}
           }
           if(rpt&&(rpt.overview||rpt.rivers)){
