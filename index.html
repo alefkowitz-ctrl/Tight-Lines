@@ -3000,6 +3000,7 @@ function TripPlanner({defaultLocation}){
           }
         }catch(e2){}
         addStep("Report complete ✓");
+      }
     }catch(e){
       setError(e.message||"Something went wrong.");
     }finally{setBusy(false);}
