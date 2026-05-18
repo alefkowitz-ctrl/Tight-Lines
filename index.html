@@ -416,22 +416,16 @@ function extractJSON(text){
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
-function getKey(){return true;} // API key handled server-side
+function getKey(){return true;}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const body={model:"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
-  const res=await fetch("/api/claude",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  let d;
-  try{d=await res.json();}catch(e){throw new Error("API request failed — please try again.");}
-  if(d.error)throw new Error(d.error.message||d.error.type||"API error");
+  const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
+  if(d.error)throw new Error(d.error.message||"API error");
   return(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
 }
-
 async function geocode(q){
   const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&countrycodes=us&addressdetails=1`,{headers:{"Accept-Language":"en"}});
   return r.json();
@@ -750,7 +744,7 @@ function ApiKeySetup({onSave}){
   const [val,setVal]=useState("");
   return(
     <div className="api-setup">
-      <p>🔑 AI features are enabled automatically.</p>
+      <p>🔑 <strong>Optional: Add your Anthropic API key</strong> to enable AI fishing reports and fly shop search. Get a key at <strong>console.anthropic.com</strong> — costs a few cents per report.</p>
       <input className="api-input" type="password" placeholder="sk-ant-api..." value={val} onChange={e=>setVal(e.target.value)}/>
       <button className="api-save" onClick={()=>{if(val.trim()){localStorage.setItem("anthropic_key",val.trim());onSave();}}}>Save API Key</button>
     </div>
@@ -1487,46 +1481,28 @@ function TripLocationWeather({tripForm, setTripForm}){
 const FISHING_STYLES = ["Nymphing","Dry Fly","Streamer","Wet Fly","Euro Nymphing","Indicator","Sight Fishing"];
 const TRIP_TYPES = ["Wade","Float","Boat","Stillwater"];
 
-// ── Guide Stats Component ─────────────────────────────────────────────────────
-
+// ── Guide Stats ───────────────────────────────────────────────────────────────
 function GuideStats({guests}){
-  const allTrips = (guests||[]).flatMap(g=>(g.trips||[]).map(t=>({...t,guestName:g.name})));
-  const totalTrips = allTrips.length;
-  const totalCatches = allTrips.reduce((s,t)=>s+(t.catches||0),0);
-  const totalRevenue = allTrips.reduce((s,t)=>s+(parseFloat(t.tripCost)||0),0);
-  const totalTips = allTrips.reduce((s,t)=>s+(parseFloat(t.tipAmount)||0),0);
-  const avgCatches = totalTrips>0?(totalCatches/totalTrips).toFixed(1):0;
-
-  // Top species from catchDetails
-  const speciesCounts={};
-  allTrips.forEach(t=>(t.catchDetails||[]).forEach(cd=>{
-    if(cd.species){speciesCounts[cd.species]=(speciesCounts[cd.species]||0)+1;}
-  }));
-  const topSpecies=Object.entries(speciesCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-
-  // Top flies
-  const flyCounts={};
-  allTrips.forEach(t=>(t.flies||[]).forEach(f=>{
-    if(f){const k=f.toLowerCase().trim();flyCounts[k]=(flyCounts[k]||0)+1;}
-  }));
-  const topFlies=Object.entries(flyCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-
-  // Current year stats
+  const trips=(guests||[]).flatMap(g=>(g.trips||[]).map(t=>({...t,guestName:g.name})));
+  const totalTrips=trips.length;
+  const totalCatches=trips.reduce((s,t)=>s+(t.catches||0),0);
+  const totalRevenue=trips.reduce((s,t)=>s+(parseFloat(t.tripCost)||0),0);
+  const totalTips=trips.reduce((s,t)=>s+(parseFloat(t.tipAmount)||0),0);
+  const avgCatches=totalTrips>0?(totalCatches/totalTrips).toFixed(1):0;
   const thisYear=new Date().getFullYear();
-  const yearTrips=allTrips.filter(t=>t.date&&t.date.startsWith(String(thisYear)));
-
+  const yearTrips=trips.filter(t=>t.date&&t.date.startsWith(String(thisYear)));
+  const speciesCounts={};
+  trips.forEach(t=>(t.catchDetails||[]).forEach(cd=>{if(cd.species)speciesCounts[cd.species]=(speciesCounts[cd.species]||0)+1;}));
+  const topSpecies=Object.entries(speciesCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const flyCounts={};
+  trips.forEach(t=>(t.flies||[]).forEach(f=>{if(f){const k=f.toLowerCase().trim();flyCounts[k]=(flyCounts[k]||0)+1;}}));
+  const topFlies=Object.entries(flyCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  if(!totalTrips) return <div className="empty"><div className="ei">📊</div><p>Stats will appear once you have logged trips.</p></div>;
   return(
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-        {[
-          {label:"Total Trips",val:totalTrips,icon:"🗓"},
-          {label:"Total Catches",val:totalCatches,icon:"🐟"},
-          {label:"Revenue",val:`$${totalRevenue.toLocaleString()}`,icon:"💵"},
-          {label:"Tips",val:`$${totalTips.toLocaleString()}`,icon:"🤝"},
-          {label:"Avg Catches/Trip",val:avgCatches,icon:"📊"},
-          {label:`${thisYear} Trips`,val:yearTrips.length,icon:"📅"},
-        ].map(s=>(
-          <div key={s.label} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
+        {[{label:"Total Trips",val:totalTrips,icon:"🗓"},{label:"Total Catches",val:totalCatches,icon:"🐟"},{label:"Revenue",val:"$"+totalRevenue.toLocaleString(),icon:"💵"},{label:"Tips",val:"$"+totalTips.toLocaleString(),icon:"🤝"},{label:"Avg Catches/Trip",val:avgCatches,icon:"📊"},{label:thisYear+" Trips",val:yearTrips.length,icon:"📅"}].map(s=>(
+          <div key={s.label} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
             <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--foam)"}}>{s.val}</div>
             <div style={{fontSize:10,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
@@ -1536,80 +1512,54 @@ function GuideStats({guests}){
       {topSpecies.length>0&&(
         <div className="card" style={{marginBottom:12}}>
           <div className="ctitle">🐟 Top Species</div>
-          {topSpecies.map(([sp,ct],i)=>{
-            const max=topSpecies[0][1];
-            return(
-              <div key={sp} style={{marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"var(--foam)",marginBottom:3}}>
-                  <span>{sp}</span><span style={{color:"var(--sky)"}}>{ct} caught</span>
-                </div>
-                <div style={{background:"rgba(0,0,0,0.3)",borderRadius:6,height:8,overflow:"hidden"}}>
-                  <div style={{height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:6,width:`${Math.round((ct/max)*100)}%`,transition:"width .8s"}}/>
-                </div>
-              </div>
-            );
-          })}
+          {topSpecies.map(([sp,ct])=>(
+            <div key={sp} style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"var(--foam)",marginBottom:3}}><span>{sp}</span><span style={{color:"var(--sky)"}}>{ct} caught</span></div>
+              <div style={{background:"rgba(0,0,0,0.3)",borderRadius:6,height:8,overflow:"hidden"}}><div style={{height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:6,width:Math.round((ct/topSpecies[0][1])*100)+"%"}}/></div>
+            </div>
+          ))}
         </div>
       )}
       {topFlies.length>0&&(
         <div className="card">
           <div className="ctitle">🪶 Top Flies</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {topFlies.map(([fly,ct],i)=>(
-              <span key={fly} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"4px 12px",fontSize:12,color:"var(--gold)"}}>
-                🪶 {fly} <span style={{color:"var(--stone)",fontSize:10}}>×{ct}</span>
-              </span>
-            ))}
+            {topFlies.map(([fly,ct])=>(<span key={fly} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"4px 12px",fontSize:12,color:"var(--gold)"}}>🪶 {fly} <span style={{color:"var(--stone)",fontSize:10}}>×{ct}</span></span>))}
           </div>
         </div>
-      )}
-      {totalTrips===0&&(
-        <div className="empty"><div className="ei">📊</div><p>Stats will appear once you have logged trips.</p></div>
       )}
     </div>
   );
 }
 
-// ── Guide Season Log Component ────────────────────────────────────────────────
-
+// ── Guide Season Log ──────────────────────────────────────────────────────────
 function GuideSeasonLog({guests}){
-  const allTrips = (guests||[]).flatMap(g=>(g.trips||[]).map(t=>({...t,guestName:g.name})));
-  const sorted = [...allTrips].sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
-  const thisYear = new Date().getFullYear();
-  const yearTrips = sorted.filter(t=>t.date&&t.date.startsWith(String(thisYear)));
-  const display = yearTrips.length>0?yearTrips:sorted.slice(0,20);
-
-  if(!display.length) return(
-    <div className="empty"><div className="ei">📅</div><p>No trips logged yet.<br/>Head to Clients to add your first trip.</p></div>
-  );
+  const allTrips=(guests||[]).flatMap(g=>(g.trips||[]).map(t=>({...t,guestName:g.name})));
+  const sorted=[...allTrips].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const thisYear=new Date().getFullYear();
+  const display=sorted.filter(t=>t.date&&t.date.startsWith(String(thisYear)));
+  const show=display.length?display:sorted.slice(0,20);
+  if(!show.length) return <div className="empty"><div className="ei">📅</div><p>No trips logged yet.</p></div>;
   return(
     <div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
-        {yearTrips.length>0?`${thisYear} Season — ${yearTrips.length} trips`:"All Trips"} · {display.reduce((s,t)=>s+(t.catches||0),0)} fish
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
+        {display.length?thisYear+" Season — "+display.length+" trips":"All Trips"} · {show.reduce((s,t)=>s+(t.catches||0),0)} fish
       </div>
-      {display.map(t=>(
+      {show.map(t=>(
         <div key={t.id} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
             <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic"}}>
-                {t.location||"Unnamed Location"}
-              </div>
-              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>
-                {t.guestName} · {new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
-              </div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Unnamed Location"}</div>
+              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.guestName} · {new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
               {t.catches>0&&<span style={{fontSize:13,color:"var(--sky)"}}>🐟 {t.catches}</span>}
               {t.streamCFS&&<span style={{fontSize:11,color:"var(--stone)"}}>{Number(t.streamCFS).toLocaleString()} CFS</span>}
             </div>
           </div>
-          {t.flies?.length>0&&(
+          {t.flies&&t.flies.length>0&&(
             <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
-              {t.flies.slice(0,3).map((f,i)=>(
-                <span key={i} style={{background:"rgba(74,122,58,0.25)",border:"1px solid rgba(74,122,58,0.4)",borderRadius:20,padding:"2px 10px",fontSize:11,color:"var(--sky)"}}>
-                  🪶 {f}
-                </span>
-              ))}
+              {t.flies.slice(0,3).map((f,i)=><span key={i} style={{background:"rgba(74,122,58,0.25)",border:"1px solid rgba(74,122,58,0.4)",borderRadius:20,padding:"2px 10px",fontSize:11,color:"var(--sky)"}}>🪶 {f}</span>)}
               {t.flies.length>3&&<span style={{fontSize:11,color:"var(--stone)",padding:"2px 6px"}}>+{t.flies.length-3}</span>}
             </div>
           )}
@@ -1625,96 +1575,50 @@ function GuideSeasonLog({guests}){
   );
 }
 
-// ── Guide Saved Gauges Component ──────────────────────────────────────────────
-
+// ── Guide Saved Gauges ────────────────────────────────────────────────────────
 function GuideSavedGauges({user}){
   const [gaugeInput,setGaugeInput]=React.useState("");
   const [savedGauges,setSavedGauges]=React.useState([]);
   const [gaugeAdding,setGaugeAdding]=React.useState(false);
   const [sgData,setSgData]=React.useState([]);
   const [loading,setLoading]=React.useState(true);
-
   React.useEffect(()=>{
     if(!sb||!user?.id){setLoading(false);return;}
-    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{
-      setSavedGauges(data||[]);setLoading(false);
-    }).catch(()=>setLoading(false));
+    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{setSavedGauges(data||[]);setLoading(false);}).catch(()=>setLoading(false));
   },[user?.id]);
-
   React.useEffect(()=>{
     if(!savedGauges.length){setSgData([]);return;}
     Promise.all(savedGauges.map(async g=>{
-      try{
-        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&sites=${g.site_no}&parameterCd=00060&siteStatus=all`;
-        const r=await fetch(url);const d=await r.json();
-        const ts=d.value?.timeSeries?.[0];
-        const raw=ts?.values?.[0]?.value?.[0]?.value;
-        const cfs=raw!=null?parseFloat(raw):null;
-        const{label,cls}=cfsLabel(cfs);
-        return{...g,cfs,label,cls};
-      }catch{return{...g,cfs:null,label:"N/A",cls:""};}
-    })).then(setSgData).catch(()=>{});
+      try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+      catch{return{...g,cfs:null,label:"N/A",cls:""};}
+    })).then(setSgData);
   },[savedGauges.length]);
-
   async function addGauge(){
-    if(!gaugeInput.trim()||!sb)return;
-    setGaugeAdding(true);
-    let siteNo=gaugeInput.trim();
-    const match=siteNo.match(/sites?=(\d+)/i)||siteNo.match(/(\d{8,})/);
-    if(match)siteNo=match[1];
-    try{
-      const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&sites=${siteNo}&parameterCd=00060`);
-      const d=await r.json();
-      const ts=d.value?.timeSeries?.[0];
-      const name=ts?.sourceInfo?.siteName||`Site ${siteNo}`;
-      const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:`https://waterdata.usgs.gov/monitoring-location/${siteNo}/`}).select().single();
-      if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}
-    }catch(e){alert("Could not add gauge: "+e.message);}
-    setGaugeAdding(false);
+    if(!gaugeInput.trim()||!sb)return;setGaugeAdding(true);
+    let siteNo=gaugeInput.trim();const match=siteNo.match(/sites?=(\d+)/i)||siteNo.match(/(\d{8,})/);if(match)siteNo=match[1];
+    try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");const d=await r.json();const ts=d.value?.timeSeries?.[0];const name=ts?.sourceInfo?.siteName||"Site "+siteNo;const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:"https://waterdata.usgs.gov/monitoring-location/"+siteNo+"/"}).select().single();if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}}
+    catch(e){alert("Could not add gauge: "+e.message);}setGaugeAdding(false);
   }
-
-  async function removeGauge(id){
-    if(!sb)return;
-    await sb.from("saved_gauges").delete().eq("id",id);
-    setSavedGauges(g=>g.filter(x=>x.id!==id));
-  }
-
   return(
     <div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
-        <input className="inp" value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
-          placeholder="USGS site # or waterdata.usgs.gov URL"
-          onKeyDown={e=>e.key==="Enter"&&addGauge()}
-          style={{flex:1,margin:0}}/>
-        <button className="btn" onClick={addGauge} disabled={gaugeAdding} style={{flexShrink:0,whiteSpace:"nowrap"}}>
-          {gaugeAdding?"…":"+ Add"}
-        </button>
+        <input className="inp" value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)} placeholder="USGS site # or waterdata.usgs.gov URL" onKeyDown={e=>e.key==="Enter"&&addGauge()} style={{flex:1,margin:0}}/>
+        <button className="btn" onClick={addGauge} disabled={gaugeAdding} style={{flexShrink:0}}>{gaugeAdding?"…":"+ Add"}</button>
       </div>
       {loading&&<div className="loading">Loading gauges…</div>}
-      {!loading&&savedGauges.length===0&&(
-        <div className="empty"><div className="ei">⭐</div><p>Pin your favorite USGS gauges here.<br/>Enter a site number above to get started.</p></div>
-      )}
+      {!loading&&!savedGauges.length&&<div className="empty"><div className="ei">⭐</div><p>Pin your favorite USGS gauges here.</p></div>}
       {sgData.map((g,i)=>(
         <div key={g.id||i} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic",lineHeight:1.3}}>{g.name}</div>
-              <div style={{fontSize:11,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div>
-            </div>
+            <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:11,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              {g.cfs!=null&&(
-                <span className={`gbadge ${g.cls}`}>{g.cfs>=1000?`${(g.cfs/1000).toFixed(1)}k`:g.cfs?.toFixed(0)} CFS</span>
-              )}
-              <span className={`gbadge ${g.cls}`} style={{fontSize:10}}>{g.label}</span>
+              {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.cfs>=1000?(g.cfs/1000).toFixed(1)+"k":g.cfs?.toFixed(0)} CFS</span>}
+              <span className={"gbadge "+(g.cls||"")} style={{fontSize:10}}>{g.label}</span>
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10}}>
-            <a href={g.url||`https://waterdata.usgs.gov/monitoring-location/${g.site_no}/`} target="_blank" rel="noreferrer"
-              style={{fontSize:12,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
-            <button onClick={()=>removeGauge(g.id)}
-              style={{background:"none",border:"none",color:"var(--stone)",fontSize:12,cursor:"pointer",padding:0,fontFamily:"'Crimson Pro',serif"}}>
-              ✕ Remove
-            </button>
+            <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
+            <button onClick={async()=>{await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:12,cursor:"pointer",padding:0,fontFamily:"'Crimson Pro',serif"}}>✕ Remove</button>
           </div>
         </div>
       ))}
@@ -1775,7 +1679,7 @@ function GuideBook({user, loc}){
     }
   },[user?.id]);
   const [view, setView] = useState("list"); // list | guest | addGuest | editGuest | addTrip | editTrip | tripDetail
-  const [guideSection, setGuideSection] = useState("clients"); // clients | seasonlog | stats | gauges
+  const [guideSection, setGuideSection] = useState("clients");
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
@@ -2046,20 +1950,8 @@ function GuideBook({user, loc}){
     e.target.value="";
     const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
     for(const file of files){
-      const rawDataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-      // Compress to max 1200px / 0.82 quality before storing — prevents iOS memory crashes
-      const dataUrl=await new Promise(res=>{
-        const img=new Image();
-        img.onload=()=>{
-          const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;
-          if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-          const cv=document.createElement("canvas");cv.width=w;cv.height=h;
-          cv.getContext("2d").drawImage(img,0,0,w,h);
-          res(cv.toDataURL("image/jpeg",0.82));
-        };
-        img.onerror=()=>res(rawDataUrl);
-        img.src=rawDataUrl;
-      });
+      const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+      const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
       // Add photo immediately
       setTripForm(f=>({...f,photos:[...f.photos,dataUrl]}));
       // Parse EXIF
@@ -2207,24 +2099,20 @@ function GuideBook({user, loc}){
   // Guest list
   if(view==="list") return(
     <div>
-      {/* Guide sub-tab navigation */}
       <div style={{display:"flex",background:"rgba(0,0,0,0.25)",borderRadius:12,padding:3,gap:2,marginBottom:14}}>
         {[{id:"clients",icon:"👥",label:"Clients"},{id:"seasonlog",icon:"📅",label:"Season Log"},{id:"stats",icon:"📊",label:"Stats"},{id:"gauges",icon:"⭐",label:"My Gauges"}].map(s=>(
-          <button key={s.id}
-            onClick={()=>setGuideSection(s.id)}
-            style={{flex:1,padding:"7px 4px",border:"none",background:guideSection===s.id?"var(--water)":"transparent",
-              color:guideSection===s.id?"var(--foam)":"var(--sky)",fontFamily:"'Crimson Pro',serif",fontSize:11,
-              cursor:"pointer",borderRadius:9,transition:"all .2s",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+          <button key={s.id} onClick={()=>setGuideSection(s.id)}
+            style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
+              background:guideSection===s.id?"var(--water)":"transparent",
+              color:guideSection===s.id?"var(--foam)":"var(--sky)",
+              fontFamily:"'Crimson Pro',serif",fontSize:11,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
             <span style={{fontSize:15}}>{s.icon}</span>{s.label}
           </button>
         ))}
       </div>
-
-      {guideSection==="stats"&&<GuideStats guests={guests}/>}
-      {guideSection==="seasonlog"&&<GuideSeasonLog guests={guests}/>}
-      {guideSection==="gauges"&&<GuideSavedGauges user={user}/>}
-      {guideSection==="clients"&&<>
-
+      {guideSection==="stats"?<GuideStats guests={guests}/>:guideSection==="seasonlog"?<GuideSeasonLog guests={guests}/>:guideSection==="gauges"?<GuideSavedGauges user={user}/>:null}
+      <div style={{display:guideSection==="clients"?"block":"none"}}>
       {String(user?.id).startsWith("local")&&(
         <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
           ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only.
@@ -2290,7 +2178,8 @@ function GuideBook({user, loc}){
           </div>
         </div>
       ))}
-      </>}
+      </div>
+    </div>
   );
 
   // Add guest form
@@ -2937,7 +2826,7 @@ function GuideBook({user, loc}){
           </button>
         </div>
       )}
-        </>
+    </div>
   );
 }
 
@@ -3675,8 +3564,8 @@ function App({user}){
         </>}
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"✦",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
-            <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{setTab(t.id);if(t.id==="conditions"){sb&&user?.id&&sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});}}}>
+          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
+            <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});}}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
           ))}
