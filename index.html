@@ -2993,7 +2993,13 @@ function TripPlanner({defaultLocation}){
           }catch(e){ console.log("Shop search failed:",e.message); }
 
           const riverNames=pg.map(g=>g.name).join(", ");
-          const reportTxt=await askClaude(`Search web for current fly fishing reports near ${loc.label} on ${ds}. Current USGS stream flows: ${gs}. Active hatches this time of year: ${hi}. IMPORTANT: Only include streams that are known trout or sportfish fishing destinations — exclude urban drainages, irrigation ditches, suburban creeks, and any water not mentioned in actual fly fishing reports or trip reports online. Respond with ONLY raw JSON (no markdown, no explanation, start with {): {"overview":"2-3 sentence summary of all waters","recommendation":"best water to fish today and why","rivers":[{"name":"stream name","cfs":"flow","conditions":"fishable? why","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatching now","bestTimes":"best times of day","tips":"local tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,1200);
+          const reportTxt=await askClaude(`Search fly shop websites, fishing forums, and trip reports for current fishing conditions near ${loc.label} on ${ds}. Also search for "[nearest major trout stream] fishing report ${ds.split(",")[1]||""}". Current USGS flows: ${gs}. Active hatches: ${hi}.
+
+Your job is to produce a useful fishing report for someone planning a trip. Use your knowledge of the region's fisheries combined with current web reports. If the USGS gauges listed include non-fishable urban drainages, ignore them and focus on the nearest known quality trout waters within reasonable driving distance instead.
+
+Always produce a complete report — never refuse or say conditions are unknown. If specific reports aren't available, use historical patterns, current flows, and hatch timing to give actionable guidance.
+
+Respond with ONLY raw JSON (no markdown, no explanation, start with {): {"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow if known","conditions":"conditions and why fishable","techniques":"specific techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatching now","bestTimes":"best times of day","tips":"local insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,1200);
           let rpt=null;
           // Try direct parse
           try{ rpt=JSON.parse(reportTxt.trim()); }catch{}
@@ -3708,18 +3714,7 @@ function App({user}){
                 </div>}
               </div>
             )}
-            {loc&&weather&&(
-              <div className="card">
-                <div className="ctitle">✦ AI Conditions Report{condReport&&<button className="rfsh" onClick={()=>generateCondReport(loc,weather,gauges)}>↻</button>}</div>
-                {!condReport&&!condReportLoading&&(
-                  <button onClick={()=>generateCondReport(loc,weather,gauges)} className="btn btnp" style={{width:"100%",marginTop:4}}>
-                    ✦ Generate Conditions Report
-                  </button>
-                )}
-                {condReportLoading&&<div className="loading">Generating report…</div>}
-                {condReport&&<div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap",marginTop:4}}>{condReport}</div>}
-              </div>
-            )}
+
             {loc&&(
               <div className="card">
                 <div className="ctitle">🪝 Nearby Fly Shops</div>
