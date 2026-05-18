@@ -2985,13 +2985,13 @@ function TripPlanner({defaultLocation}){
         // No gauge data passed to report — streams come from fly shop reports only, not USGS list
         try{
           // Step 1: web search for current conditions (returns prose - that's fine)
-          const searchTxt=await askClaude(`Search for fishing conditions near ${loc.label} for ${ds}. Do two searches:
+          const searchTxt=await askClaude(`Search fly shop websites for current fishing reports near ${loc.label} for ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long",year:"numeric"})}. Return ONLY a structured summary in this exact format, no narration:
 
-1. Search "[nearest city] fly shop fishing report" and "[region] fishing report ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long"})}". List every stream mentioned with the shop name, current conditions, flies recommended, and any flow or CFS data mentioned.
+STREAMS: [comma-separated list of stream names mentioned in shop reports]
+SHOP: [shop name] | STREAM: [stream name] | CONDITIONS: [what they say] | FLIES: [flies mentioned] | FLOWS: [any CFS mentioned]
+HISTORICAL: [stream name] - [what patterns worked in past years at similar flows in this month]
 
-2. For each stream found, search "[stream name] USGS flow" or "[stream name] CFS" to find current flow levels. Also search "[stream name] fishing report ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long"})}" for historical patterns at similar conditions.
-
-Only include streams that appear in actual fly shop reports. Format: SHOP REPORTS: [summary with flows] | HISTORICAL: [what worked at these conditions in past years]`,true,2000);
+Do not include any stream not mentioned by a fly shop. Do not add commentary or thinking.`,true,2000);
           addStep("Conditions found, formatting report…","active");
           // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
           const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current weather: ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}. Flow data is included in the research below.
