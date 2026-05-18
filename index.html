@@ -2985,29 +2985,17 @@ function TripPlanner({defaultLocation}){
         // No gauge data passed to report — streams come from fly shop reports only, not USGS list
         try{
           // Step 1: web search for current conditions (returns prose - that's fine)
-          const searchTxt=await askClaude(`Search fly shop websites for current fishing reports near ${loc.label} for ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long",year:"numeric"})}. Return ONLY a structured summary in this exact format, no narration:
-
-STREAMS: [comma-separated list of stream names mentioned in shop reports]
-SHOP: [shop name] | STREAM: [stream name] | CONDITIONS: [what they say] | FLIES: [flies mentioned] | FLOWS: [any CFS mentioned]
-HISTORICAL: [stream name] - [what patterns worked in past years at similar flows in this month]
-
-Do not include any stream not mentioned by a fly shop. Do not add commentary or thinking.`,true,2000);
-          // Strip any narration from search result - extract just the structured data
-          let cleanSearch = searchTxt;
-          const streamsIdx = searchTxt.indexOf("STREAMS:");
-          if(streamsIdx > 0) cleanSearch = searchTxt.slice(streamsIdx);
-          else {
-            // Model didn't follow format - extract stream names from prose and reformat
-            const shopIdx = searchTxt.indexOf("SHOP:");
-            if(shopIdx > 0) cleanSearch = searchTxt.slice(shopIdx);
-          }
+          const searchTxt=await askClaude(`Search fly shop websites for fishing reports near ${loc.label} for ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long",year:"numeric"})}. Search for "[nearest city] fly shop fishing report" and "fly fishing conditions [region] [month]". Find any fly shop report that mentions specific streams with current conditions. Report everything you find — stream names, conditions, flies, CFS if mentioned. Be thorough.`,true,2000);
+          // Use full search text - the format call will extract streams from it
+          const cleanSearch = searchTxt;
           addStep("Fetching live stream flows…","active");
           // Step 1.5: extract stream names and fetch real USGS flows for each
           let liveFlows="";
           try{
             // Extract stream names from search results
-            const streamsLine=cleanSearch.split("\n").find(l=>l.startsWith("STREAMS:"));
-            const streamNames=streamsLine?streamsLine.replace("STREAMS:","").split(",").map(s=>s.trim()).filter(Boolean):[];
+            // Extract stream names mentioned in the search results
+            const streamWords=["Creek","River","Fork","Run","Platte","Arkansas","Colorado","Roaring Fork","Cache","Poudre","Fryingpan","Gunnison","Yampa","Animas","Dolores","Green","San Juan"];
+            const streamNames=[...new Set((cleanSearch.match(/[A-Z][a-zA-Z]+ (?:Creek|River|Fork|Run|Branch)/g)||[]).map(s=>s.trim()))].slice(0,4);
             if(streamNames.length>0){
               // Fetch flows for each stream using USGS site search
               const flowResults=await Promise.all(streamNames.slice(0,4).map(async name=>{
@@ -3038,7 +3026,7 @@ Do not include any stream not mentioned by a fly shop. Do not add commentary or 
 
 Output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
 
-Use the fly shop research below to identify WHICH streams to include. For each stream a shop mentions, write a full expert forecast combining: what the shop says now + current flow levels + today's weather + your knowledge of historical patterns on that stream at these conditions.
+The research below contains fly shop findings — extract every stream name mentioned and write a full expert forecast for each one combining: what the shop says now + current flow levels + today's weather + your knowledge of historical patterns on that stream at these conditions.
 
 NEVER refuse or write "insufficient data" or "contact local shops". Always produce a complete actionable report. If only one stream has shop data, write a thorough forecast for that one stream.
 
