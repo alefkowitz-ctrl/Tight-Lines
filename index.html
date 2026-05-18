@@ -2992,12 +2992,21 @@ SHOP: [shop name] | STREAM: [stream name] | CONDITIONS: [what they say] | FLIES:
 HISTORICAL: [stream name] - [what patterns worked in past years at similar flows in this month]
 
 Do not include any stream not mentioned by a fly shop. Do not add commentary or thinking.`,true,2000);
+          // Strip any narration from search result - extract just the structured data
+          let cleanSearch = searchTxt;
+          const streamsIdx = searchTxt.indexOf("STREAMS:");
+          if(streamsIdx > 0) cleanSearch = searchTxt.slice(streamsIdx);
+          else {
+            // Model didn't follow format - extract stream names from prose and reformat
+            const shopIdx = searchTxt.indexOf("SHOP:");
+            if(shopIdx > 0) cleanSearch = searchTxt.slice(shopIdx);
+          }
           addStep("Fetching live stream flows…","active");
           // Step 1.5: extract stream names and fetch real USGS flows for each
           let liveFlows="";
           try{
             // Extract stream names from search results
-            const streamsLine=searchTxt.split("\n").find(l=>l.startsWith("STREAMS:"));
+            const streamsLine=cleanSearch.split("\n").find(l=>l.startsWith("STREAMS:"));
             const streamNames=streamsLine?streamsLine.replace("STREAMS:","").split(",").map(s=>s.trim()).filter(Boolean):[];
             if(streamNames.length>0){
               // Fetch flows for each stream using USGS site search
@@ -3038,7 +3047,7 @@ The conditions field must include a forecast — not just current state. Example
 {"overview":"2-3 sentence expert synthesis","recommendation":"specific best bet with reasoning","rivers":[{"name":"stream name","cfs":"current flow","conditions":"current state + forecast window","techniques":"specific time/water/presentation","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active now based on season+weather","bestTimes":"specific times based on TODAY's weather","tips":"one insider tip a local guide would share","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}
 
 Research:
-`+searchTxt.slice(0,2000),false,1200);
+`+cleanSearch.slice(0,2000),false,1200);
           let rpt=null;
           try{rpt=JSON.parse(formatTxt.trim());}catch{}
           if(!rpt)rpt=extractJSON(formatTxt);
