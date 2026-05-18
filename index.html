@@ -2992,9 +2992,41 @@ SHOP: [shop name] | STREAM: [stream name] | CONDITIONS: [what they say] | FLIES:
 HISTORICAL: [stream name] - [what patterns worked in past years at similar flows in this month]
 
 Do not include any stream not mentioned by a fly shop. Do not add commentary or thinking.`,true,2000);
+          addStep("Fetching live stream flows…","active");
+          // Step 1.5: extract stream names and fetch real USGS flows for each
+          let liveFlows="";
+          try{
+            // Extract stream names from search results
+            const streamsLine=searchTxt.match(/STREAMS:\s*([^
+]+)/);
+            const streamNames=streamsLine?streamsLine[1].split(",").map(s=>s.trim()).filter(Boolean):[];
+            if(streamNames.length>0){
+              // Fetch flows for each stream using USGS site search
+              const flowResults=await Promise.all(streamNames.slice(0,4).map(async name=>{
+                try{
+                  const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${loc.label.split(",").pop().trim().slice(0,2).toLowerCase()}&siteNameMatchOperator=contains&siteNameFilter=${encodeURIComponent(name.split("(")[0].trim())}&parameterCd=00060&siteStatus=active`);
+                  const d=await r.json();
+                  const ts=(d.value?.timeSeries||[]);
+                  if(!ts.length) return null;
+                  const best=ts.sort((a,b)=>{
+                    const aName=(a.sourceInfo?.siteName||"").toLowerCase();
+                    const bName=(b.sourceInfo?.siteName||"").toLowerCase();
+                    const query=name.toLowerCase();
+                    return(bName.includes(query.split(" ")[0])?1:0)-(aName.includes(query.split(" ")[0])?1:0);
+                  })[0];
+                  const cfs=parseFloat(best?.values?.[0]?.value?.[0]?.value);
+                  const siteName=best?.sourceInfo?.siteName||name;
+                  if(!isNaN(cfs)) return `${siteName}: ${cfs.toFixed(0)} CFS`;
+                  return null;
+                }catch{return null;}
+              }));
+              const validFlows=flowResults.filter(Boolean);
+              if(validFlows.length>0) liveFlows="\nLIVE USGS FLOWS (fetched right now): "+validFlows.join(" | ");
+            }
+          }catch(fe){console.log("flow fetch error:",fe.message);}
           addStep("Conditions found, formatting report…","active");
           // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
-          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current weather: ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}. Flow data is included in the research below.
+          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current weather: ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}.${liveFlows} This year's snowpack has been low — flows may be lower than historical averages for this date. Use the live flow numbers above as ground truth, not historical averages.
 
 Output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
 
