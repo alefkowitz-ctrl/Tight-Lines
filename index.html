@@ -712,16 +712,17 @@ async function fetchUSGSHistory(lat,lng){
 
 function cleanLabel(item){
   const a=item.address||{};
+  const st=a.state_code||a.state||"";
   // For water features, use the water name + nearest named place for context
   const water=a.river||a.stream||a.waterway||a.creek||a.brook;
   if(water){
     const nearby=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
-    const st=a.state||"";
-    return nearby?(st?`${water}, ${nearby}, ${st}`:`${water}, ${nearby}`):(st?`${water}, ${st}`:water);
+    if(nearby&&st) return `${water}, ${nearby}, ${st}`;
+    if(nearby) return `${water}, ${nearby}`;
+    return st?`${water}, ${st}`:water;
   }
-  // For named places, prefer specific over general
+  // For named places, prefer specific over general, always include state
   const place=a.hamlet||a.village||a.town||a.city||a.suburb||a.neighbourhood||a.county||item.display_name.split(",")[0];
-  const st=a.state||"";
   return st?`${place}, ${st}`:place;
 }
 function locIcon(item){
@@ -1115,9 +1116,9 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
         try{
           const data=await reverseGeocode(lat,lng);
           const a=data.address||{};
-          const city=a.city||a.town||a.village||a.county||"";
-          const state=a.state||"";
-          const label=city?`${city}, ${state}`:(state||fmtCoord(lat,lng));
+          const city=a.city||a.town||a.village||a.hamlet||a.county||"";
+          const state=a.state_code||a.state||"";
+          const label=city&&state?`${city}, ${state}`:city||(state||fmtCoord(lat,lng));
           setQuery(label);setGpsState("idle");
           onSelect({lat,lng,label});
         }catch{
