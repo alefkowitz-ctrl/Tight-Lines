@@ -428,7 +428,7 @@ async function askClaude(prompt, useSearch=false, maxTokens=1200){
 }
 async function geocode(q){
   // Search with extra detail for natural features and small places
-  const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=us&addressdetails=1&extratags=1`,{headers:{"Accept-Language":"en"}});
+  const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=us&addressdetails=1&extratags=1`})});
   const results=await r.json();
   // Sort: exact name matches and water features first, counties last
   return results.sort((a,b)=>{
@@ -444,7 +444,7 @@ async function geocode(q){
   });
 }
 async function reverseGeocode(lat,lng){
-  const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,{headers:{"Accept-Language":"en"}});
+  const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`})});
   return r.json();
 }
 async function fetchWeather(lat,lng){
@@ -3299,7 +3299,7 @@ function App({user}){
     navigator.geolocation.getCurrentPosition(async pos=>{
       const{latitude:lat,longitude:lng}=pos.coords;
       try{
-        const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
+        const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`})});
         const d=await r.json();
         const a=d.address||{};
         const city=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
