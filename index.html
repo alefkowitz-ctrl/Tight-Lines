@@ -3184,11 +3184,6 @@ Context: `+reportTxt.slice(0,800),false,2000);
   );
 }
 
-// ── GPS Location display ──────────────────────────────────────────────────────
-function GpsLocation({gps}){
-  return <span>{gps}</span>;
-}
-
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 
@@ -3950,7 +3945,16 @@ ${shopPins}
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
                   {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
-                  {c.gps&&<div className="cgps">📍 <GpsLocation gps={c.gps}/></div>}
+                  {c.gps&&(()=>{
+  const m=c.gps.match(/([\d.]+)[°]?\s*([NS])[\s,]+([\d.]+)[°]?\s*([EW])/);
+  const lat=m?parseFloat(m[1])*(m[2]==="S"?-1:1):null;
+  const lng=m?parseFloat(m[3])*(m[4]==="W"?-1:1):null;
+  return <div className="cgps">
+    {lat&&lng
+      ?<a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer" style={{color:"var(--sky)",textDecoration:"none"}}>📍 {c.gps}</a>
+      :<span>📍 {c.gps}</span>}
+  </div>;
+})()}
                   <div style={{display:"flex",gap:8,marginTop:8}}>
                     <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
                       style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
