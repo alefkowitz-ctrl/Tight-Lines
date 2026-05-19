@@ -2119,11 +2119,13 @@ function GuideBook({user, loc}){
         "Catch details: "+(catchSummary||"not recorded"),
         "Guide notes: "+(trip.guideNotes||"none"),
         "Write a warm 2-3 paragraph trip summary using ONLY the facts above.",
-        "Do not suggest improvements unless guide notes mention something specific.",
-        "Do not mention conditions, flies, or techniques not listed above.",
-        "Write in second person. Plain text only."
+        "Paragraph 1: the day overall — mention the weather, stream conditions, and CFS if recorded, and explain how they impacted the fishing. Be specific: dropping pressure means aggressive feeders, high CFS pushes fish to edges, clear low water means technical fishing, warm afternoon means midday slowdown, etc. Only interpret conditions that were explicitly recorded.",
+        "Paragraph 2: the fishing itself — catches, which flies worked and why, techniques used.",
+        "Paragraph 3: a forward-looking note — one specific thing to work on or focus on next time based on what happened.",
+        "Do not invent any conditions, flies, or details not listed in the facts above.",
+        "Write in second person. Plain text only — no markdown, no headers, no # symbols."
       ];
-      const rawTxt = await askClaude(promptParts.join(" "), false, 500);
+      const rawTxt = await askClaude(promptParts.join(" "), false, 800);
       const txt = rawTxt.replace(/^#+\s*/gm,"").replace(/\*\*/g,"").replace(/\*/g,"").trim();
       setReport(txt);
       saveReport(txt);
