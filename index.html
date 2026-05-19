@@ -3590,7 +3590,7 @@ function App({user}){
     const g=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"Location not recorded";
     setForm(f=>({...f,time:t,gps:g}));
     // Fetch conditions from photo date/location
-    if(fetchLat&&fetchLng){
+    if(photoLat&&photoLng){
       try{
         let dateStr=null,hourStr="12";
         const d2=new Date(t.replace(" at "," "));
