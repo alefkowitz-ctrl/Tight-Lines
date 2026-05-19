@@ -3592,20 +3592,7 @@ function App({user}){
     const now=new Date();
     const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
     // Only use EXIF GPS — never fall back to current device location
-    let g="Location not recorded";
-    if(photoLat&&photoLng){
-      const coords=fmtCoord(photoLat,photoLng);
-      g=coords; // show coords immediately
-      // Reverse geocode to get town name
-      try{
-        const rg=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:"https://nominatim.openstreetmap.org/reverse?lat="+photoLat+"&lon="+photoLng+"&format=json&zoom=10"})});
-        const rd=await rg.json();
-        const a=rd.address||{};
-        const city=a.city||a.town||a.village||a.hamlet||a.county||"";
-        const state=a.state_code||a.state||"";
-        if(city) g=city+(state?", "+state:"")+" ("+coords+")";
-      }catch{}
-    }
+    const g=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"Location not recorded";
     setForm(f=>({...f,time:t,gps:g}));
     // Fetch conditions from photo date/location
     if(fetchLat&&fetchLng){
@@ -3781,8 +3768,14 @@ function App({user}){
                   <a href={"https://www.openstreetmap.org/?mlat="+loc.lat+"&mlon="+loc.lng+"#map=10/"+loc.lat+"/"+loc.lng} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                 </div>
                 {(()=>{
-                  const gaugePins=gauges.filter(g=>g.lat&&g.lng).map(g=>`L.marker([${0}+g.lat,${0}+g.lng],{icon:L.divIcon({className:"",html:'<div style="background:#2dd4bf;border:2px solid #fff;border-radius:50%;width:10px;height:10px;"></div>',iconSize:[10,10],iconAnchor:[5,5]})}).addTo(map).bindPopup("<b>"+g.name+"</b><br/>"+g.cfs?.toFixed(0)+" CFS ("+g.label+")");`).join("\n");
-                  const shopPins=condShops.filter(s=>s.lat&&s.lng).map(s=>`L.marker([${0}+s.lat,${0}+s.lng],{icon:L.divIcon({className:"",html:'<div style="background:#f59e0b;border:2px solid #fff;border-radius:3px;width:10px;height:10px;"></div>',iconSize:[10,10],iconAnchor:[5,5]})}).addTo(map).bindPopup("<b>"+s.name+"</b><br/>"+s.address);`).join("\n");
+                  const gaugePins=gauges.filter(g=>g.lat&&g.lng).map(g=>{
+                    const lat=g.lat,lng=g.lng,name=(g.name||"").replace(/"/g,""),cfs=g.cfs?g.cfs.toFixed(0):"",lbl=g.label||"";
+                    return `L.marker([${lat},${lng}],{icon:L.divIcon({className:"",html:'<div style="background:#2dd4bf;border:2px solid #fff;border-radius:50%;width:10px;height:10px;"></div>',iconSize:[10,10],iconAnchor:[5,5]})}).addTo(map).bindPopup("<b>${name}</b><br/>${cfs} CFS ${lbl}");`;
+                  }).join("\n");
+                  const shopPins=condShops.filter(s=>s.lat&&s.lng).map(s=>{
+                    const lat=s.lat,lng=s.lng,name=(s.name||"").replace(/"/g,""),addr=(s.address||"").replace(/"/g,"");
+                    return `L.marker([${lat},${lng}],{icon:L.divIcon({className:"",html:'<div style="background:#f59e0b;border:2px solid #fff;border-radius:3px;width:10px;height:10px;"></div>',iconSize:[10,10],iconAnchor:[5,5]})}).addTo(map).bindPopup("<b>${name}</b><br/>${addr}");`;
+                  }).join("\n");
                   const mapHtml=`<!DOCTYPE html><html><head><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script><style>body,html,#map{margin:0;padding:0;width:100%;height:100%;}</style></head><body><div id="map"></div><script>
 var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([${loc.lat},${loc.lng}],10);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
