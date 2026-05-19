@@ -3641,7 +3641,7 @@ function App({user}){
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,airTemp:form.airTemp,weatherDesc:form.weatherDesc,windSpeed:form.windSpeed,windDir:form.windDir,pressure:form.pressure,streamCFS:form.streamCFS,streamCondition:form.streamCondition,streamGaugeName:form.streamGaugeName};
+    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,air_temp:form.airTemp||null,weather_desc:form.weatherDesc||null,wind_speed:form.windSpeed||null,wind_dir:form.windDir||null,pressure:form.pressure||null,stream_cfs:form.streamCFS||null,stream_condition:form.streamCondition||null,stream_gauge_name:form.streamGaugeName||null};
     addCatch(catchData);
     setForm(blank);setAddOpen(false);
   }
