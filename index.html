@@ -3038,10 +3038,10 @@ NEVER refuse or write "insufficient data" or "contact local shops". Always produ
 
 The conditions field must include a forecast — not just current state. Example: "Flows at 87 CFS and climbing — prime window before runoff. At these levels, fish concentrate in soft seams below riffles. This window typically lasts 3-5 days before flows blow out."
 
-{"overview":"2-3 sentence expert synthesis","recommendation":"specific best bet with reasoning","rivers":[{"name":"stream name","cfs":"current flow","conditions":"current state + forecast window","techniques":"specific time/water/presentation","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active now based on season+weather","bestTimes":"specific times based on TODAY's weather","tips":"one insider tip a local guide would share","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}
+{"overview":"summary","recommendation":"best bet","rivers":[{"name":"name","cfs":"cfs","conditions":"conditions+forecast","techniques":"techniques","flies":["fly #size","fly #size","fly #size"]}],"hatches":"hatches","bestTimes":"best times","tips":"tip","flyBoxEssentials":["fly #size","fly #size","fly #size","fly #size"]}
 
 Research:
-`+cleanSearch.slice(0,2000),false,1200);
+`+cleanSearch.slice(0,2000),false,2000);
           let rpt=null;
           const cleanFmt=formatTxt.replace(/```json|```/g,"").trim();
           try{rpt=JSON.parse(cleanFmt);}catch{}
@@ -3053,7 +3053,7 @@ Research:
             console.log("Format call output:", formatTxt.slice(0,300)); console.log("cleanFmt:", cleanFmt.slice(0,300)); const testS=cleanFmt.indexOf("{"),testE=cleanFmt.lastIndexOf("}"); console.log("JSON slice:", cleanFmt.slice(testS,testS+100));
             // JSON failed - try one more time with a simpler prompt
             try{
-              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else, no markdown fences. Start your response with { and end with }:\n"+cleanSearch.slice(0,1500),false,800);
+              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else, no markdown fences. Start your response with { and end with }:\n"+cleanSearch.slice(0,1500),false,1500);
               const s2=retryTxt.indexOf("{"),e2=retryTxt.lastIndexOf("}");
               if(s2!==-1&&e2>s2){
                 const rpt2=JSON.parse(retryTxt.slice(s2,e2+1));
