@@ -3589,11 +3589,23 @@ function App({user}){
       const exif=parseExif(abuf);
       photoTime=exif.time;photoGps=exif.gps;photoLat=exif.lat??null;photoLng=exif.lng??null;
     }catch{}
-    const fetchLat=photoLat??loc?.lat;
-    const fetchLng=photoLng??loc?.lng;
     const now=new Date();
     const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const g=photoGps||(fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded");
+    // Only use EXIF GPS — never fall back to current device location
+    let g="Location not recorded";
+    if(photoLat&&photoLng){
+      const coords=fmtCoord(photoLat,photoLng);
+      g=coords; // show coords immediately
+      // Reverse geocode to get town name
+      try{
+        const rg=await fetch("https://nominatim.openstreetmap.org/reverse?lat="+photoLat+"&lon="+photoLng+"&format=json&zoom=10");
+        const rd=await rg.json();
+        const a=rd.address||{};
+        const city=a.city||a.town||a.village||a.hamlet||a.county||"";
+        const state=a.state_code||a.state||"";
+        if(city) g=city+(state?", "+state:"")+" ("+coords+")";
+      }catch{}
+    }
     setForm(f=>({...f,time:t,gps:g}));
     // Fetch conditions from photo date/location
     if(fetchLat&&fetchLng){
