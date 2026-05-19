@@ -2988,79 +2988,21 @@ function TripPlanner({defaultLocation}){
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
-        // No gauge data passed to report — streams come from fly shop reports only, not USGS list
         try{
-          // Step 1: web search for current conditions (returns prose - that's fine)
-          const searchTxt=await askClaude(`Search fly shop websites for fishing reports near ${loc.label} for ${new Date(date+"T12:00:00").toLocaleString("en-US",{month:"long",year:"numeric"})}. Search for "[nearest city] fly shop fishing report" and "fly fishing conditions [region] [month]". Find any fly shop report that mentions specific streams with current conditions. Report everything you find — stream names, conditions, flies, CFS if mentioned. Be thorough.`,true,2000);
-          // Use full search text - the format call will extract streams from it
-          const cleanSearch = searchTxt;
-          addStep("Fetching live stream flows…","active");
-          // Step 1.5: extract stream names and fetch real USGS flows for each
-          let liveFlows="";
-          try{
-            // Extract stream names from search results
-            // Extract stream names mentioned in the search results
-            const streamWords=["Creek","River","Fork","Run","Platte","Arkansas","Colorado","Roaring Fork","Cache","Poudre","Fryingpan","Gunnison","Yampa","Animas","Dolores","Green","San Juan"];
-            const streamNames=[...new Set((cleanSearch.match(/[A-Z][a-zA-Z]+ (?:Creek|River|Fork|Run|Branch)/g)||[]).map(s=>s.trim()))].slice(0,4);
-            if(streamNames.length>0){
-              // Fetch flows for each stream using USGS site search
-              const flowResults=await Promise.all(streamNames.slice(0,4).map(async name=>{
-                try{
-                  const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${loc.label.split(",").pop().trim().slice(0,2).toLowerCase()}&siteNameMatchOperator=contains&siteNameFilter=${encodeURIComponent(name.split("(")[0].trim())}&parameterCd=00060&siteStatus=active`);
-                  const d=await r.json();
-                  const ts=(d.value?.timeSeries||[]);
-                  if(!ts.length) return null;
-                  const best=ts.sort((a,b)=>{
-                    const aName=(a.sourceInfo?.siteName||"").toLowerCase();
-                    const bName=(b.sourceInfo?.siteName||"").toLowerCase();
-                    const query=name.toLowerCase();
-                    return(bName.includes(query.split(" ")[0])?1:0)-(aName.includes(query.split(" ")[0])?1:0);
-                  })[0];
-                  const cfs=parseFloat(best?.values?.[0]?.value?.[0]?.value);
-                  const siteName=best?.sourceInfo?.siteName||name;
-                  if(!isNaN(cfs)) return `${siteName}: ${cfs.toFixed(0)} CFS`;
-                  return null;
-                }catch{return null;}
-              }));
-              const validFlows=flowResults.filter(Boolean);
-              if(validFlows.length>0) liveFlows="\nLIVE USGS FLOWS (fetched right now): "+validFlows.join(" | ");
-            }
-          }catch(fe){console.log("flow fetch error:",fe.message);}
-          addStep("Conditions found, formatting report…","active");
-          // Step 2: format into JSON (no web search, pure formatting - always returns JSON)
-          const formatTxt=await askClaude(`You are an expert fly fishing guide and forecaster for ${loc.label}. Current weather: ${wxData?`${Math.round(wxData.current?.temperature_2m||0)}°F, wind ${Math.round(wxData.current?.wind_speed_10m||0)}mph`:"unknown"}.${liveFlows} This year's snowpack has been low — flows may be lower than historical averages for this date. Use the live flow numbers above as ground truth, not historical averages.
+          const reportTxt=await askClaude(`Search fly shop websites for current fishing reports near ${loc.label} for ${ds}. Find streams mentioned in actual shop reports. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
 
-Output ONLY a raw JSON object — start with { and end with }, no preamble, no explanation, no markdown.
-
-The research below contains fly shop findings — extract every stream name mentioned and write a full expert forecast for each one combining: what the shop says now + current flow levels + today's weather + your knowledge of historical patterns on that stream at these conditions.
-
-NEVER refuse or write "insufficient data" or "contact local shops". Always produce a complete actionable report. If only one stream has shop data, write a thorough forecast for that one stream.
-
-The conditions field must include a forecast — not just current state. Example: "Flows at 87 CFS and climbing — prime window before runoff. At these levels, fish concentrate in soft seams below riffles. This window typically lasts 3-5 days before flows blow out."
-
-{"overview":"summary","recommendation":"best bet","rivers":[{"name":"name","cfs":"cfs","conditions":"conditions+forecast","techniques":"techniques","flies":["fly #size","fly #size","fly #size"]}],"hatches":"hatches","bestTimes":"best times","tips":"tip","flyBoxEssentials":["fly #size","fly #size","fly #size","fly #size"]}
-
-Research:
-`+cleanSearch.slice(0,2000),false,2000);
+Respond with ONLY this JSON structure, no other text, no markdown fences:
+{"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow if known","conditions":"conditions and forecast","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatches active now","bestTimes":"best times today","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,3000);
           let rpt=null;
-          const cleanFmt=formatTxt.replace(/```json|```/g,"").trim();
-          try{rpt=JSON.parse(cleanFmt);}catch{}
-          if(!rpt)rpt=extractJSON(cleanFmt);
-          if(!rpt){const s=cleanFmt.indexOf("{"),e=cleanFmt.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(cleanFmt.slice(s,e+1));}catch{}}
+          const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
+          try{rpt=JSON.parse(clean);}catch{}
+          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
+          if(!rpt)rpt=extractJSON(reportTxt);
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({overview:rpt.overview||"",recommendation:rpt.recommendation||"",rivers:rpt.rivers||[],hatches:rpt.hatches||"",bestTimes:rpt.bestTimes||"",tips:rpt.tips||"",flyBoxEssentials:rpt.flyBoxEssentials||[]});
           } else {
-            console.log("Format call output:", formatTxt.slice(0,300)); console.log("cleanFmt:", cleanFmt.slice(0,300)); const testS=cleanFmt.indexOf("{"),testE=cleanFmt.lastIndexOf("}"); console.log("JSON slice:", cleanFmt.slice(testS,testS+100));
-            // JSON failed - try one more time with a simpler prompt
-            try{
-              const retryTxt=await askClaude("Output ONLY a valid JSON object, nothing else, no markdown fences. Start your response with { and end with }:\n"+cleanSearch.slice(0,1500),false,1500);
-              const s2=retryTxt.indexOf("{"),e2=retryTxt.lastIndexOf("}");
-              if(s2!==-1&&e2>s2){
-                const rpt2=JSON.parse(retryTxt.slice(s2,e2+1));
-                if(rpt2.overview||rpt2.rivers){setReport({overview:rpt2.overview||"",recommendation:rpt2.recommendation||"",rivers:rpt2.rivers||[],hatches:rpt2.hatches||"",bestTimes:rpt2.bestTimes||"",tips:rpt2.tips||"",flyBoxEssentials:rpt2.flyBoxEssentials||[]});return;}
-              }
-            }catch(re){console.log("retry failed:",re.message);}
-            setReport({overview:cleanSearch.slice(0,600).replace(/[#*]/g,""),recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
+            const stripped=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").replace(/^#+\s*/gm,"").replace(/\*\*/g,"").trim();
+            setReport({overview:stripped.slice(0,600),recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
           }
         }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
