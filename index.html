@@ -3598,7 +3598,7 @@ function App({user}){
       g=coords; // show coords immediately
       // Reverse geocode to get town name
       try{
-        const rg=await fetch("https://nominatim.openstreetmap.org/reverse?lat="+photoLat+"&lon="+photoLng+"&format=json&zoom=10");
+        const rg=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:"https://nominatim.openstreetmap.org/reverse?lat="+photoLat+"&lon="+photoLng+"&format=json&zoom=10"})});
         const rd=await rg.json();
         const a=rd.address||{};
         const city=a.city||a.town||a.village||a.hamlet||a.county||"";
