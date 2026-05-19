@@ -3184,36 +3184,9 @@ Context: `+reportTxt.slice(0,800),false,2000);
   );
 }
 
-// ── GPS Location display — reverse geocodes coords to town name ───────────────
+// ── GPS Location display ──────────────────────────────────────────────────────
 function GpsLocation({gps}){
-  const [label, setLabel] = React.useState(gps);
-  React.useEffect(()=>{
-    if(!gps) return;
-    // Parse coords from string like "39.9764°N, 105.0996°W" or "39.9764, -105.0996"
-    const m = gps.match(/([\d.]+)[°]?\s*([NS])[\s,]+([\d.]+)[°]?\s*([EW])/);
-    const m2 = gps.match(/([-\d.]+)\s*,\s*([-\d.]+)/);
-    let lat, lng;
-    if(m){ lat=parseFloat(m[1])*(m[2]==="S"?-1:1); lng=parseFloat(m[3])*(m[4]==="W"?-1:1); }
-    else if(m2){ lat=parseFloat(m2[1]); lng=parseFloat(m2[2]); }
-    else return;
-    if(isNaN(lat)||isNaN(lng)) return;
-    // Check sessionStorage cache
-    const cacheKey="gps_"+lat.toFixed(3)+"_"+lng.toFixed(3);
-    const cached=sessionStorage.getItem(cacheKey);
-    if(cached){setLabel(cached);return;}
-    fetch("https://nominatim.openstreetmap.org/reverse?lat="+lat+"&lon="+lng+"&format=json&addressdetails=1")
-      .then(r=>r.json())
-      .then(d=>{
-        const a=d.address||{};
-        const city=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
-        const state=a.state_code||a.state||"";
-        const coords=Math.abs(lat).toFixed(4)+"°"+(lat>=0?"N":"S")+", "+Math.abs(lng).toFixed(4)+"°"+(lng>=0?"E":"W");
-        const result=city&&state?city+", "+state+" ("+coords+")":city||(state||coords);
-        sessionStorage.setItem(cacheKey, result);
-        setLabel(result);
-      }).catch(()=>{});
-  },[gps]);
-  return <span>{label}</span>;
+  return <span>{gps}</span>;
 }
 
 
@@ -3620,20 +3593,7 @@ function App({user}){
     const fetchLng=photoLng??loc?.lng;
     const now=new Date();
     const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    let g=photoGps||(fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded");
-    // Reverse geocode to get town name when we have coords
-    if(fetchLat&&fetchLng){
-      try{
-        const rg=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${fetchLat}&lon=${fetchLng}&format=json&addressdetails=1`);
-        const rd=await rg.json();
-        const a=rd.address||{};
-        const city=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
-        const state=a.state_code||a.state||"";
-        const coords=fmtCoord(fetchLat,fetchLng);
-        if(city) g=`${city}${state?", "+state:""} (${coords})`;
-        else g=coords;
-      }catch{g=fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded";}
-    }
+    const g=photoGps||(fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded");
     setForm(f=>({...f,time:t,gps:g}));
     // Fetch conditions from photo date/location
     if(fetchLat&&fetchLng){
