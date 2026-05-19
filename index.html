@@ -215,8 +215,8 @@ function parseExif(buffer){
                   const ge=gpsIFDOffset+2+g*12;
                   const gtag=get16(ge);
                   const gvo=ge+8;
-                  if(gtag===1) latRef=getString(get32(gvo)>4?get32(gvo):gvo-tiffOffset,1)||"N";
-                  if(gtag===3) lngRef=getString(get32(gvo)>4?get32(gvo):gvo-tiffOffset,1)||"W";
+                  if(gtag===1){const v=view.getUint8(tiffOffset+gvo);latRef=v===78?"N":v===83?"S":"N";}
+                  if(gtag===3){const v=view.getUint8(tiffOffset+gvo);lngRef=v===69?"E":v===87?"W":"W";}
                   if(gtag===2){const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
                   if(gtag===4){const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
                 }
@@ -224,6 +224,7 @@ function parseExif(buffer){
                   result.lat=latRef==="S"?-latD:latD;
                   result.lng=lngRef==="W"?-lngD:lngD;
                   result.gps=Math.abs(result.lat).toFixed(4)+"°"+(result.lat>=0?"N":"S")+", "+Math.abs(result.lng).toFixed(4)+"°"+(result.lng>=0?"E":"W");
+                  console.log("EXIF GPS found:",result.gps,"latRef:",latRef,"lngRef:",lngRef);
                 }
               }
             }
