@@ -957,15 +957,30 @@ const TIMEFRAMES = [
 function GaugeChart({siteNo, siteName, initialCFS}){
   const [days, setDays]     = useState(30);
   const [points, setPoints] = useState([]);
+  const [histAvg, setHistAvg] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(()=>{
     if(!siteNo) return;
     setLoading(true);
+    // Fetch current year data
     fetchUSGSRange(siteNo, days).then(pts=>{
       setPoints(pts);
       setLoading(false);
     });
+    // Fetch prior year same period for historical average
+    (async()=>{
+      try{
+        const e=new Date(); e.setFullYear(e.getFullYear()-1);
+        const s=new Date(e); s.setDate(s.getDate()-days);
+        const fmt=d=>d.toISOString().split("T")[0];
+        const url="https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003";
+        const r=await fetch(url); const d=await r.json();
+        const ts=d.value?.timeSeries?.[0]?.values?.[0]?.value||[];
+        const avg=ts.map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<500000);
+        setHistAvg(avg);
+      }catch{}
+    })();
   },[siteNo, days]);
 
   // SVG chart
@@ -1014,6 +1029,13 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         })}
         <polygon points={areaPts} fill={`url(#fg-${siteNo})`}/>
         <polyline points={linePts} fill="none" stroke="#b8d4dc" strokeWidth="1.5" strokeLinejoin="round"/>
+        {histAvg.length>1&&(()=>{
+          const hvals=histAvg.map(p=>p.v);
+          const hpx=i=>PL+(i/(histAvg.length-1))*iW;
+          const hpy=v=>PT+iH-((v-minV)/range)*iH;
+          const hpts=histAvg.map((p,i)=>`${hpx(i)},${hpy(p.v)}`).join(" ");
+          return <polyline points={hpts} fill="none" stroke="rgba(200,168,75,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
+        })()}
         <circle cx={dotX} cy={dotY} r="3" fill="#c8a84b"/>
         <text x={dotX+4} y={dotY+4} fontSize="9" fill="#c8a84b">
           {lastPt.v>=1000?`${(lastPt.v/1000).toFixed(1)}k`:Math.round(lastPt.v)}
@@ -1040,6 +1062,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           </button>
         ))}
       </div>
+      {histAvg.length>0&&<div style={{display:"flex",gap:12,marginBottom:6,fontSize:10,color:"var(--stone)",alignItems:"center"}}><span style={{display:"inline-block",width:16,height:2,background:"#b8d4dc",verticalAlign:"middle"}}></span>This year<span style={{display:"inline-block",width:16,height:2,background:"rgba(200,168,75,0.6)",borderTop:"1px dashed rgba(200,168,75,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev year avg</div>}
       {loading&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
       {!loading&&points.length>0&&renderChart()}
       {!loading&&points.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
@@ -3038,13 +3061,7 @@ Respond with ONLY this JSON structure, no other text, no markdown fences:
         </div>
       )}
 
-      {gauges.length>0&&!busy&&(
-        <div className="card">
-          <div className="ctitle">💧 Stream Gauges</div>
-          <div className="csub">Nearest gauges · tap to see flow history</div>
-          <GaugeList gauges={gauges}/>
-        </div>
-      )}
+
 
 
 
@@ -3086,14 +3103,24 @@ Respond with ONLY this JSON structure, no other text, no markdown fences:
             </div>
           )}
           {report.rivers?.length>0&&<><div className="divider"/>
-            {report.rivers.map((r,i)=>(
+            {report.rivers.map((r,i)=>{
+              // Find matching gauge by name similarity
+              const matchedGauge=gauges.find(g=>{
+                const gn=(g.name||"").toLowerCase();
+                const rn=(r.name||"").toLowerCase();
+                const words=rn.split(/[\s,()]+/).filter(w=>w.length>3);
+                return words.some(w=>gn.includes(w));
+              });
+              return(
               <div className="rb" key={i}>
-                <div className="rriver">🏞 {r.name}</div>
+                <div className="rriver">🏞 {r.name}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:12,color:"var(--sky)",marginLeft:8,fontStyle:"normal"}}>· {r.cfs}</span>}</div>
                 <div className="rbody">{r.conditions}</div>
                 {r.techniques&&<div className="rtech">{r.techniques}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
+                {matchedGauge?.siteNo&&<GaugeChart siteNo={matchedGauge.siteNo} siteName={r.name} initialCFS={matchedGauge.cfs}/>}
               </div>
-            ))}
+              );
+            })}
           </>}
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
