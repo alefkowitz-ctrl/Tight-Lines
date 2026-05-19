@@ -3584,30 +3584,31 @@ function App({user}){
       const exif=parseExif(abuf);
       photoTime=exif.time;photoGps=exif.gps;photoLat=exif.lat??null;photoLng=exif.lng??null;
     }catch{}
+    const fetchLat=photoLat??loc?.lat;
+    const fetchLng=photoLng??loc?.lng;
     const now=new Date();
     const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    // Only use EXIF GPS — never fall back to current device location
-    const g=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"Location not recorded";
+    const g=photoGps||(fetchLat?fmtCoord(fetchLat,fetchLng):"Location not recorded");
     setForm(f=>({...f,time:t,gps:g}));
     // Fetch conditions from photo date/location
-    if(photoLat&&photoLng){
+    if(fetchLat&&fetchLng){
       try{
         let dateStr=null,hourStr="12";
         const d2=new Date(t.replace(" at "," "));
         if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
         const today=new Date().toISOString().split("T")[0];
         if(dateStr&&dateStr<today){
-          const conds=await fetchHistoricalConditions(photoLat,photoLng,dateStr,hourStr);
+          const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
           if(conds) setForm(f=>({...f,...{airTemp:conds.airTemp,weatherDesc:conds.weatherDesc,windSpeed:conds.windSpeed,windDir:conds.windDir,pressure:conds.pressure,streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName}}));
         } else {
-          const[wx,usgs]=await Promise.all([fetchWeather(photoLat,photoLng),fetchUSGSLive(photoLat,photoLng)]);
+          const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
           const c=wx.current;
           const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
           setForm(f=>({...f,airTemp:String(Math.round(c.temperature_2m)),weatherDesc:WX_DESC[c.weather_code]||"",windSpeed:String(Math.round(c.wind_speed_10m)),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg}));
           const ts2=(usgs.value?.timeSeries)??[];
           if(ts2.length){
             const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name,lat:photoLat,lng:photoLng}));
+            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name}));
           }
         }
       }catch(e2){console.log("Conditions fetch failed:",e2.message);}
