@@ -1485,16 +1485,16 @@ function GuideSeasonLog({guests}){
 
 // ── Guide Saved Gauges ────────────────────────────────────────────────────────
 function GuideSavedGauges({user}){
-  const [gaugeInput,setGaugeInput]=React.useState("");
-  const [savedGauges,setSavedGauges]=React.useState([]);
-  const [gaugeAdding,setGaugeAdding]=React.useState(false);
-  const [sgData,setSgData]=React.useState([]);
-  const [loading,setLoading]=React.useState(true);
-  React.useEffect(()=>{
+  const [gaugeInput,setGaugeInput]=useState("");
+  const [savedGauges,setSavedGauges]=useState([]);
+  const [gaugeAdding,setGaugeAdding]=useState(false);
+  const [sgData,setSgData]=useState([]);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
     if(!sb||!user?.id){setLoading(false);return;}
     sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{setSavedGauges(data||[]);setLoading(false);}).catch(()=>setLoading(false));
   },[user?.id]);
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!savedGauges.length){setSgData([]);return;}
     Promise.all(savedGauges.map(async g=>{
       try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
@@ -1577,7 +1577,7 @@ function GuideBook({user, loc}){
     }
   }
   // Clear any stale cache from previous sessions to force fresh Supabase load
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(user?.id){
       // Show cache while loading
       try{
@@ -2743,11 +2743,11 @@ function GuideBook({user, loc}){
 
 // ── Upcoming Trips ────────────────────────────────────────────────────────────
 function UpcomingTrips({user}){
-  const [trips, setTrips] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+  const [trips, setTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().split("T")[0];
 
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!sb||!user?.email){ setLoading(false); return; }
     async function load(){
       const {data:guests}=await sb.from("guests").select("id,name").ilike("email",user.email);
@@ -2797,12 +2797,12 @@ function UpcomingTrips({user}){
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 // ── Stream Gauge Chart — looks up USGS gauge by stream name ──────────────────
 function StreamGaugeChart({streamName, localGauges}){
-  const [siteNo, setSiteNo] = React.useState(null);
-  const [siteName, setSiteName] = React.useState("");
-  const [cfs, setCfs] = React.useState(null);
-  const [tried, setTried] = React.useState(false);
+  const [siteNo, setSiteNo] = useState(null);
+  const [siteName, setSiteName] = useState("");
+  const [cfs, setCfs] = useState(null);
+  const [tried, setTried] = useState(false);
 
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!streamName||tried) return;
     setTried(true);
 
@@ -3046,7 +3046,7 @@ Context: `+reportTxt.slice(0,800),false,2000);
 
 
 function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh}){
-  const [open,setOpen]=React.useState(true);
+  const [open,setOpen]=useState(true);
   return(
     <div className="card">
       <div className="ctitle" style={{cursor:"pointer",userSelect:"none"}} onClick={()=>setOpen(o=>!o)}>
@@ -3073,8 +3073,8 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh}){
 }
 
 function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,setGaugeInput,gaugeAdding,addSavedGauge,removeSavedGauge,fetchSavedGaugeData,cfsLabel}){
-  const [sgData,setSgData]=React.useState([]);
-  React.useEffect(()=>{
+  const [sgData,setSgData]=useState([]);
+  useEffect(()=>{
     if(!savedGauges.length) return;
     Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
   },[savedGauges.length]);
@@ -3117,14 +3117,14 @@ function App({user}){
   const [editingCatchId,setEditingCatchId]=useState(null);
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
-  React.useEffect(()=>{
+  useEffect(()=>{
     window._setLightbox=setLightboxPhoto;
     return()=>{window._setLightbox=null;};
   },[setLightboxPhoto]);
 
 
   // Lightbox via DOM - avoids JSX nesting issues
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!lightboxPhoto){
       const el=document.getElementById("gc-lightbox");
       if(el) el.remove();
@@ -3146,7 +3146,7 @@ function App({user}){
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
   // Auto-detect user location on every load (cached loc shows immediately, then refreshes)
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(async pos=>{
       const{latitude:lat,longitude:lng}=pos.coords;
@@ -3234,7 +3234,7 @@ function App({user}){
   const [condReportLoading,setCondReportLoading]=useState(false);
 
   // Load saved gauges from Supabase
-  React.useEffect(()=>{
+  useEffect(()=>{
     if(!sb||!user||String(user.id).startsWith("local")) return;
     sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data,error})=>{
       if(data) setSavedGauges(data);
