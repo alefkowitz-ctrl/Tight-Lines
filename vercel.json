@@ -1,6 +1,9 @@
 {
-  "buildCommand": null,
-  "outputDirectory": ".",
-  "installCommand": "echo skip",
-  "framework": null
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {"source": "/api/(.*)", "destination": "/api/$1"},
+    {"source": "/(.*)", "destination": "/index.html"}
+  ]
 }
