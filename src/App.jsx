@@ -595,6 +595,14 @@ function locIcon(item){
   return"📍";
 }
 
+function GpsLocation({gps}){
+  if(!gps)return null;
+  const nums=gps.match(/-?\d+\.?\d*/g);
+  if(!nums||nums.length<2)return <span>{gps}</span>;
+  const lat=nums[0],lng=nums[1];
+  return <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer">{gps}</a>;
+}
+// ── SVG Flow Chart ────────────────────────────────────────────────────────────
 // ── SVG Flow Chart ────────────────────────────────────────────────────────────
 function FlowChart({points,label}){
   if(!points||points.length<2)return null;
