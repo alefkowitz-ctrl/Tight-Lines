@@ -3323,38 +3323,35 @@ function App({user}){
   }
 
   async function fetchCondShops(label, lat, lng){
-    if(!label) return;
+    if(!label||!lat||!lng) return;
     setCondShopsLoading(true);
     setCondShops([]);
     try{
-      const coordStr=lat&&lng?" near coordinates "+lat.toFixed(4)+","+lng.toFixed(4):"";
-      // Step 1: web search
-      const searchRes=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:1500,
-        tools:[{type:"web_search_20250305",name:"web_search"}],
-        messages:[{role:"user",content:"Search for fly fishing specialty shops and outfitters within 60 miles of "+label+coordStr+". Find shops in nearby towns too. Only dedicated fly shops, not Bass Pro or Cabelas. List each shop with name, address, city, phone, website, and approximate distance from "+label+"."}]
-      })});
-      const searchData=await searchRes.json();
-      if(searchData.error) throw new Error(searchData.error.message||"Search failed");
-      const searchTxt=(searchData.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
-      if(!searchTxt){setCondShopsLoading(false);return;}
-      // Step 2: format into JSON
-      const formatRes=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",max_tokens:800,
-        messages:[{role:"user",content:'Extract fly shops from this text into a JSON array. Output ONLY the raw JSON array, no explanation, no markdown. Format: [{"name":"","address":"","city":"","state":"","distanceMiles":0,"website":"","phone":"","specialty":""}]\n\n'+searchTxt}]
-      })});
-      const formatData=await formatRes.json();
-      if(formatData.error) throw new Error(formatData.error.message||"Format failed");
-      const txt=(formatData.content||[]).map(b=>b.text||"").filter(Boolean).join("").trim();
-      const clean=txt.replace(/```json|```/g,"").trim();
-      const start=clean.indexOf("["),stop=clean.lastIndexOf("]");
-      if(start!==-1&&stop>start){
-        try{
-          const parsed=JSON.parse(clean.slice(start,stop+1));
-          if(Array.isArray(parsed)&&parsed.length>0){setCondShops(parsed.slice(0,6));setCondShopsLoading(false);return;}
-        }catch(pe){console.log("shops parse failed:",pe.message);}
-      }
-    }catch(e){console.log("fly shops failed:",e.message);}
+      const rad=0.9; // ~60 miles in degrees
+      const bbox=`${lat-rad},${lng-rad},${lat+rad},${lng+rad}`;
+      const query=`[out:json][timeout:25];(node["shop"="outdoor"]["sport"="fishing"](${bbox});node["shop"="fishing"](${bbox});node["leisure"="fishing"](${bbox});way["shop"="outdoor"]["sport"="fishing"](${bbox}););out body;`;
+      const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(query)});
+      const data=await res.json();
+      const shops=(data.elements||[]).map(el=>{
+        const t=el.tags||{};
+        const name=t.name||t["name:en"]||"Fly Shop";
+        const addr=[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" ");
+        const city=t["addr:city"]||"";
+        const state=t["addr:state"]||"";
+        const phone=t.phone||t["contact:phone"]||"";
+        const website=t.website||t["contact:website"]||t.url||"";
+        const slat=el.lat||(el.center&&el.center.lat)||0;
+        const slng=el.lon||(el.center&&el.center.lon)||0;
+        const dist=Math.round(Math.sqrt(Math.pow(slat-lat,2)+Math.pow(slng-lng,2))*69);
+        return{name,address:addr,city,state,phone,website,specialty:"Fly Fishing",distanceMiles:dist,lat:slat,lng:slng};
+      }).filter(s=>s.name&&s.name!=="Fly Shop").sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,8);
+      if(shops.length>0){setCondShops(shops);setCondShopsLoading(false);return;}
+      // Fallback: Google Maps search link
+      setCondShops([{name:"Search Google Maps",address:"",city:"",state:"",phone:"",website:`https://www.google.com/maps/search/fly+fishing+shop+near+${encodeURIComponent(label)}`,specialty:"Tap to search for fly shops near "+label,distanceMiles:0}]);
+    }catch(e){
+      console.log("fly shops failed:",e.message);
+      setCondShops([{name:"Search Google Maps",address:"",city:"",state:"",phone:"",website:`https://www.google.com/maps/search/fly+fishing+shop+near+${encodeURIComponent(label)}`,specialty:"Tap to search for fly shops near "+label,distanceMiles:0}]);
+    }
     setCondShopsLoading(false);
   }
 
@@ -3417,7 +3414,7 @@ function App({user}){
         return{name,cfs,label,cls,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
       }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000)
         .sort((a,b)=>a.dist-b.dist)
-        .slice(0,50);
+        .slice(0,10);
       // Fetch per-site historical max in parallel, fallback to relative scaling
               // Skip stat API (returns 400 for most sites) — use relative scaling
         const maxCFS=Math.max(...rawParsed.map(x=>x.cfs||0),1);
