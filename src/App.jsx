@@ -1007,7 +1007,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
   const [expanded, setExpanded] = useState(null);
   return(
     <div>
-      {(showStarredOnly&&isStarred?gauges.filter(g=>isStarred(g.siteNo)):gauges).map((g,i)=>(
+      {(showStarredOnly&&isStarred?gauges.filter(g=>isStarred(g.siteNo)):gauges||[]).map((g,i)=>(
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
             {g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<span style={{fontSize:10,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
@@ -3206,7 +3206,7 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
       </div>
       {gaugeLoading&&<div className="loading">Loading gauges…</div>}
       {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
-      {open&&!gaugeLoading&&<GaugeList gauges={gauges} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly}/>}
+      {open&&!gaugeLoading&&<GaugeList gauges={gauges} isStarred={isStarred||null} toggleStar={toggleStar||null} showStarredOnly={showStarredOnly||false}/>}
       {!open&&!gaugeLoading&&gauges.length>0&&(
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
           {gauges.slice(0,5).map((g,i)=>(
