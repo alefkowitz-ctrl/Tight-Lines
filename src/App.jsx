@@ -3206,6 +3206,48 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
 
 
 
+
+function PhotoJournal({catches,onPhotoClick}){
+  const [search,setSearch]=React.useState("");
+  const withPhotos=catches.filter(c=>c.photo);
+  if(withPhotos.length===0) return <div className="empty"><div className="ei">📷</div><p>No photos yet.<br/>Add a photo when logging a catch!</p></div>;
+  const groups={};
+  withPhotos.forEach(c=>{
+    const key=c.streamGaugeName?c.streamGaugeName.split(" ").slice(0,4).join(" "):(c.gps&&c.gps!=="Location not recorded"?"Near "+c.gps.slice(0,12):"Unknown Location");
+    if(!groups[key])groups[key]=[];
+    groups[key].push(c);
+  });
+  const filtered=Object.entries(groups).filter(([k])=>!search||k.toLowerCase().includes(search.toLowerCase())||groups[k].some(c2=>(c2.species||"").toLowerCase().includes(search.toLowerCase())));
+  return(
+    <div>
+      <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by river or species…" style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 12px",color:"var(--foam)",fontSize:13}}/>
+        {search&&<button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:16}}>✕</button>}
+      </div>
+      <div style={{fontSize:12,color:"var(--stone)",marginBottom:12}}>{withPhotos.length} photos · {Object.keys(groups).length} locations</div>
+      {filtered.map(([loc,lc])=>(
+        <div key={loc} style={{marginBottom:20}}>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+            <span>🏞 {loc}</span>
+            <span style={{fontSize:11,color:"var(--stone)",fontFamily:"sans-serif"}}>{lc.length} photo{lc.length>1?"s":""}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+            {lc.map((c2,i)=>(
+              <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo)}>
+                <img src={c2.photo} alt={c2.species} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px"}}>
+                  <div style={{fontSize:10,color:"white",fontFamily:"'Crimson Pro',serif"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {filtered.length===0&&<div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",textAlign:"center",padding:20}}>No results for "{search}"</div>}
+    </div>
+  );
+}
+
 function CatchPatterns({catches}){
   const [view,setView]=React.useState("monthly");
   if(!catches||catches.length<3) return null;
@@ -3403,6 +3445,7 @@ function App({user}){
   const [lastUpd,setLastUpd]=useState(null);
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
+  const [catchLogTab,setCatchLogTab]=useState("list");
   const [catchSummary,setCatchSummary]=useState(null);
   const [summaryLoading,setSummaryLoading]=useState(false);
 
@@ -3958,6 +4001,10 @@ ${shopPins}
 
           {tab==="log"&&<>
             <div className="lhdr" style={{flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setCatchLogTab("list")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="list"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
+                <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="photos"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
+              </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
                 <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
@@ -4073,9 +4120,9 @@ ${shopPins}
                 </div>
               );
             })()}
-            <CatchPatterns catches={catches}/>
-          {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
-            {catches.map(c=>(
+            {catchLogTab==="photos"?<PhotoJournal catches={catches} onPhotoClick={setLightboxPhoto}/>:<CatchPatterns catches={catches}/>}
+          {catchLogTab==="list"&&catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
+            {catchLogTab==="list"&&catches.map(c=>(
               <div className="cc" key={c.id}>
                 {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
