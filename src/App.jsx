@@ -3418,6 +3418,8 @@ function App({user}){
     }catch{setGaugeError("Could not load stream data.");}
     finally{setGaugeLoading(false);}
     // AI report loads on demand to keep initial load fast
+    // Pre-fetch fly shops in background
+    if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
   }
 
   async function handlePhoto(e){
