@@ -709,6 +709,55 @@ function RegsLink({label}){
 }
 
 
+
+function HatchMatcher({loc, waterTemp, gauges}){
+  const [result,setResult]=React.useState(null);
+  const [loading,setLoading]=React.useState(false);
+  const [open,setOpen]=React.useState(false);
+  async function runMatcher(){
+    if(!loc) return;
+    setLoading(true);setOpen(true);setResult(null);
+    const mo=new Date().getMonth();
+    const HL={0:"Midge, BWO",1:"Midge, BWO",2:"Midge, BWO, Skwala",3:"BWO, Skwala, March Brown",4:"PMD, Caddis, Green Drake",5:"Green Drake, PMD, Salmonfly, Caddis",6:"Caddis, PMD, Yellow Sally, Trico",7:"Hopper, Trico, Caddis",8:"Hopper, Trico, BWO",9:"BWO, Hopper, Mahogany Dun",10:"BWO, Midge, Mahogany Dun",11:"Midge, BWO"};
+    const month=new Date().toLocaleString("en-US",{month:"long"});
+    const nearestTemp=waterTemp||(gauges||[]).find(g=>g.waterTempF)?.waterTempF;
+    const tempNote=nearestTemp?"Water temp: "+nearestTemp+"F. ":"";
+    const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
+    const prompt="Fly fishing hatch matcher. Location: "+loc.label+". Month: "+month+". "+tempNote+"Nearby flows: "+(cfs||"unknown")+". Typical hatches: "+HL[mo]+". Identify 3 most likely active hatches NOW with best matching flies. Consider: BWO/midges thrive 45-55F, PMDs/caddis 55-65F, hoppers/tricos above 65F. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[],timing,notes}]}";
+    try{
+      const txt=await askClaude(prompt,false,800);
+      const parsed=extractJSON(txt);
+      if(parsed && parsed.hatches) setResult(parsed.hatches);
+    }catch(e){console.log("hatch matcher failed:",e.message);}
+    setLoading(false);
+  }
+  return(
+    React.createElement('div',{className:"card"},
+      React.createElement('div',{className:"ctitle",style:{cursor:"pointer",userSelect:"none"},onClick:()=>open?setOpen(false):runMatcher()},
+        "🪲 Hatch Matcher",
+        React.createElement('span',{style:{fontSize:12,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}},open?"▲ collapse":"▼ match hatches"),
+        loc&&React.createElement('button',{className:"rfsh",onClick:e=>{e.stopPropagation();runMatcher();}},"↻")
+      ),
+      React.createElement('div',{className:"csub"},"AI-matched hatches based on water temp, flows & season"),
+      loading&&React.createElement('div',{className:"loading"},"Matching hatches…"),
+      open&&!loading&&result&&result.map((h,i)=>
+        React.createElement('div',{key:i,style:{padding:"10px 0",borderBottom:i<result.length-1?"1px solid rgba(255,255,255,0.06)":"none"}},
+          React.createElement('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+            React.createElement('span',{style:{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}},h.name),
+            React.createElement('span',{style:{fontSize:11,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(200,168,75,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
+          ),
+          React.createElement('div',{style:{fontSize:11,color:"var(--stone)",marginBottom:6}},"Water: "+h.waterTempRange+" · "+h.timing),
+          React.createElement('div',{style:{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}},
+            (h.flies||[]).map((f,j)=>React.createElement('a',{key:j,className:"chip",href:"https://www.google.com/search?q="+encodeURIComponent(f+" fly pattern")+"&tbm=isch",target:"_blank",rel:"noreferrer",style:{textDecoration:"none",cursor:"pointer"}},"🪶 "+f))
+          ),
+          h.notes&&React.createElement('div',{style:{fontSize:12,color:"var(--sky)",fontStyle:"italic"}},h.notes)
+        )
+      ),
+      open&&!loading&&!result&&React.createElement('div',{style:{fontSize:13,color:"var(--stone)",fontStyle:"italic"}},"Tap refresh to match hatches for current conditions.")
+    )
+  );
+}
+
 function HatchList({hatches}){
   const [selHatch, setSelHatch] = useState(null);
   return(
@@ -3726,6 +3775,7 @@ ${shopPins}
               </div>
             )}
             <RegsLink label={loc?.label}/>
+            <HatchMatcher loc={loc} waterTemp={null} gauges={gauges}/>
             <div className="card">
               <div className="ctitle">🪲 This Month's Hatches</div>
               <HatchList hatches={hatches}/>
