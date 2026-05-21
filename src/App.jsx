@@ -3344,13 +3344,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
       </div>
       {showAddGauge&&(
         <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
-            placeholder="USGS site # or waterdata.usgs.gov URL"
-            style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
-          <button onClick={addSavedGauge} disabled={gaugeAdding}
-            style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
-            {gaugeAdding?"…":"Save"}
-          </button>
+
         </div>
       )}
       {sgData.map((g,i)=>(
