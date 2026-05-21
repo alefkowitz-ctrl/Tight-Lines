@@ -3016,13 +3016,13 @@ Context: `+reportTxt.slice(0,800),false,2000);
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">Synthesized from current web reports</div>
-          <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.overview}</p>
+          <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{(report.overview||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
           {report.recommendation&&(
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
               <span style={{fontSize:20,flexShrink:0}}>🏆</span>
               <div>
                 <div style={{fontSize:11,color:"#9cd47a",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Best Bet Today</div>
-                <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.6}}>{report.recommendation}</p>
+                <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.6}}>{(report.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
               </div>
             </div>
           )}
@@ -3031,8 +3031,8 @@ Context: `+reportTxt.slice(0,800),false,2000);
               return(
               <div className="rb" key={i}>
                 <div className="rriver">🏞 {r.name}{r.cfs&&r.cfs!=="unknown"&&r.cfs!=="variable - check USGS"&&<span style={{fontSize:12,color:"var(--sky)",marginLeft:8,fontStyle:"normal"}}>· {r.cfs}</span>}</div>
-                <div className="rbody">{r.conditions}</div>
-                {r.techniques&&<div className="rtech">{r.techniques}</div>}
+                <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
+                {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
                 <StreamGaugeChart streamName={r.name} localGauges={gauges}/>
               </div>
