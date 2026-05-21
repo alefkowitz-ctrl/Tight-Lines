@@ -138,6 +138,7 @@ function AuthScreen(){
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tempPoints, setTempPoints] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -906,11 +907,20 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         const e=new Date(); e.setFullYear(e.getFullYear()-1);
         const s=new Date(e); s.setDate(s.getDate()-days);
         const fmt=d=>d.toISOString().split("T")[0];
-        const url="https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003";
-        const r=await fetch(url); const d=await r.json();
-        const ts=d.value?.timeSeries?.[0]?.values?.[0]?.value||[];
+        const [flowRes,tempRes]=await Promise.all([
+          fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003"),
+          fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00010&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003")
+        ]);
+        const flowD=await flowRes.json();
+        const ts=flowD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
         const avg=ts.map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<500000);
         setHistAvg(avg);
+        try{
+          const tempD=await tempRes.json();
+          const tts=tempD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
+          const temps=tts.map(v=>({t:v.dateTime,v:parseFloat(v.value)*9/5+32})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<100);
+          setTempPoints(temps);
+        }catch{}
       }catch{}
     })();
   },[siteNo, days]);
@@ -932,6 +942,18 @@ function GaugeChart({siteNo, siteName, initialCFS}){
     const xIdxs=[0,Math.floor(points.length/2),points.length-1];
     const yTicks=[minV,(minV+maxV)/2,maxV];
 
+    // Temp line (secondary y-axis scaled independently)
+    const tempLine=tempPoints.length>1?(()=>{
+      const tVals=tempPoints.map(p=>p.v);
+      const tMin=Math.min(...tVals),tMax=Math.max(...tVals),tRange=tMax-tMin||1;
+      const tStart=new Date(points[0].t).getTime(),tEnd=new Date(points[points.length-1].t).getTime(),tSpan=tEnd-tStart||1;
+      const tPts=tempPoints.map(p=>{
+        const tx=PL+((new Date(p.t).getTime()-tStart)/tSpan)*iW;
+        const ty=PT+iH-((p.v-tMin)/tRange)*iH;
+        return tx+","+ty;
+      }).join(" ");
+      return tPts;
+    })():null;
     // Current value dot
     const lastPt=points[points.length-1];
     const dotX=PL+iW, dotY=py(lastPt.v);
@@ -961,6 +983,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         })}
         <polygon points={areaPts} fill={`url(#fg-${siteNo})`}/>
         <polyline points={linePts} fill="none" stroke="#b8d4dc" strokeWidth="1.5" strokeLinejoin="round"/>
+        {tempLine&&<polyline points={tempLine} fill="none" stroke="rgba(255,100,100,0.7)" strokeWidth="1.5" strokeLinejoin="round"/>}
         {histAvg.length>1&&(()=>{
           const hvals=histAvg.map(p=>p.v);
           const hpx=i=>PL+(i/(histAvg.length-1))*iW;
@@ -994,7 +1017,11 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           </button>
         ))}
       </div>
-      {histAvg.length>0&&<div style={{display:"flex",gap:12,marginBottom:6,fontSize:10,color:"var(--stone)",alignItems:"center"}}><span style={{display:"inline-block",width:16,height:2,background:"#b8d4dc",verticalAlign:"middle"}}></span>This year<span style={{display:"inline-block",width:16,height:2,background:"rgba(200,168,75,0.6)",borderTop:"1px dashed rgba(200,168,75,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev year avg</div>}
+      <div style={{display:"flex",gap:12,marginBottom:6,fontSize:10,color:"var(--stone)",alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{display:"inline-block",width:16,height:2,background:"#b8d4dc",verticalAlign:"middle"}}></span>Flow (CFS)
+        {histAvg.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(200,168,75,0.6)",borderTop:"1px dashed rgba(200,168,75,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev avg</>}
+        {tempPoints.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(255,100,100,0.7)",verticalAlign:"middle",marginLeft:8}}></span>Water Temp (°F)</>}
+      </div>
       {loading&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
       {!loading&&points.length>0&&renderChart()}
       {!loading&&points.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
