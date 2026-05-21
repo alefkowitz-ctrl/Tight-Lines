@@ -3374,6 +3374,7 @@ function App({user}){
   const camRef=useRef(),galRef=useRef();
 
   const [savedGauges,setSavedGauges]=useState([]);
+  const [showStarredOnly,setShowStarredOnly]=useState(false);
   const [showAddGauge,setShowAddGauge]=useState(false);
   const [gaugeInput,setGaugeInput]=useState("");
   const [gaugeAdding,setGaugeAdding]=useState(false);
