@@ -3142,7 +3142,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
       setSearching(true);
       try{
         const lat2=loc?.lat||39.7;const lng2=loc?.lng||-105;
-        const pad=3;
+        const pad=1.5;
         const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${(lng2-pad).toFixed(2)},${(lat2-pad).toFixed(2)},${(lng2+pad).toFixed(2)},${(lat2+pad).toFixed(2)}&parameterCd=00060&siteStatus=active&siteType=ST`;
         const r=await fetch(url);
         const d=await r.json();
