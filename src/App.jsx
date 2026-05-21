@@ -3377,7 +3377,7 @@ function App({user}){
       })});
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
-      if(txt) setCondReport(txt);
+      if(txt) setCondReport(txt.replace(/<cite[^>]*>|<\/cite>/g,""));
     }catch(e){console.log("cond report failed:",e.message);}
     setCondReportLoading(false);
   }
