@@ -3235,6 +3235,7 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
 
 function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,setGaugeInput,gaugeAdding,addSavedGauge,removeSavedGauge,fetchSavedGaugeData,cfsLabel}){
   const [sgData,setSgData]=useState([]);
+  const [expanded,setExpanded]=useState(null);
   useEffect(()=>{
     if(!savedGauges.length) return;
     Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
@@ -3251,15 +3252,19 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
         </div>
       )}
       {sgData.map((g,i)=>(
-        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+        <div key={i} style={{borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div>
             <div style={{fontSize:13,color:"var(--foam)"}}>{g.name||g.site_no}</div>
             <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
-            <button onClick={()=>removeSavedGauge(g.id)} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
+            <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
+            <span style={{fontSize:10,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
           </div>
+        </div>
+        {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
         </div>
       ))}
     </div>
