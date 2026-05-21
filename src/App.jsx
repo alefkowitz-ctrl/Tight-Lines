@@ -4003,11 +4003,7 @@ ${shopPins}
 
 function SplashScreen({onDone}){
   const [fade,setFade]=React.useState(false);
-  React.useEffect(()=>{
-    const t1=setTimeout(()=>setFade(true),3500);
-    const t2=setTimeout(()=>onDone(),4200);
-    return()=>{clearTimeout(t1);clearTimeout(t2);};
-  },[]);
+  function dismiss(){setFade(true);setTimeout(()=>onDone(),700);}
   return(
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'linear-gradient(170deg,#0d1f26 0%,#1a3a4a 50%,#0d2a1f 100%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:9999,transition:'opacity 0.7s',opacity:fade?0:1,pointerEvents:fade?'none':'all',padding:'32px 24px'}}>
       <svg viewBox="0 0 340 180" width="340" height="180" style={{marginBottom:24}}>
@@ -4049,6 +4045,7 @@ function SplashScreen({onDone}){
         <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are stored privately and encrypted in your account and never shared. We will also never sell any of your data to third-parties.</p>
         <div style={{marginTop:12,fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",fontStyle:'italic'}}>Tight lines! 🪶</div>
       </div>
+      <button onClick={dismiss} style={{marginTop:28,background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Let's Fish →</button>
     </div>
   );
 }
