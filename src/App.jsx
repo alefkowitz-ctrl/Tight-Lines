@@ -3053,6 +3053,65 @@ Context: `+reportTxt.slice(0,800),false,2000);
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 
+function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
+  const [results,setResults]=useState([]);
+  const [searching,setSearching]=useState(false);
+  const timerRef=useRef(null);
+  async function search(val){
+    setGaugeInput(val);
+    if(!val.trim()){setResults([]);return;}
+    // If looks like a site number or URL, don't search
+    if(val.match(/^[0-9]{5,}$/)||val.includes("usgs.gov")){setResults([]);return;}
+    clearTimeout(timerRef.current);
+    timerRef.current=setTimeout(async()=>{
+      setSearching(true);
+      try{
+        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${loc?.label?.split(",")[1]?.trim()||"CO"}&parameterCd=00060&siteStatus=active`;
+        const r=await fetch(url);
+        const d=await r.json();
+        const ts=(d.value?.timeSeries)??[];
+        const q=val.toLowerCase();
+        const matches=ts.filter(t=>(t.sourceInfo?.siteName||"").toLowerCase().includes(q))
+          .slice(0,6)
+          .map(t=>({
+            name:t.sourceInfo?.siteName||"",
+            siteNo:t.sourceInfo?.siteCode?.[0]?.value||"",
+            lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
+            lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0)
+          }));
+        setResults(matches);
+      }catch(e){}
+      setSearching(false);
+    },500);
+  }
+  return(
+    <div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={gaugeInput} onChange={e=>search(e.target.value)}
+          placeholder="Search river name or paste site #"
+          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+        {gaugeInput.match(/^[0-9]{5,}$/)&&<button onClick={onAdd} disabled={gaugeAdding}
+          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+          {gaugeAdding?"…":"Save"}
+        </button>}
+      </div>
+      {searching&&<div style={{fontSize:11,color:"var(--stone)",marginTop:4}}>Searching…</div>}
+      {results.map((r,i)=>(
+        <div key={i} onClick={()=>{setGaugeInput(r.siteNo);setResults([]);}}
+          style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
+          <div>
+            <div style={{fontSize:12,color:"var(--foam)"}}>{r.name}</div>
+            <div style={{fontSize:11,color:"var(--stone)"}}>#{r.siteNo}</div>
+          </div>
+          {r.lat&&r.lng&&<a href={`https://maps.google.com/?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
+            onClick={e=>e.stopPropagation()}
+            style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>📍 Map</a>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh}){
   const [open,setOpen]=useState(true);
   return(
@@ -3584,16 +3643,8 @@ function App({user}){
                 {showAddGauge?(
                   <div className="card">
                     <div style={{fontSize:13,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
-                    <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Paste a USGS site number or waterdata.usgs.gov URL for any stream not showing above.</div>
-                    <div style={{display:"flex",gap:6}}>
-                      <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
-                        placeholder="e.g. 06729500 or full URL"
-                        style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
-                      <button onClick={addSavedGauge} disabled={gaugeAdding}
-                        style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
-                        {gaugeAdding?"…":"Save"}
-                      </button>
-                    </div>
+                    <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Search by river name or paste a USGS site number.</div>
+                    <GaugeSearch loc={loc} onAdd={addSavedGauge} gaugeInput={gaugeInput} setGaugeInput={setGaugeInput} gaugeAdding={gaugeAdding}/>
                     <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:11,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
                   </div>
                 ):(
