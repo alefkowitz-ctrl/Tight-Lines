@@ -3129,60 +3129,29 @@ Context: `+reportTxt.slice(0,800),false,2000);
 
 
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
-  const [results,setResults]=useState([]);
-  const [searching,setSearching]=useState(false);
-  const timerRef=useRef(null);
-  async function search(val){
-    setGaugeInput(val);
-    if(!val.trim()){setResults([]);return;}
-    // If looks like a site number or URL, don't search
-    if(val.match(/^[0-9]{5,}$/)||val.includes("usgs.gov")){setResults([]);return;}
-    clearTimeout(timerRef.current);
-    timerRef.current=setTimeout(async()=>{
-      setSearching(true);
-      try{
-        const lat2=loc?.lat||39.7;const lng2=loc?.lng||-105;
-        const pad=1.5;
-        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${(lng2-pad).toFixed(2)},${(lat2-pad).toFixed(2)},${(lng2+pad).toFixed(2)},${(lat2+pad).toFixed(2)}&parameterCd=00060&siteStatus=active&siteType=ST`;
-        const r=await fetch(url);
-        const d=await r.json();
-        const ts=(d.value?.timeSeries)??[];
-        const q=val.toLowerCase();
-        const matches=ts.filter(t=>(t.sourceInfo?.siteName||"").toLowerCase().includes(q)).slice(0,6)
-          .map(t=>({
-            name:t.sourceInfo?.siteName||"",
-            siteNo:t.sourceInfo?.siteCode?.[0]?.value||"",
-            lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
-            lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0)
-          }));
-        // Also include matches from already-loaded nearby gauges
-        const nearbyMatches=(window._loadedGauges||[])
-          .filter(g=>(g.name||"").toLowerCase().includes(q)&&!matches.find(m=>m.siteNo===g.siteNo))
-          .slice(0,4)
-          .map(g=>({name:g.name,siteNo:g.siteNo,lat:g.lat,lng:g.lng}));
-        setResults([...matches,...nearbyMatches]);
-      }catch(e){console.log("gauge search error:",e.message);}
-      setSearching(false);
-    },500);
-  }
+  const q=(gaugeInput||"").toLowerCase().trim();
+  const loadedGauges=window._loadedGauges||[];
+  const results=q.length>=2&&!q.match(/^[0-9]+$/)
+    ?loadedGauges.filter(g=>(g.name||"").toLowerCase().includes(q)).slice(0,6)
+    :[];
   return(
     <div>
       <div style={{display:"flex",gap:6}}>
-        <input value={gaugeInput} onChange={e=>search(e.target.value)}
-          placeholder="Search river name or paste site #"
+        <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
+          placeholder="Search loaded streams or paste site #"
           style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
         {gaugeInput.match(/^[0-9]{5,}$/)&&<button onClick={onAdd} disabled={gaugeAdding}
           style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
           {gaugeAdding?"…":"Save"}
         </button>}
       </div>
-      {searching&&<div style={{fontSize:11,color:"var(--stone)",marginTop:4}}>Searching…</div>}
+      {results.length===0&&q.length>=2&&!q.match(/^[0-9]+$/)&&<div style={{fontSize:11,color:"var(--stone)",marginTop:4,fontStyle:"italic"}}>No matches in loaded gauges. Try a USGS site # from waterdata.usgs.gov</div>}
       {results.map((r,i)=>(
-        <div key={i} onClick={()=>{setGaugeInput(r.siteNo);setResults([]);}}
+        <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
           <div>
             <div style={{fontSize:12,color:"var(--foam)"}}>{r.name}</div>
-            <div style={{fontSize:11,color:"var(--stone)"}}>#{r.siteNo}</div>
+            <div style={{fontSize:11,color:"var(--stone)"}}>#{r.siteNo} · {r.distMi}mi away</div>
           </div>
           {r.lat&&r.lng&&<a href={`https://maps.google.com/?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
             onClick={e=>e.stopPropagation()}
@@ -3193,115 +3162,6 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   );
 }
 
-
-function CatchPatterns({catches}){
-  const [view,setView]=React.useState("monthly");
-  if(!catches||catches.length<3) return null;
-
-  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-  // Monthly catch counts
-  const monthly=Array(12).fill(0);
-  catches.forEach(c=>{
-    const d=new Date(c.time?.replace(" at "," ")||c.created_at||"");
-    if(!isNaN(d)) monthly[d.getMonth()]++;
-  });
-  const maxMonthly=Math.max(...monthly,1);
-
-  // Species breakdown
-  const speciesCounts={};
-  catches.forEach(c=>{if(c.species)speciesCounts[c.species]=(speciesCounts[c.species]||0)+1;});
-  const topSpecies=Object.entries(speciesCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  const maxSp=topSpecies[0]?.[1]||1;
-
-  // Top flies
-  const flyCounts={};
-  catches.forEach(c=>(c.flies||[]).forEach(f=>{if(f)flyCounts[f]=(flyCounts[f]||0)+1;}));
-  const topFlies=Object.entries(flyCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-  // Best months by species
-  const spByMonth={};
-  catches.forEach(c=>{
-    const d=new Date(c.time?.replace(" at "," ")||"");
-    if(!isNaN(d)&&c.species){
-      const mo=d.getMonth();
-      if(!spByMonth[mo]) spByMonth[mo]={};
-      spByMonth[mo][c.species]=(spByMonth[mo][c.species]||0)+1;
-    }
-  });
-
-  // Avg length by species
-  const lengthBySpecies={};
-  catches.forEach(c=>{
-    if(c.species&&c.length){
-      const l=parseFloat(c.length);
-      if(!isNaN(l)){
-        if(!lengthBySpecies[c.species]) lengthBySpecies[c.species]={sum:0,count:0};
-        lengthBySpecies[c.species].sum+=l;
-        lengthBySpecies[c.species].count++;
-      }
-    }
-  });
-
-  return(
-    <div className="card">
-      <div className="ctitle">📊 Catch Patterns</div>
-      <div className="csub">{catches.length} catches analyzed</div>
-      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {[["monthly","By Month"],["species","By Species"],["flies","Top Flies"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setView(v)} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:view===v?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
-        ))}
-      </div>
-
-      {view==="monthly"&&(
-        <div>
-          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80,marginBottom:8}}>
-            {monthly.map((n,i)=>(
-              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                <div style={{width:"100%",background:n>0?"linear-gradient(180deg,var(--sky),var(--water))":"rgba(255,255,255,0.06)",borderRadius:"3px 3px 0 0",height:Math.max(n/maxMonthly*70,n>0?4:2)+"px",transition:"height .4s"}}/>
-                {n>0&&<span style={{fontSize:9,color:"var(--sky)"}}>{n}</span>}
-              </div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:3}}>
-            {MONTHS.map((m,i)=><div key={i} style={{flex:1,fontSize:9,color:"var(--stone)",textAlign:"center"}}>{m}</div>)}
-          </div>
-          <div style={{marginTop:12,fontSize:12,color:"var(--stone)"}}>
-            Best month: <span style={{color:"var(--gold)"}}>{MONTHS[monthly.indexOf(Math.max(...monthly))]}</span> · {Math.max(...monthly)} catches
-          </div>
-        </div>
-      )}
-
-      {view==="species"&&(
-        <div>
-          {topSpecies.map(([sp,n])=>(
-            <div key={sp} style={{marginBottom:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{fontSize:12,color:"var(--foam)"}}>{sp}</span>
-                <span style={{fontSize:11,color:"var(--sky)"}}>{n} caught{lengthBySpecies[sp]?" · avg "+Math.round(lengthBySpecies[sp].sum/lengthBySpecies[sp].count)+'"':""}</span>
-              </div>
-              <div style={{height:6,background:"rgba(0,0,0,0.3)",borderRadius:3,overflow:"hidden"}}>
-                <div style={{width:(n/maxSp*100)+"%",height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:3,transition:"width .5s"}}/>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {view==="flies"&&(
-        <div>
-          {topFlies.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No fly data recorded yet.</div>}
-          {topFlies.map(([fly,n],i)=>(
-            <div key={fly} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<topFlies.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-              <a href={"https://www.google.com/search?q="+encodeURIComponent(fly+" fly pattern")+"&tbm=isch"} target="_blank" rel="noreferrer" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>🪶 {fly}</a>
-              <span style={{fontSize:11,color:"var(--stone)"}}>{n}x</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,toggleStar,showStarredOnly,setShowStarredOnly}){
   const [open,setOpen]=useState(true);
