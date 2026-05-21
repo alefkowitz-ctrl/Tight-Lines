@@ -2125,7 +2125,7 @@ function GuideBook({user, loc}){
         <input className="inp" type="email" placeholder="john@email.com" value={guestForm.email} onChange={e=>setGuestForm(f=>({...f,email:e.target.value}))}/>
         <label className="lbl">Phone</label>
         <input className="inp" type="tel" placeholder="(555) 555-5555" value={guestForm.phone} onChange={e=>{
-          const digits=e.target.value.replace(/[^0-9]/g,"").slice(0,10);
+          const digits=e.target.value.replace(/[^0-9]/g,"").slice(0,25);
           let fmt=digits;
           if(digits.length>=7) fmt="("+digits.slice(0,3)+") "+digits.slice(3,6)+"-"+digits.slice(6);
           else if(digits.length>=4) fmt="("+digits.slice(0,3)+") "+digits.slice(3);
