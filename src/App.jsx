@@ -2625,7 +2625,7 @@ function GuideBook({user, loc}){
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],airTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div></div><input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/></div><div><div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
                           <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.streamCFS||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],streamCFS:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
@@ -3265,7 +3265,7 @@ function App({user}){
     if(!sb){ setCatchesLoading(false); return; }
     sb.from("catches").select("*").eq("user_id",user.id).order("created_at",{ascending:false})
       .then(({data,error})=>{
-        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||""})));
+        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||"",waterTemp:r.water_temp!=null?String(r.water_temp):""})));
         setCatchesLoading(false);
       });
   },[user]);
@@ -3280,7 +3280,7 @@ function App({user}){
         air_temp:updates.airTemp, weather_desc:updates.weatherDesc,
         wind_speed:updates.windSpeed, wind_dir:updates.windDir,
         pressure:updates.pressure, stream_cfs:updates.streamCFS,
-        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName
+        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName, water_temp:updates.waterTemp
       }).eq("id",id);
     }catch(e){ console.log("updateCatch failed:",e); }
   }
@@ -3307,7 +3307,7 @@ function App({user}){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
-  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null};
+  const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null,waterTemp:""};
   const [form,setForm]=useState(blank);
   const camRef=useRef(),galRef=useRef();
 
@@ -3537,7 +3537,7 @@ function App({user}){
           const ts2=(usgs.value?.timeSeries)??[];
           if(ts2.length){
             const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name}));
+            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""}));
           }
         }
       }catch(e2){console.log("Conditions fetch failed:",e2.message);}
@@ -3559,7 +3559,7 @@ function App({user}){
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,air_temp:form.airTemp||null,weather_desc:form.weatherDesc||null,wind_speed:form.windSpeed||null,wind_dir:form.windDir||null,pressure:form.pressure||null,stream_cfs:form.streamCFS||null,stream_condition:form.streamCondition||null,stream_gauge_name:form.streamGaugeName||null};
+    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,air_temp:form.airTemp||null,weather_desc:form.weatherDesc||null,wind_speed:form.windSpeed||null,wind_dir:form.windDir||null,pressure:form.pressure||null,stream_cfs:form.streamCFS||null,stream_condition:form.streamCondition||null,stream_gauge_name:form.streamGaugeName||null,water_temp:form.waterTemp||null};
     addCatch(catchData);
     setForm(blank);setAddOpen(false);
   }
@@ -3766,7 +3766,7 @@ ${shopPins}
                   if(summaryLoading) return;
                   setSummaryLoading(true);setCatchSummary(null);
                   try{
-                    const data=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" using "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" "+c.airTemp+"°F":""}${c.streamCFS?" | "+c.streamCFS+" CFS":""}`).join("\n");
+                    const data=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" using "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" "+c.airTemp+"°F":""}${c.streamCFS?" | "+c.streamCFS+" CFS":""}${c.waterTemp?" | "+c.waterTemp+"°F water":""}`).join("\n");
                     const txt=await askClaude(`Fly fishing catch data:\n${data}\n\nAnalyze and provide a 2-3 paragraph trend summary covering: best species/sizes, patterns in location/time/conditions/flies, and 2-3 actionable recommendations. Be specific with numbers. Plain text only.`,false,600);
                     setCatchSummary(txt);
                   }catch(e){setCatchSummary("Could not generate summary.");}
@@ -3873,6 +3873,7 @@ ${shopPins}
 })()}
                   {(c.streamGaugeName||c.streamCFS||c.airTemp||c.weatherDesc)&&(
                     <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+                      {c.waterTemp&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
                       {c.streamGaugeName&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
                       {c.streamCFS&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS {c.streamCondition?("· "+c.streamCondition):""}</span>}
                       {c.airTemp&&<span style={{fontSize:10,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
