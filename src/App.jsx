@@ -3145,7 +3145,18 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           {gaugeAdding?"…":"Save"}
         </button>}
       </div>
-      {results.length===0&&q.length>=2&&!q.match(/^[0-9]+$/)&&<div style={{fontSize:11,color:"var(--stone)",marginTop:4,fontStyle:"italic"}}>No matches in loaded gauges. Try a USGS site # from waterdata.usgs.gov</div>}
+      {results.length===0&&q.length>=2&&!q.match(/^[0-9]+$/)&&(
+        <div style={{marginTop:8,background:"rgba(200,168,75,0.1)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:12,color:"var(--gold)",marginBottom:4,fontWeight:600}}>Stream not found in nearby gauges</div>
+          <div style={{fontSize:11,color:"var(--stone)",lineHeight:1.6}}>
+            To add any stream:<br/>
+            1. Go to <a href="https://waterdata.usgs.gov/nwis/rt" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>waterdata.usgs.gov</a><br/>
+            2. Search for your stream<br/>
+            3. Copy the 8-digit site number<br/>
+            4. Paste it in the field above and tap Save
+          </div>
+        </div>
+      )}
       {results.map((r,i)=>(
         <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
