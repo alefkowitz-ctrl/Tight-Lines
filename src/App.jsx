@@ -3238,6 +3238,7 @@ function App({user}){
   const [gaugeAdding,setGaugeAdding]=useState(false);
   const [condShops,setCondShops]=useState([]);
   const [condShopsLoading,setCondShopsLoading]=useState(false);
+  const shopsCache=useRef({});
   const [condReport,setCondReport]=useState(null);
   const [condReportLoading,setCondReportLoading]=useState(false);
 
@@ -3324,6 +3325,7 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
+    if(shopsCache.current[label]){setCondShops(shopsCache.current[label]);return;}
     setCondShopsLoading(true);
     setCondShops([]);
     try{
@@ -3336,7 +3338,7 @@ function App({user}){
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
       const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){setCondShops(p.slice(0,8));setCondShopsLoading(false);return;}}
+      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const r=p.slice(0,8);shopsCache.current[label]=r;setCondShops(r);setCondShopsLoading(false);return;}}
     }catch(err){console.log('shops failed:',err.message);}
     setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
     setCondShopsLoading(false);
