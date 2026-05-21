@@ -2674,7 +2674,11 @@ function GuideBook({user, loc}){
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],airTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div></div><input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/></div><div><div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.waterTemp||""} onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],waterTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
                           <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.streamCFS||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],streamCFS:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
