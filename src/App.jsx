@@ -891,6 +891,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
   const [days, setDays]     = useState(30);
   const [points, setPoints] = useState([]);
   const [histAvg, setHistAvg] = useState([]);
+  const [tempPoints, setTempPoints] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(()=>{
@@ -943,7 +944,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
     const yTicks=[minV,(minV+maxV)/2,maxV];
 
     // Temp line (secondary y-axis scaled independently)
-    const tempLine=tempPoints.length>1?(()=>{
+    const tempLine=tempPoints&&tempPoints.length>1?(()=>{
       const tVals=tempPoints.map(p=>p.v);
       const tMin=Math.min(...tVals),tMax=Math.max(...tVals),tRange=tMax-tMin||1;
       const tStart=new Date(points[0].t).getTime(),tEnd=new Date(points[points.length-1].t).getTime(),tSpan=tEnd-tStart||1;
