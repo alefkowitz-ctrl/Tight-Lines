@@ -3359,18 +3359,56 @@ function App({user}){
     }catch(e){ console.log("updateCatch failed:",e); }
   }
 
+  async function syncOfflineCatches(){
+    if(!sb||!user) return;
+    const queue=JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');
+    if(!queue.length) return;
+    const remaining=[];
+    for(const item of queue){
+      try{
+        // Auto-fill conditions from cached data at catch time if missing
+        const cached=JSON.parse(localStorage.getItem('tl_cached_conditions')||'{}');
+        if(cached.weather&&!item.air_temp) item.air_temp=String(cached.weather.temp);
+        if(cached.weather&&!item.weather_desc) item.weather_desc=cached.weather.desc;
+        if(cached.gauges?.length&&!item.stream_cfs){
+          const g=cached.gauges[0];
+          item.stream_cfs=String(Math.round(g.cfs||0));
+          item.stream_condition=g.label||"";
+          item.stream_gauge_name=g.name||"";
+          if(g.waterTempF) item.water_temp=String(g.waterTempF);
+        }
+        const{data,error}=await sb.from('catches').insert({user_id:user.id,...item}).select().single();
+        if(!error&&data){
+          // Update local catch with real id and remove pending flag
+          setCatches(cs=>cs.map(c2=>c2._offlineId===item._offlineId?{...c2,id:data.id,_pending:false,_offlineId:undefined}:c2));
+        } else {
+          remaining.push(item);
+        }
+      }catch{remaining.push(item);}
+    }
+    localStorage.setItem('tl_sync_queue',JSON.stringify(remaining));
+    setSyncQueue(remaining);
+  }
+
   async function addCatch(catchData){
     // Upload photo to storage first, fall back to null if it fails
     if(catchData.photo&&catchData.photo.startsWith("data:")){
       const url=await uploadPhotoToStorage(catchData.photo,"catches");
       catchData={...catchData,photo:url||null}; // don't store huge base64 in DB
     }
-    if(!sb){ setCatches(c=>[{id:"local-"+Date.now(),...catchData},...c]); return; }
-    console.log("addCatch: inserting for user",user.id,"species",catchData.species);
+    if(!sb||!isOnline){
+      // Offline — save to queue and show immediately with pending badge
+      const offlineId="offline-"+Date.now();
+      const offlineItem={...catchData,_offlineId:offlineId,_pending:true,id:offlineId};
+      setCatches(cs=>[offlineItem,...cs]);
+      const queue=JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');
+      queue.push({...catchData,_offlineId:offlineId});
+      localStorage.setItem('tl_sync_queue',JSON.stringify(queue));
+      setSyncQueue(queue);
+      return;
+    }
     const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
-    console.log("addCatch result: data=",data?.id,"error=",error?.message);
     if(error){
-      console.log("Catch insert error:",error.message,"code:",error.code);
       alert("Catch save failed: "+error.message);
     } else if(data){
       setCatches(c=>[{...catchData,id:data.id},...c]);
@@ -3394,6 +3432,24 @@ function App({user}){
   const [condShopsLoading,setCondShopsLoading]=useState(false);
   const [condReport,setCondReport]=useState(null);
   const [condReportLoading,setCondReportLoading]=useState(false);
+  const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [syncQueue,setSyncQueue]=useState(()=>{try{return JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');}catch{return[];}});
+
+  // Listen for online/offline events
+  useEffect(()=>{
+    const goOnline=()=>{setIsOnline(true);syncOfflineCatches();};
+    const goOffline=()=>setIsOnline(false);
+    window.addEventListener('online',goOnline);
+    window.addEventListener('offline',goOffline);
+    return()=>{window.removeEventListener('online',goOnline);window.removeEventListener('offline',goOffline);};
+  },[]);
+
+  // Cache conditions to localStorage when loaded
+  useEffect(()=>{
+    if(weather&&loc){
+      try{localStorage.setItem('tl_cached_conditions',JSON.stringify({weather,gauges,loc,cachedAt:Date.now()}));}catch{}
+    }
+  },[weather,gauges]);
 
   // Load saved gauges from Supabase
   useEffect(()=>{
@@ -3660,6 +3716,9 @@ function App({user}){
   return(
     <div className="app">
       <div className="bgbar"/>
+      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:12,color:"white",fontFamily:"'Crimson Pro',serif"}}>
+        📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
+      </div>}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
       <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhoto}/>
 
@@ -3947,7 +4006,10 @@ ${shopPins}
               <div className="cc" key={c.id}>
                 {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
-                  <div className="csp">{c.species}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div className="csp">{c.species}</div>
+                    {c._pending&&<span style={{fontSize:9,background:"rgba(200,100,50,0.3)",border:"1px solid rgba(200,100,50,0.5)",borderRadius:10,padding:"1px 6px",color:"#ff9966"}}>⏳ Syncing</span>}
+                  </div>
                   <div className="cm">
                     {c.length&&<span className="cmi">📏 {c.length}"</span>}
                     <span className="cmi">🕐 {c.time}</span>
