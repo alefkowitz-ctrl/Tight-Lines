@@ -3619,6 +3619,7 @@ function App({user}){
                       🎣 {weather.pressureNote}
                     </div>
                   )}
+                  {(()=>{const m=getMoonPhase();return <div style={{marginTop:10,padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:22}}>{m.emoji}</span><div><div style={{fontSize:13,color:"var(--foam)"}}>{m.name}</div><div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>🎣 {m.fishingNote}</div></div></div>;})()}
                   {wxForecast&&<>
                     <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
                       <WeekForecast data={wxForecast}/>
@@ -3655,10 +3656,7 @@ function App({user}){
               </div>
               <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)}/>
             </>}
-            <div className="card">
-              <div className="ctitle">🌙 Moon Phase</div>
-              <MoonCard/>
-            </div>
+            
 
             {loc&&(
               <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
