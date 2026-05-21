@@ -3697,11 +3697,7 @@ ${shopPins}
                 <div className="ctitle">🪝 Nearby Fly Shops</div>
                 <div className="csub">Dedicated fly shops near {loc.label}</div>
                 {condShopsLoading&&<div className="loading">Searching…</div>}
-                {!condShopsLoading&&condShops.length===0&&(
-                  <button onClick={()=>fetchCondShops(loc.label,loc.lat,loc.lng)} className="btn btnp" style={{width:"100%",marginTop:4}}>
-                    🔍 Find Nearby Fly Shops
-                  </button>
-                )}
+                {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>Loading nearby shops…</div>}
                 {condShops.map((s,i)=>(
                   <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
                     <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
