@@ -3141,11 +3141,14 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
     timerRef.current=setTimeout(async()=>{
       setSearching(true);
       try{
-        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=all&parameterCd=00060&siteStatus=active&siteType=ST&siteName=${encodeURIComponent(val)}`;
+        const lat2=loc?.lat||39.7;const lng2=loc?.lng||-105;
+        const pad=2;
+        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${(lng2-pad).toFixed(2)},${(lat2-pad).toFixed(2)},${(lng2+pad).toFixed(2)},${(lat2+pad).toFixed(2)}&parameterCd=00060&siteStatus=active&siteType=ST`;
         const r=await fetch(url);
         const d=await r.json();
         const ts=(d.value?.timeSeries)??[];
-        const matches=ts.slice(0,6)
+        const q=val.toLowerCase();
+        const matches=ts.filter(t=>(t.sourceInfo?.siteName||"").toLowerCase().includes(q)).slice(0,6)
           .map(t=>({
             name:t.sourceInfo?.siteName||"",
             siteNo:t.sourceInfo?.siteCode?.[0]?.value||"",
