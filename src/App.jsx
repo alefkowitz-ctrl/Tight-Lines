@@ -3142,7 +3142,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
       setSearching(true);
       try{
         const lat2=loc?.lat||39.7;const lng2=loc?.lng||-105;
-        const pad=2;
+        const pad=3;
         const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${(lng2-pad).toFixed(2)},${(lat2-pad).toFixed(2)},${(lng2+pad).toFixed(2)},${(lat2+pad).toFixed(2)}&parameterCd=00060&siteStatus=active&siteType=ST`;
         const r=await fetch(url);
         const d=await r.json();
@@ -3155,8 +3155,13 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
             lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
             lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0)
           }));
-        setResults(matches);
-      }catch(e){}
+        // Also include matches from already-loaded nearby gauges
+        const nearbyMatches=(window._loadedGauges||[])
+          .filter(g=>(g.name||"").toLowerCase().includes(q)&&!matches.find(m=>m.siteNo===g.siteNo))
+          .slice(0,4)
+          .map(g=>({name:g.name,siteNo:g.siteNo,lat:g.lat,lng:g.lng}));
+        setResults([...matches,...nearbyMatches]);
+      }catch(e){console.log("gauge search error:",e.message);}
       setSearching(false);
     },500);
   }
@@ -3672,7 +3677,7 @@ function App({user}){
         const{label,cls}=cfsLabel(g.cfs,null);
         return{...g,pct,histMax:null,waterTempF,label,cls};
       });
-      setGauges(parsed);
+      setGauges(parsed);window._loadedGauges=parsed;
       setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
     }catch{setGaugeError("Could not load stream data.");}
     finally{setGaugeLoading(false);}
