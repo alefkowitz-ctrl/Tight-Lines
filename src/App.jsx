@@ -1596,6 +1596,7 @@ function GuideSavedGauges({user}){
   const [showStarredOnly,setShowStarredOnly]=useState(false);
   const [gaugeAdding,setGaugeAdding]=useState(false);
   const [sgData,setSgData]=useState([]);
+  const [expanded,setExpanded]=useState(null);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
     if(!sb||!user?.id){setLoading(false);return;}
