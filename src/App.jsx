@@ -3189,6 +3189,116 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   );
 }
 
+
+function CatchPatterns({catches}){
+  const [view,setView]=React.useState("monthly");
+  if(!catches||catches.length<3) return null;
+
+  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // Monthly catch counts
+  const monthly=Array(12).fill(0);
+  catches.forEach(c=>{
+    const d=new Date(c.time?.replace(" at "," ")||c.created_at||"");
+    if(!isNaN(d)) monthly[d.getMonth()]++;
+  });
+  const maxMonthly=Math.max(...monthly,1);
+
+  // Species breakdown
+  const speciesCounts={};
+  catches.forEach(c=>{if(c.species)speciesCounts[c.species]=(speciesCounts[c.species]||0)+1;});
+  const topSpecies=Object.entries(speciesCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxSp=topSpecies[0]?.[1]||1;
+
+  // Top flies
+  const flyCounts={};
+  catches.forEach(c=>(c.flies||[]).forEach(f=>{if(f)flyCounts[f]=(flyCounts[f]||0)+1;}));
+  const topFlies=Object.entries(flyCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // Best months by species
+  const spByMonth={};
+  catches.forEach(c=>{
+    const d=new Date(c.time?.replace(" at "," ")||"");
+    if(!isNaN(d)&&c.species){
+      const mo=d.getMonth();
+      if(!spByMonth[mo]) spByMonth[mo]={};
+      spByMonth[mo][c.species]=(spByMonth[mo][c.species]||0)+1;
+    }
+  });
+
+  // Avg length by species
+  const lengthBySpecies={};
+  catches.forEach(c=>{
+    if(c.species&&c.length){
+      const l=parseFloat(c.length);
+      if(!isNaN(l)){
+        if(!lengthBySpecies[c.species]) lengthBySpecies[c.species]={sum:0,count:0};
+        lengthBySpecies[c.species].sum+=l;
+        lengthBySpecies[c.species].count++;
+      }
+    }
+  });
+
+  return(
+    <div className="card">
+      <div className="ctitle">📊 Catch Patterns</div>
+      <div className="csub">{catches.length} catches analyzed</div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {[["monthly","By Month"],["species","By Species"],["flies","Top Flies"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setView(v)} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:view===v?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
+        ))}
+      </div>
+
+      {view==="monthly"&&(
+        <div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80,marginBottom:8}}>
+            {monthly.map((n,i)=>(
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <div style={{width:"100%",background:n>0?"linear-gradient(180deg,var(--sky),var(--water))":"rgba(255,255,255,0.06)",borderRadius:"3px 3px 0 0",height:Math.max(n/maxMonthly*70,n>0?4:2)+"px",transition:"height .4s"}}/>
+                {n>0&&<span style={{fontSize:9,color:"var(--sky)"}}>{n}</span>}
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:3}}>
+            {MONTHS.map((m,i)=><div key={i} style={{flex:1,fontSize:9,color:"var(--stone)",textAlign:"center"}}>{m}</div>)}
+          </div>
+          <div style={{marginTop:12,fontSize:12,color:"var(--stone)"}}>
+            Best month: <span style={{color:"var(--gold)"}}>{MONTHS[monthly.indexOf(Math.max(...monthly))]}</span> · {Math.max(...monthly)} catches
+          </div>
+        </div>
+      )}
+
+      {view==="species"&&(
+        <div>
+          {topSpecies.map(([sp,n])=>(
+            <div key={sp} style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:12,color:"var(--foam)"}}>{sp}</span>
+                <span style={{fontSize:11,color:"var(--sky)"}}>{n} caught{lengthBySpecies[sp]?" · avg "+Math.round(lengthBySpecies[sp].sum/lengthBySpecies[sp].count)+'"':""}</span>
+              </div>
+              <div style={{height:6,background:"rgba(0,0,0,0.3)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:(n/maxSp*100)+"%",height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:3,transition:"width .5s"}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {view==="flies"&&(
+        <div>
+          {topFlies.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No fly data recorded yet.</div>}
+          {topFlies.map(([fly,n],i)=>(
+            <div key={fly} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<topFlies.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+              <a href={"https://www.google.com/search?q="+encodeURIComponent(fly+" fly pattern")+"&tbm=isch"} target="_blank" rel="noreferrer" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>🪶 {fly}</a>
+              <span style={{fontSize:11,color:"var(--stone)"}}>{n}x</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,toggleStar,showStarredOnly,setShowStarredOnly}){
   const [open,setOpen]=useState(true);
   return(
@@ -3929,7 +4039,8 @@ ${shopPins}
                 </div>
               );
             })()}
-            {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
+            <CatchPatterns catches={catches}/>
+          {catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catches.map(c=>(
               <div className="cc" key={c.id}>
                 {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
