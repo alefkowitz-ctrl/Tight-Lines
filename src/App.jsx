@@ -315,6 +315,24 @@ async function fetchWeather(lat,lng){
   return r2.json();
 }
 
+
+async function getOrCreateKey(userId){
+  const keyName='tl_enc_key_'+userId;
+  try{const stored=localStorage.getItem(keyName);if(stored){const raw=Uint8Array.from(atob(stored),c=>c.charCodeAt(0));return await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);}}catch{}
+  const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  const exported=await crypto.subtle.exportKey('raw',key);
+  localStorage.setItem(keyName,btoa(String.fromCharCode(...new Uint8Array(exported))));
+  return key;
+}
+async function encryptGPS(gps,key){
+  if(!gps||gps==='Location not recorded') return gps;
+  try{const iv=crypto.getRandomValues(new Uint8Array(12));const enc=new TextEncoder();const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,enc.encode(gps));const combined=new Uint8Array(12+ct.byteLength);combined.set(iv);combined.set(new Uint8Array(ct),12);return 'ENC:'+btoa(String.fromCharCode(...combined));}catch{return gps;}
+}
+async function decryptGPS(gps,key){
+  if(!gps||!gps.startsWith('ENC:')) return gps;
+  try{const combined=Uint8Array.from(atob(gps.slice(4)),c=>c.charCodeAt(0));const iv=combined.slice(0,12),ct=combined.slice(12);const dec=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct);return new TextDecoder().decode(dec);}catch{return gps;}
+}
+
 function windDir(deg){
   if(deg==null) return "";
   const dirs=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
@@ -3982,8 +4000,63 @@ ${shopPins}
   );
 }
 
+
+function SplashScreen({onDone}){
+  const [fade,setFade]=React.useState(false);
+  React.useEffect(()=>{
+    const t1=setTimeout(()=>setFade(true),3500);
+    const t2=setTimeout(()=>onDone(),4200);
+    return()=>{clearTimeout(t1);clearTimeout(t2);};
+  },[]);
+  return(
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'linear-gradient(170deg,#0d1f26 0%,#1a3a4a 50%,#0d2a1f 100%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:9999,transition:'opacity 0.7s',opacity:fade?0:1,pointerEvents:fade?'none':'all',padding:'32px 24px'}}>
+      <svg viewBox="0 0 340 180" width="340" height="180" style={{marginBottom:24}}>
+        <defs>
+          <linearGradient id="skg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0a1a2e"/><stop offset="100%" stopColor="#1a3a4a"/></linearGradient>
+          <linearGradient id="wtg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1a4a5a"/><stop offset="100%" stopColor="#0d2a35"/></linearGradient>
+        </defs>
+        <rect width="340" height="180" fill="url(#skg)"/>
+        {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
+        <circle cx="290" cy="25" r="14" fill="#c8a84b" opacity="0.9"/>
+        <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
+        <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
+        <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
+        <polygon points="140,100 220,45 300,100" fill="#1e3d2e" opacity="0.85"/>
+        <polygon points="240,100 300,50 340,100" fill="#1a3a2a" opacity="0.9"/>
+        <polygon points="60,40 72,55 48,55" fill="white" opacity="0.6"/>
+        <polygon points="130,35 143,52 117,52" fill="white" opacity="0.6"/>
+        <polygon points="220,45 232,60 208,60" fill="white" opacity="0.55"/>
+        <path d="M0,130 Q85,118 170,128 Q255,138 340,125 L340,180 L0,180 Z" fill="url(#wtg)"/>
+        <path d="M20,138 Q60,133 100,138" stroke="#2dd4bf" strokeWidth="1.5" fill="none" opacity="0.4"/>
+        <path d="M140,142 Q190,136 240,142" stroke="#2dd4bf" strokeWidth="1.5" fill="none" opacity="0.3"/>
+        <g transform="translate(155,95)">
+          <ellipse cx="0" cy="18" rx="6" ry="10" fill="#0d1f26"/>
+          <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
+          <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
+          <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
+          <line x1="6" y1="10" x2="50" y2="-15" stroke="#c8a84b" strokeWidth="1.5"/>
+          <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
+          <line x1="-3" y1="28" x2="-5" y2="38" stroke="#0d1f26" strokeWidth="4"/>
+          <line x1="3" y1="28" x2="5" y2="38" stroke="#0d1f26" strokeWidth="4"/>
+        </g>
+        <polygon points="15,100 22,75 29,100" fill="#1a3a2a" opacity="0.8"/>
+        <polygon points="305,100 312,72 319,100" fill="#1a3a2a" opacity="0.8"/>
+      </svg>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--gold)",marginBottom:4,letterSpacing:1}}>Guide's <span style={{fontStyle:'italic'}}>Choice</span></div>
+      <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:28}}>Fly Fishing Journal</div>
+      <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center'}}>
+        <div style={{fontSize:18,marginBottom:8}}>🔒</div>
+        <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are stored privately and encrypted in your account and never shared. We will also never sell any of your data to third-parties.</p>
+        <div style={{marginTop:12,fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",fontStyle:'italic'}}>Tight lines! 🪶</div>
+      </div>
+    </div>
+  );
+}
+
 function Root(){
+  const [showSplash,setShowSplash]=React.useState(true);
   const {user, loading} = useAuth();
+  if(showSplash) return <SplashScreen onDone={()=>setShowSplash(false)}/>;
   if(loading) return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
