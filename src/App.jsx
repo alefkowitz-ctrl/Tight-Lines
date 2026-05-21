@@ -3412,8 +3412,8 @@ function App({user}){
         const name=t.sourceInfo?.siteName??"Unknown";
         const distMi=Math.round(dist*69); // ~69 miles per degree
         return{name,cfs,label,cls,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
-      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000)
-        .sort((a,b)=>a.dist-b.dist)
+      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000&&s.distMi<=50)
+        .sort((a,b)=>b.cfs-a.cfs)
         .slice(0,10);
       // Fetch per-site historical max in parallel, fallback to relative scaling
               // Skip stat API (returns 400 for most sites) — use relative scaling
