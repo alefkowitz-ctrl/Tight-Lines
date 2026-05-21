@@ -1003,15 +1003,18 @@ function GaugeChart({siteNo, siteName, initialCFS}){
 }
 
 // ── Gauge List with expandable charts ────────────────────────────────────────
-function GaugeList({gauges}){
+function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
   const [expanded, setExpanded] = useState(null);
   return(
     <div>
-      {gauges.map((g,i)=>(
+      {(showStarredOnly&&isStarred?gauges.filter(g=>isStarred(g.siteNo)):gauges).map((g,i)=>(
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
             {g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<span style={{fontSize:10,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
             <span className={`gbadge ${g.cls}`}>{g.label}</span>
+            {toggleStar&&<button onClick={e=>{e.stopPropagation();toggleStar(g);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px",color:isStarred&&isStarred(g.siteNo)?"var(--gold)":"var(--stone)"}}>
+              {isStarred&&isStarred(g.siteNo)?"⭐":"☆"}
+            </button>}
           </div>
           <div className="grow">
             <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
@@ -1562,6 +1565,7 @@ function GuideSeasonLog({guests}){
 function GuideSavedGauges({user}){
   const [gaugeInput,setGaugeInput]=useState("");
   const [savedGauges,setSavedGauges]=useState([]);
+  const [showStarredOnly,setShowStarredOnly]=useState(false);
   const [gaugeAdding,setGaugeAdding]=useState(false);
   const [sgData,setSgData]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -3185,7 +3189,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   );
 }
 
-function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh}){
+function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,toggleStar,showStarredOnly,setShowStarredOnly}){
   const [open,setOpen]=useState(true);
   return(
     <div className="card">
@@ -3194,10 +3198,15 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh}){
         <span style={{fontSize:12,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}}>{open?"▲ collapse":"▼ expand"}</span>
         <button className="rfsh" onClick={e=>{e.stopPropagation();onRefresh();}}>↻</button>
       </div>
-      <div className="csub">Live USGS · {gauges.length} gauges within 50mi{lastUpd&&" · "+lastUpd}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div className="csub" style={{margin:0}}>Live USGS · {gauges.length} gauges{lastUpd&&" · "+lastUpd}</div>
+        {gauges.length>0&&<button onClick={()=>setShowStarredOnly&&setShowStarredOnly(v=>!v)} style={{fontSize:11,background:showStarredOnly?"rgba(200,168,75,0.3)":"rgba(255,255,255,0.06)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"3px 10px",color:showStarredOnly?"var(--gold)":"var(--stone)",cursor:"pointer"}}>
+          {showStarredOnly?"⭐ Starred":"☆ All"}
+        </button>}
+      </div>
       {gaugeLoading&&<div className="loading">Loading gauges…</div>}
       {gaugeError&&!gaugeLoading&&<div className="err">{gaugeError}</div>}
-      {open&&!gaugeLoading&&<GaugeList gauges={gauges}/>}
+      {open&&!gaugeLoading&&<GaugeList gauges={gauges} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly}/>}
       {!open&&!gaugeLoading&&gauges.length>0&&(
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
           {gauges.slice(0,5).map((g,i)=>(
@@ -3430,6 +3439,22 @@ function App({user}){
       setSavedGauges(gs=>[...gs,{...newGauge,id:"local-"+Date.now()}]);
     }
     setGaugeInput("");setShowAddGauge(false);setGaugeAdding(false);
+  }
+
+  function isStarred(siteNo){return savedGauges.some(g=>g.site_no===siteNo);}
+  async function toggleStar(gauge){
+    if(isStarred(gauge.siteNo)){
+      const g=savedGauges.find(s=>s.site_no===gauge.siteNo);
+      if(g) removeSavedGauge(g.id);
+    } else {
+      const newG={user_id:user?.id,site_no:gauge.siteNo,name:gauge.name,url:"https://waterdata.usgs.gov/monitoring-location/"+gauge.siteNo+"/"};
+      if(sb&&user&&!String(user.id).startsWith("local")){
+        const{data}=await sb.from("saved_gauges").insert(newG).select().single();
+        if(data) setSavedGauges(gs=>[...gs,data]);
+      } else {
+        setSavedGauges(gs=>[...gs,{...newG,id:"local-"+Date.now()}]);
+      }
+    }
   }
 
   async function removeSavedGauge(id){
@@ -3725,7 +3750,7 @@ function App({user}){
                   </button>
                 )}
               </div>
-              <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)}/>
+              <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly} setShowStarredOnly={setShowStarredOnly}/>
             </>}
             
 
