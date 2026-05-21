@@ -3652,7 +3652,7 @@ ${shopPins}
                     <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
                     {s.address&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
                     {s.specialty&&<div style={{fontSize:12,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
-                    {s.website&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
+                    {s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
                     {s.phone&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.phone}</div>}
                   </div>
                 ))}
