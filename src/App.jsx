@@ -3329,7 +3329,7 @@ function App({user}){
     try{
       const rad=0.9; // ~60 miles in degrees
       const bbox=`${lat-rad},${lng-rad},${lat+rad},${lng+rad}`;
-      const query=`[out:json][timeout:25];(node["shop"="outdoor"]["sport"="fishing"](${bbox});node["shop"="fishing"](${bbox});node["leisure"="fishing"](${bbox});way["shop"="outdoor"]["sport"="fishing"](${bbox}););out body;`;
+      const query=`[out:json][timeout:30];(node["shop"="outdoor"](${bbox});node["shop"="sports"](${bbox});node["shop"="fishing"](${bbox});node["sport"="fishing"](${bbox});way["shop"="outdoor"](${bbox});way["shop"="sports"](${bbox}););out body center;`;
       const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(query)});
       const data=await res.json();
       const shops=(data.elements||[]).map(el=>{
@@ -3344,7 +3344,7 @@ function App({user}){
         const slng=el.lon||(el.center&&el.center.lon)||0;
         const dist=Math.round(Math.sqrt(Math.pow(slat-lat,2)+Math.pow(slng-lng,2))*69);
         return{name,address:addr,city,state,phone,website,specialty:"Fly Fishing",distanceMiles:dist,lat:slat,lng:slng};
-      }).filter(s=>s.name&&s.name!=="Fly Shop").sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,8);
+      }).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,8);
       if(shops.length>0){setCondShops(shops);setCondShopsLoading(false);return;}
       // Fallback: Google Maps search link
       setCondShops([{name:"Search Google Maps",address:"",city:"",state:"",phone:"",website:`https://www.google.com/maps/search/fly+fishing+shop+near+${encodeURIComponent(label)}`,specialty:"Tap to search for fly shops near "+label,distanceMiles:0}]);
