@@ -3547,6 +3547,7 @@ function App({user}){
   const [condShops,setCondShops]=useState([]);
   const [condShopsLoading,setCondShopsLoading]=useState(false);
   const [condReport,setCondReport]=useState(null);
+  const [intelTab,setIntelTab]=useState("weather");
   const [condReportLoading,setCondReportLoading]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [syncQueue,setSyncQueue]=useState(()=>{try{return JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');}catch{return[];}});
@@ -3861,7 +3862,7 @@ function App({user}){
         </>}
 
         <div className="nav">
-          {[{id:"conditions",icon:"🌤",label:"Conditions"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
+          {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});}}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
@@ -3872,6 +3873,12 @@ function App({user}){
           {tab==="conditions"&&<>
             {!loc&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Boulder, CO"</em> · <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em></div>}
             {loc&&<>
+              <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
+                {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🎣 Report"]].map(([id,label])=>(
+                  <button key={id} onClick={()=>setIntelTab(id)} style={{fontSize:12,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                ))}
+              </div>
+              {intelTab==="weather"&&<>
               <div className="card">
                 <div className="ctitle">🌡 Current Weather<button className="rfsh" onClick={()=>loadConditions(loc)}>↻ Refresh</button></div>
                 {wxLoading&&<div className="loading">Fetching weather…</div>}
@@ -3911,6 +3918,8 @@ function App({user}){
                   </>}
                 </>}
               </div>
+              </>}
+              {intelTab==="streams"&&<>
               {savedGauges.length>0&&<SavedGaugesList
                 savedGauges={savedGauges}
                 showAddGauge={showAddGauge}
@@ -3923,7 +3932,6 @@ function App({user}){
                 fetchSavedGaugeData={fetchSavedGaugeData}
                 cfsLabel={cfsLabel}
               />}
-              {/* Add gauge UI - always visible */}
               <div style={{marginBottom:12}}>
                 {showAddGauge?(
                   <div className="card">
@@ -3939,10 +3947,6 @@ function App({user}){
                 )}
               </div>
               <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly} setShowStarredOnly={setShowStarredOnly}/>
-            </>}
-            
-
-            {loc&&(
               <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                 <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
@@ -3972,9 +3976,8 @@ ${shopPins}
                   ))}
                 </div>}
               </div>
-            )}
-
-            {loc&&(
+              </>}
+              {intelTab==="shops"&&<>
               <div className="card">
                 <div className="ctitle">🪝 Nearby Fly Shops</div>
                 <div className="csub">Dedicated fly shops near {loc.label}</div>
@@ -3990,13 +3993,16 @@ ${shopPins}
                   </div>
                 ))}
               </div>
-            )}
-            <RegsLink label={loc?.label}/>
-            <HatchMatcher loc={loc} waterTemp={null} gauges={gauges}/>
-            <div className="card">
-              <div className="ctitle">🪲 This Month's Hatches</div>
-              <HatchList hatches={hatches}/>
-            </div>
+              </>}
+              {intelTab==="report"&&<>
+              <RegsLink label={loc?.label}/>
+              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges}/>
+              <div className="card">
+                <div className="ctitle">🪲 This Month\'s Hatches</div>
+                <HatchList hatches={hatches}/>
+              </div>
+              </>}
+            </>}
           </>}
 
           {tab==="log"&&<>
