@@ -3816,8 +3816,7 @@ function App({user}){
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
       const rd=await res.json();
       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-      if(parsed.species) setForm(f=>({...f,species:parsed.species}));
-      if(parsed.length!=null) setForm(f=>({...f,length:String(Math.round(parsed.length)),sizeEstimated:true}));
+      if(parsed.species||parsed.length!=null) setForm(f=>({...f,species:parsed.species||f.species,length:parsed.length!=null?String(Math.round(parsed.length)):f.length,sizeEstimated:parsed.length!=null}));
     }catch(e3){console.log("Fish ID failed:",e3.message);}
     setForm(f=>({...f,sizeEstimating:false}));
   }
