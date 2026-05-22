@@ -711,10 +711,11 @@ function RegsLink({label}){
 
 
 
-function HatchMatcher({loc, waterTemp, gauges}){
+function HatchMatcher({loc, waterTemp, gauges, autoRun}){
   const [result,setResult]=React.useState(null);
   const [loading,setLoading]=React.useState(false);
   const [open,setOpen]=React.useState(false);
+  React.useEffect(()=>{if(autoRun&&loc&&!result&&!loading)runMatcher();},[autoRun,loc]);
   async function runMatcher(){
     if(!loc) return;
     setLoading(true);setOpen(true);setResult(null);
@@ -3546,8 +3547,10 @@ function App({user}){
   const [gaugeAdding,setGaugeAdding]=useState(false);
   const [condShops,setCondShops]=useState([]);
   const [condShopsLoading,setCondShopsLoading]=useState(false);
+  const condShopsCacheRef=React.useRef({});
   const [condReport,setCondReport]=useState(null);
   const [intelTab,setIntelTab]=useState("weather");
+  const [hatchAutoRun,setHatchAutoRun]=useState(false);
   const [condReportLoading,setCondReportLoading]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [syncQueue,setSyncQueue]=useState(()=>{try{return JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');}catch{return[];}});
@@ -3667,6 +3670,7 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
+    if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     setCondShopsLoading(true);
     setCondShops([]);
     try{
@@ -3679,7 +3683,7 @@ function App({user}){
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
       const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){setCondShops(p.slice(0,8));setCondShopsLoading(false);return;}}
+      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;setCondShops(shops);setCondShopsLoading(false);return;}}
     }catch(err){console.log('shops failed:',err.message);}
     setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
     setCondShopsLoading(false);
@@ -3875,7 +3879,7 @@ function App({user}){
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>setIntelTab(id)} style={{fontSize:12,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:12,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
               {intelTab==="weather"&&<>
@@ -3995,7 +3999,7 @@ ${shopPins}
               </div>
               </>}
               {intelTab==="report"&&<>
-              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges}/>
+              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun}/>
               <div className="card">
                 <div className="ctitle">🪲 This Month\'s Hatches</div>
                 <HatchList hatches={hatches}/>
