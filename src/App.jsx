@@ -3466,7 +3466,7 @@ function App({user}){
           const key=await getOrCreateKey(user.id);
           const rows=await Promise.all(data.map(async r=>({
             id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,
-            gps:await decryptGPS(r.gps,key),
+            gps:r.gps?.startsWith("ENC:")?await Promise.race([decryptGPS(r.gps,key),new Promise(res=>setTimeout(()=>res(r.gps),500))]):r.gps,
             time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",
             weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",
             windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",
