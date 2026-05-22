@@ -4000,10 +4000,6 @@ ${shopPins}
               </>}
               {intelTab==="report"&&<>
               <HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun}/>
-              <div className="card">
-                <div className="ctitle">🪲 This Month\'s Hatches</div>
-                <HatchList hatches={hatches}/>
-              </div>
               </>}
             </>}
           </>}
