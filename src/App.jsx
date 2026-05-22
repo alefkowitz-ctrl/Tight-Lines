@@ -3443,6 +3443,7 @@ function App({user}){
   const [catchLogTab,setCatchLogTab]=useState("list");
   const [enriching,setEnriching]=useState(false);
   const encKeyRef=React.useRef(null);
+  const lastCatchIdRef=React.useRef(null);
   React.useEffect(()=>{if(user?.id)getOrCreateKey(user.id).then(k=>encKeyRef.current=k);},[user?.id]);
   const [catchSummary,setCatchSummary]=useState(null);
   const [summaryLoading,setSummaryLoading]=useState(false);
@@ -3571,6 +3572,7 @@ function App({user}){
       alert("Catch save failed: "+error.message);
     } else if(data){
       setCatches(c=>[{...catchData,id:data.id},...c]);
+      return data.id;
     }
   }
 
@@ -3838,7 +3840,10 @@ function App({user}){
         const today=new Date().toISOString().split("T")[0];
         if(dateStr&&dateStr<today){
           const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
-          if(conds) setForm(f=>({...f,...{airTemp:conds.airTemp,weatherDesc:conds.weatherDesc,windSpeed:conds.windSpeed,windDir:conds.windDir,pressure:conds.pressure,streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName}}));
+          if(conds){
+            setForm(f=>({...f,...{airTemp:conds.airTemp,weatherDesc:conds.weatherDesc,windSpeed:conds.windSpeed,windDir:conds.windDir,pressure:conds.pressure,streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName}}));
+            if(lastCatchIdRef.current) updateCatch(lastCatchIdRef.current,{airTemp:conds.airTemp,weatherDesc:conds.weatherDesc,windSpeed:conds.windSpeed,windDir:conds.windDir,pressure:conds.pressure,streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName});
+          }
         } else {
           const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
           const c=wx.current;
@@ -3847,7 +3852,11 @@ function App({user}){
           const ts2=(usgs.value?.timeSeries)??[];
           if(ts2.length){
             const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-            if(parsed.length) setForm(f=>({...f,streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""}));
+            if(parsed.length){
+              const streamData={streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:parsed[0].label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""};
+              setForm(f=>({...f,...streamData}));
+              if(lastCatchIdRef.current) updateCatch(lastCatchIdRef.current,streamData);
+            }
           }
         }
       }catch(e2){console.log("Conditions fetch failed:",e2.message);}
@@ -3869,7 +3878,7 @@ function App({user}){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
     const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,air_temp:form.airTemp||null,weather_desc:form.weatherDesc||null,wind_speed:form.windSpeed||null,wind_dir:form.windDir||null,pressure:form.pressure||null,stream_cfs:form.streamCFS||null,stream_condition:form.streamCondition||null,stream_gauge_name:form.streamGaugeName||null,water_temp:form.waterTemp||null};
-    addCatch(catchData);
+    addCatch(catchData).then(id=>{if(id)lastCatchIdRef.current=id;});
     setForm(blank);setAddOpen(false);
   }
 
