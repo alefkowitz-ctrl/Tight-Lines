@@ -4274,6 +4274,20 @@ ${shopPins}
                     <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12}}
                       value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
                   </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:12}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
+                    </div>
+                  </div>
                 </div>
               )}
               </div>
@@ -4331,6 +4345,18 @@ ${shopPins}
           <label className="lbl">Notes</label>
           <textarea className="inp" rows={4} style={{resize:"none"}} placeholder="Where, how, conditions…"
             value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+          {(form.streamGaugeName||form.streamCFS||form.airTemp||form.waterTemp)&&(
+            <div style={{background:"rgba(44,95,110,0.15)",border:"1px solid rgba(44,95,110,0.3)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+              <div style={{fontSize:11,color:"var(--gold)",marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Auto-recorded Conditions</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {form.streamGaugeName&&<span style={{fontSize:11,color:"var(--sky)"}}>📍 {form.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
+                {form.streamCFS&&<span style={{fontSize:11,color:"var(--foam)"}}>💧 {form.streamCFS} CFS {form.streamCondition?"· "+form.streamCondition:""}</span>}
+                {form.waterTemp&&<span style={{fontSize:11,color:"#7ec8c8"}}>🌡 Water: {form.waterTemp}°F</span>}
+                {form.airTemp&&<span style={{fontSize:11,color:"var(--stone)"}}>☀️ Air: {form.airTemp}°F</span>}
+                {form.weatherDesc&&<span style={{fontSize:11,color:"var(--stone)"}}>{form.weatherDesc}</span>}
+              </div>
+            </div>
+          )}
           <button className="btn btnp" onClick={submitCatch}>🐟 Save to Log</button>
         </div>
       </div>
