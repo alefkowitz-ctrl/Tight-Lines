@@ -3450,6 +3450,7 @@ function App({user}){
   const [catches,setCatches]=useState([]);
   const [catchesLoading,setCatchesLoading]=useState(true);
   const [catchLogTab,setCatchLogTab]=useState("list");
+  const [enriching,setEnriching]=useState(false);
   const [catchSummary,setCatchSummary]=useState(null);
   const [summaryLoading,setSummaryLoading]=useState(false);
 
@@ -3508,6 +3509,32 @@ function App({user}){
     }
     localStorage.setItem('tl_sync_queue',JSON.stringify(remaining));
     setSyncQueue(remaining);
+  }
+
+  async function enrichCatches(){
+    if(!catches.length||enriching) return;
+    setEnriching(true);
+    let updated=0;
+    for(const catch2 of catches){
+      if(catch2.streamCFS||!catch2.gps) continue;
+      const nums=(catch2.gps||"").match(/-?\d+\.?\d*/g);
+      if(!nums||nums.length<2) continue;
+      const lat=parseFloat(nums[0]),lng=parseFloat(nums[1]);
+      if(isNaN(lat)||isNaN(lng)) continue;
+      try{
+        const d=new Date((catch2.time||"").replace(" at "," "));
+        const dateStr=!isNaN(d)?d.toISOString().split("T")[0]:null;
+        if(!dateStr) continue;
+        const conds=await fetchHistoricalConditions(lat,lng,dateStr,"12");
+        if(conds.streamCFS){
+          await updateCatch(catch2.id,{streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName,airTemp:conds.airTemp||catch2.airTemp,weatherDesc:conds.weatherDesc||catch2.weatherDesc});
+          updated++;
+        }
+      }catch{}
+    }
+    setEnriching(false);
+    if(updated>0) alert(updated+" catches enriched with stream data!");
+    else alert("No new stream data found for catches with GPS coordinates.");
   }
 
   async function addCatch(catchData){
@@ -4020,6 +4047,7 @@ ${shopPins}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
+                <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={enrichCatches} disabled={enriching}>{enriching?"Enriching…":"⚡ Add Stream Data"}</button>
                 <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
                   const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
