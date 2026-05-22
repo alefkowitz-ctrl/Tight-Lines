@@ -844,6 +844,7 @@ function WeekForecast({data, highlightDay}){
               <div style={{fontSize:18,margin:"3px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
               <div style={{fontSize:10,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
+              {(d.precipitation_probability_max?.[i]??0)>0&&<div style={{fontSize:9,color:"#7ec8c8"}}>💧{d.precipitation_probability_max[i]}%</div>}
             </div>
           );
         })}
@@ -854,7 +855,7 @@ function WeekForecast({data, highlightDay}){
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
@@ -871,14 +872,12 @@ function WeekForecast({data, highlightDay}){
             <div style={{fontSize:14,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
             {trend&&<div style={{fontSize:11,color:trend.color}}>{trend.icon} {trend.label}</div>}
           </div>
-          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center",gridColumn:"1/-1"}}>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
             <div style={{fontSize:15,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
           </div>
         </div>
-        {selPresInHg&&<div style={{marginTop:8,fontSize:12,color:"var(--sky)",fontStyle:"italic",padding:"6px 10px",background:"rgba(44,95,110,0.15)",borderRadius:8}}>
-          🎣 {fishingPressureNote(selPresInHg)}
-        </div>}
+
       </div>
     </div>
   );
