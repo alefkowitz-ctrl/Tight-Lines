@@ -4264,9 +4264,9 @@ ${shopPins}
                         value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
                     </div>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
                       <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
-                        value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                        value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
                     </div>
                   </div>
                   <div>
@@ -4310,7 +4310,7 @@ ${shopPins}
           <button className="back" onClick={()=>setAddOpen(false)}>← Back</button>
           <span className="slide-title">Record a Catch</span>
         </div>
-        <div style={{padding:"20px 16px 48px"}}>
+        <div style={{padding:"20px 16px 48px",background:"var(--deep)"}}>
           <label className="lbl">Photo</label>
           {form.photo?(
             <div className="pw">
@@ -4328,6 +4328,7 @@ ${shopPins}
             </div>
           )}
           <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
+          {form.sizeEstimating&&<div style={{fontSize:12,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(200,168,75,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
