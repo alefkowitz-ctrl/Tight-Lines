@@ -306,7 +306,7 @@ async function reverseGeocode(lat,lng){
   return r.json();
 }
 async function fetchWeather(lat,lng){
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
   try{
     const r=await fetch(url);
     if(r.ok) return r.json();
@@ -870,6 +870,10 @@ function WeekForecast({data, highlightDay}){
             <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
             <div style={{fontSize:14,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
             {trend&&<div style={{fontSize:11,color:trend.color}}>{trend.icon} {trend.label}</div>}
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center",gridColumn:"1/-1"}}>
+            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
+            <div style={{fontSize:15,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
           </div>
         </div>
         {selPresInHg&&<div style={{marginTop:8,fontSize:12,color:"var(--sky)",fontStyle:"italic",padding:"6px 10px",background:"rgba(44,95,110,0.15)",borderRadius:8}}>
@@ -3902,10 +3906,8 @@ function App({user}){
                       <div className="wx-lbl">UV Index</div>
                     </div>
                     <div className="wx-item">
-                      <div className="wx-val" style={{color:weather.pressureTrend?.color}}>
-                        {weather.pressureTrend?.icon} {weather.pressure} in
-                      </div>
-                      <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
+                      <div className="wx-val">🌧 {wxForecast?.daily?.precipitation_probability_max?.[0]??0}%</div>
+                      <div className="wx-lbl">Rain Chance</div>
                     </div>
                   </div>
                   {weather.pressureNote&&(
