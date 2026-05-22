@@ -3874,7 +3874,7 @@ function App({user}){
             {!loc&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Boulder, CO"</em> · <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em></div>}
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
-                {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🎣 Report"]].map(([id,label])=>(
+                {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
                   <button key={id} onClick={()=>setIntelTab(id)} style={{fontSize:12,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
@@ -3995,7 +3995,6 @@ ${shopPins}
               </div>
               </>}
               {intelTab==="report"&&<>
-              <RegsLink label={loc?.label}/>
               <HatchMatcher loc={loc} waterTemp={null} gauges={gauges}/>
               <div className="card">
                 <div className="ctitle">🪲 This Month\'s Hatches</div>
