@@ -3909,11 +3909,7 @@ function App({user}){
                       <div className="wx-lbl">Rain Chance</div>
                     </div>
                   </div>
-                  {weather.pressureNote&&(
-                    <div style={{marginTop:10,padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>
-                      🎣 {weather.pressureNote}
-                    </div>
-                  )}
+
                   {(()=>{const m=getMoonPhase();return <div style={{marginTop:10,padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:22}}>{m.emoji}</span><div><div style={{fontSize:13,color:"var(--foam)"}}>{m.name}</div><div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>🎣 {m.fishingNote}</div></div></div>;})()}
                   {wxForecast&&<>
                     <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
