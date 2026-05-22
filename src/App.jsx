@@ -3530,7 +3530,7 @@ function App({user}){
     if(!catches.length||enriching) return;
     setEnriching(true);
     let updated=0;
-    const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded").slice(0,10);
+    const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded");
     console.log("Catches to enrich:",toEnrich.length,toEnrich.map(c2=>c2.gps?.slice(0,30)));
     for(const catch2 of toEnrich){
       if(catch2.streamCFS||!catch2.gps) continue;
