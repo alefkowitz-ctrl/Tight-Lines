@@ -511,14 +511,16 @@ async function fetchUSGSLive(lat,lng){
 }
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  const hr=parseInt(hourStr)||12;
+  const idx=Math.min(hr,23);
+  // Run weather and stream fetch in parallel with a single bbox
+  const wxUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weathercode,windspeed_10m,winddirection_10m,surface_pressure&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto`;
+  const p=1.5;
+  const usgsUrl=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${(lng-p).toFixed(2)},${(lat-p).toFixed(2)},${(lng+p).toFixed(2)},${(lat+p).toFixed(2)}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`;
+  const [wxRes,usgsRes]=await Promise.allSettled([fetch(wxUrl),fetch(usgsUrl)]);
   try{
-    // Historical weather from Open-Meteo archive
-    const wxUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weathercode,windspeed_10m,winddirection_10m,surface_pressure&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto`;
-    const wxRes=await fetch(wxUrl);
-    if(wxRes.ok){
-      const wx=await wxRes.json();
-      const hr=parseInt(hourStr)||12;
-      const idx=Math.min(hr,23);
+    if(wxRes.status==="fulfilled"&&wxRes.value.ok){
+      const wx=await wxRes.value.json();
       if(wx.hourly){
         results.airTemp=wx.hourly.temperature_2m?.[idx]!=null?String(Math.round(wx.hourly.temperature_2m[idx])):"";
         const code=wx.hourly.weathercode?.[idx];
@@ -530,33 +532,22 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
     }
   }catch{}
   try{
-    // Historical stream flow from USGS
-    const sizes=[0.5,1.0,1.5,2.5];
-    for(const p of sizes){
-      const minLng=Math.min(lng-p,lng+p),maxLng=Math.max(lng-p,lng+p);
-      const minLat=Math.min(lat-p,lat+p),maxLat=Math.max(lat-p,lat+p);
-      const url=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${minLng},${minLat},${maxLng},${maxLat}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`;
-      try{
-        const r=await fetch(url);
-        if(!r.ok) continue;
-        const d=await r.json();
-        const ts=(d.value?.timeSeries)??[];
-        if(!ts.length) continue;
-        const parsed=ts.map(t=>{
-          const raw=t.values?.[0]?.value?.[0]?.value;
-          const cfs=raw!=null?parseFloat(raw):null;
-          const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-          const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-          const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
-          return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
-        }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-        if(parsed.length){
-          results.streamCFS=String(Math.round(parsed[0].cfs));
-          results.streamCondition=parsed[0].label;
-          results.streamGaugeName=parsed[0].name;
-          break;
-        }
-      }catch{}
+    if(usgsRes.status==="fulfilled"&&usgsRes.value.ok){
+      const d=await usgsRes.value.json();
+      const ts=(d.value?.timeSeries)??[];
+      const parsed=ts.map(t=>{
+        const raw=t.values?.[0]?.value?.[0]?.value;
+        const cfs=raw!=null?parseFloat(raw):null;
+        const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+        const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+        const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
+        return{name:t.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};
+      }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+      if(parsed.length){
+        results.streamCFS=String(Math.round(parsed[0].cfs));
+        results.streamCondition=parsed[0].label;
+        results.streamGaugeName=parsed[0].name;
+      }
     }
   }catch{}
   return results;
