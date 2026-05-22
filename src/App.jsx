@@ -3919,9 +3919,9 @@ function App({user}){
                     <div className="wx-item">
                       <div className="wx-val" style={{color:weather.pressureTrend?.color}}>{weather.pressureTrend?.icon} {weather.pressure}&quot;</div>
                       <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
+                      {pNote&&<div style={{fontSize:10,color:"var(--sky)",fontStyle:"italic",marginTop:4}}>{pNote}</div>}
                     </div>
                   </div>
-                  {pNote&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(44,95,110,0.15)",borderRadius:10,fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>🎣 {pNote}</div>}
                 </>);})()}
                   {wxForecast&&<>
                     <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
