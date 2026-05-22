@@ -3608,7 +3608,7 @@ function App({user}){
 
   // Listen for online/offline events
   useEffect(()=>{
-    const goOnline=()=>{setIsOnline(true);syncOfflineCatches();};
+    const goOnline=()=>{setIsOnline(true);syncOfflineCatches();enrichCatches&&enrichCatches();};
     const goOffline=()=>setIsOnline(false);
     window.addEventListener('online',goOnline);
     window.addEventListener('offline',goOffline);
@@ -4068,13 +4068,13 @@ ${shopPins}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
-                <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={enrichCatches} disabled={enriching}>{enriching?"Enriching…":"⚡ Add Stream Data"}</button>
                 <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
                   const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
               </div>
+              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating conditions…":"🔄 Update Conditions Data"}</button>
               {catches.length>0&&(()=>{
                 const counts={};catches.forEach(c=>{if(c.species)counts[c.species]=(counts[c.species]||0)+1;});
                 const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
