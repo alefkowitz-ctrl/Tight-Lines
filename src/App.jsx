@@ -3451,6 +3451,8 @@ function App({user}){
   const [catchesLoading,setCatchesLoading]=useState(true);
   const [catchLogTab,setCatchLogTab]=useState("list");
   const [enriching,setEnriching]=useState(false);
+  const encKeyRef=React.useRef(null);
+  React.useEffect(()=>{if(user?.id)getOrCreateKey(user.id).then(k=>encKeyRef.current=k);},[user?.id]);
   const [catchSummary,setCatchSummary]=useState(null);
   const [summaryLoading,setSummaryLoading]=useState(false);
 
@@ -3459,8 +3461,21 @@ function App({user}){
     if(!user) return;
     if(!sb){ setCatchesLoading(false); return; }
     sb.from("catches").select("*").eq("user_id",user.id).order("created_at",{ascending:false})
-      .then(({data,error})=>{
-        if(!error&&data) setCatches(data.map(r=>({id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||"",waterTemp:r.water_temp!=null?String(r.water_temp):""})));
+      .then(async({data,error})=>{
+        if(!error&&data){
+          const key=await getOrCreateKey(user.id);
+          const rows=await Promise.all(data.map(async r=>({
+            id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,
+            gps:await decryptGPS(r.gps,key),
+            time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",
+            weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",
+            windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",
+            streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",
+            streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||"",
+            waterTemp:r.water_temp!=null?String(r.water_temp):""
+          })));
+          setCatches(rows);
+        }
         setCatchesLoading(false);
       });
   },[user]);
