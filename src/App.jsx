@@ -3910,7 +3910,19 @@ function App({user}){
                     </div>
                   </div>
 
-                  {(()=>{const m=getMoonPhase();return <div style={{marginTop:10,padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:22}}>{m.emoji}</span><div><div style={{fontSize:13,color:"var(--foam)"}}>{m.name}</div><div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>🎣 {m.fishingNote}</div></div></div>;})()}
+                  {(()=>{const m=getMoonPhase();const p=weather.pressure;const pNote=p?(parseFloat(p)>30.2?"High pressure — dry fly conditions good":parseFloat(p)>29.9?"Normal pressure — all techniques productive":parseFloat(p)>29.5?"Low pressure — nymphs & streamers best":"Very low pressure — fish feeding aggressively"):"";return(<>
+                  <div className="wx-grid" style={{marginTop:10}}>
+                    <div className="wx-item">
+                      <div className="wx-val">{m.emoji} {m.name}</div>
+                      <div className="wx-lbl">Moon Phase</div>
+                    </div>
+                    <div className="wx-item">
+                      <div className="wx-val" style={{color:weather.pressureTrend?.color}}>{weather.pressureTrend?.icon} {weather.pressure}&quot;</div>
+                      <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
+                    </div>
+                  </div>
+                  {pNote&&<div style={{marginTop:8,padding:"8px 12px",background:"rgba(44,95,110,0.15)",borderRadius:10,fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>🎣 {pNote}</div>}
+                </>);})()}
                   {wxForecast&&<>
                     <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
                       <WeekForecast data={wxForecast}/>
