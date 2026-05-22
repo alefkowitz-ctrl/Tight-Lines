@@ -3515,7 +3515,8 @@ function App({user}){
     if(!catches.length||enriching) return;
     setEnriching(true);
     let updated=0;
-    for(const catch2 of catches){
+    const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded").slice(0,10);
+    for(const catch2 of toEnrich){
       if(catch2.streamCFS||!catch2.gps) continue;
       const nums=(catch2.gps||"").match(/-?\d+\.?\d*/g);
       if(!nums||nums.length<2) continue;
