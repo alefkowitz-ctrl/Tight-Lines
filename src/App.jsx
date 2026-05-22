@@ -3534,9 +3534,13 @@ function App({user}){
     console.log("Catches to enrich:",toEnrich.length,toEnrich.map(c2=>c2.gps?.slice(0,30)));
     for(const catch2 of toEnrich){
       if(catch2.streamCFS||!catch2.gps) continue;
-      const nums=(catch2.gps||"").match(/-?\d+\.?\d*/g);
-      if(!nums||nums.length<2) continue;
-      const lat=parseFloat(nums[0]),lng=parseFloat(nums[1]);
+      const gpsStr=catch2.gps||"";
+      let lat=null,lng=null;
+      // Try "39.9691°N, 106.3642°W" format
+      const dmsMatch=gpsStr.match(/([\d.]+)[°\s]*([NS])[\s,]+([\d.]+)[°\s]*([EW])/i);
+      if(dmsMatch){lat=parseFloat(dmsMatch[1])*(dmsMatch[2].toUpperCase()==="S"?-1:1);lng=parseFloat(dmsMatch[3])*(dmsMatch[4].toUpperCase()==="W"?-1:1);}
+      else{const nums=gpsStr.match(/-?[\d.]+/g);if(nums&&nums.length>=2){lat=parseFloat(nums[0]);lng=parseFloat(nums[1]);}}
+      if(!lat||!lng||isNaN(lat)||isNaN(lng)) continue;
       if(isNaN(lat)||isNaN(lng)) continue;
       try{
         const d=new Date((catch2.time||"").replace(" at "," "));
