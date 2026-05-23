@@ -474,7 +474,7 @@ async function fetchUSGSTemp(siteNo){
   }catch{ return null; }
 }
 
-async function fetchUSGSLive(lat,lng){
+async function fetchUSGSLive(lat,lng,radiusDeg=2){
   // Fetch in concentric rings so nearest gauges are always included
   // USGS returns gauges in arbitrary order and caps results, so nearby gauges
   // get lost when the full 50mi bbox returns too many results
@@ -487,10 +487,8 @@ async function fetchUSGSLive(lat,lng){
       seen[sno]=true;return true;
     });
   }
-  // Ring 1: 20mi (~0.3 deg) — always get nearest gauges first
-  // Ring 2: 35mi (~0.5 deg) — medium distance
-  // Ring 3: 50mi (~0.75 deg) — full radius
-  var rings=[0.3, 0.5, 0.75];
+  // Use radiusDeg from caller (default 2 = ~138mi)
+  var rings=[Math.min(radiusDeg*0.4, 0.5), Math.min(radiusDeg*0.7, 1.0), radiusDeg];
   for(var ri=0;ri<rings.length;ri++){
     var p=rings[ri];
     var minLng=Math.round((lng-p)*10000)/10000;
@@ -2947,6 +2945,7 @@ function StreamGaugeChart({streamName, localGauges}){
 
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
+  const [driveMiles,setDriveMiles]=useState(50);
   const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
   const [steps,setSteps]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -2990,7 +2989,9 @@ function TripPlanner({defaultLocation}){
       addStep("Forecast loaded ✓");
 
       addStep("Loading stream data…","active");
-      const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng),fetchUSGSHistory(lat,lng)]);
+      const degRadius=(driveMiles/69).toFixed(2);
+      addStep(`Searching streams within ${driveMiles} miles…`,"active");
+      const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,parseFloat(degRadius)),fetchUSGSHistory(lat,lng)]);
       const liveTS=liveD.value?.timeSeries??[];
       const pg=liveTS.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;
@@ -3021,7 +3022,7 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          const reportTxt=await askClaude(`Search fly shop websites for current fishing reports near ${loc.label} for ${ds}. Find streams mentioned in actual shop reports. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
+          const reportTxt=await askClaude(`Search fly shop websites for current fishing reports within ${driveMiles} miles of ${loc.label} for ${ds}. The user is willing to drive up to ${driveMiles} miles. Find the BEST streams to fish within that radius based on current conditions, flows, and season. Find streams mentioned in actual shop reports. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
 
 Respond with ONLY this JSON structure, no other text, no markdown fences:
 {"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow if known","conditions":"conditions and forecast","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatches active now","bestTimes":"best times today","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,3000);
@@ -3073,6 +3074,9 @@ Context: `+reportTxt.slice(0,800),false,2000);
         </div>
         <label className="lbl">Trip Date</label>
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
+        <label className="lbl">How far will you drive? <span style={{color:"var(--gold)"}}>{driveMiles} miles</span></label>
+        <input type="range" min={10} max={200} step={10} value={driveMiles} onChange={e=>setDriveMiles(Number(e.target.value))} style={{width:"100%",accentColor:"var(--gold)",marginBottom:12}}/>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--stone)",marginTop:-10,marginBottom:12}}><span>10 mi</span><span>100 mi</span><span>200 mi</span></div>
         {error&&<div className="err">{error}</div>}
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
