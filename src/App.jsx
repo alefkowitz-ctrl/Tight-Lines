@@ -3068,6 +3068,42 @@ Context: `+reportTxt.slice(0,800),false,2000);
           }
         }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
+        // Fetch gauges AFTER report so we know which streams to prioritize
+        addStep("Loading stream gauges…","active");
+        try{
+          const degRadius=Math.min((driveMinutes/60)*1.0,2.0);
+          const liveD=await fetchUSGSLive(lat,lng,degRadius);
+          const liveTS=liveD.value?.timeSeries??[];
+          const pg=liveTS.map(t=>{
+            const raw=t.values?.[0]?.value?.[0]?.value;
+            const cfs=raw!=null?parseFloat(raw):null;
+            const{label,cls}=cfsLabel(cfs);
+            const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
+            const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+            const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+            const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+            return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
+          }).filter(s=>{
+            if(!s.cfs||s.cfs<0||s.cfs>=500000) return false;
+            if(!isoPolygon) return true;
+            let inside=false;const x=s.lng,y=s.lat;
+            for(let i=0,j=isoPolygon.length-1;i<isoPolygon.length;j=i++){
+              const xi=isoPolygon[i][0],yi=isoPolygon[i][1],xj=isoPolygon[j][0],yj=isoPolygon[j][1];
+              if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+            }
+            return inside;
+          }).sort((a,b)=>a.dist-b.dist).slice(0,20);
+          const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
+          setGauges(pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0})));
+          const histD=await fetchUSGSHistory(lat,lng);
+          const histTS=histD.value?.timeSeries??[];
+          if(histTS.length){
+            const best=histTS.sort((a,b)=>(b.values?.[0]?.value?.length||0)-(a.values?.[0]?.value?.length||0))[0];
+            const pts=(best.values?.[0]?.value??[]).map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>=0&&v.v<500000);
+            setFlowPts(pts);setFlowLabel(best.sourceInfo?.siteName??"");
+          }
+          addStep(`${pg.length} gauges loaded ✓`);
+        }catch(ge){console.log("gauge error:",ge.message);}
       }
     }catch(e){
       setError(e.message||"Something went wrong.");
