@@ -2019,7 +2019,7 @@ function GuideBook({user, loc}){
         const ctrl=new AbortController();
         const tid=setTimeout(()=>ctrl.abort(),20000);
         let res;
-        try{res=await fetch("/api/claude",{method:"POST",signal:ctrl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});}
+        try{res=await fetch("/api/claude",{method:"POST",signal:ctrl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});}
         finally{clearTimeout(tid);}
         const rd=await res.json();
         const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
@@ -2610,7 +2610,7 @@ function GuideBook({user, loc}){
                       }
                       if(!imageSource){continue;}
                       const claudeRes=await Promise.race([
-                        fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}),
+                        fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}),
                         new Promise((_,r)=>setTimeout(()=>r(new Error("claude timeout")),20000))
                       ]);
                       const rd=await claudeRes.json();
@@ -3731,6 +3731,8 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
+    const cacheKey="tl_shops_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     setCondShopsLoading(true);
     setCondShops([]);
@@ -3744,7 +3746,7 @@ function App({user}){
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
       const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;setCondShops(shops);setCondShopsLoading(false);return;}}
+      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}setCondShops(shops);setCondShopsLoading(false);return;}}
     }catch(err){console.log('shops failed:',err.message);}
     setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
     setCondShopsLoading(false);
@@ -3881,7 +3883,7 @@ function App({user}){
     // AI fish ID
     try{
       const base64=dataUrl.split(",")[1];
-      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
       const rd=await res.json();
       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
       if(parsed.species||parsed.length!=null) setForm(f=>({...f,species:parsed.species||f.species,length:parsed.length!=null?String(Math.round(parsed.length)):f.length,sizeEstimated:parsed.length!=null}));
