@@ -3017,7 +3017,7 @@ function TripPlanner({defaultLocation}){
         return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
       }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000))
         .sort((a,b)=>a.dist-b.dist)
-        .slice(0,6);
+        .slice(0,20);
       const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
       const pgScaled=pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
       setGauges(pgScaled);
