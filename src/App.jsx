@@ -2945,7 +2945,7 @@ function StreamGaugeChart({streamName, localGauges}){
 
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
-  const [driveMiles,setDriveMiles]=useState(50);
+  const [driveMinutes,setDriveMinutes]=useState(60);
   const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
   const [steps,setSteps]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -2989,9 +2989,22 @@ function TripPlanner({defaultLocation}){
       addStep("Forecast loaded ✓");
 
       addStep("Loading stream data…","active");
-      const degRadius=(driveMiles/69).toFixed(2);
-      addStep(`Searching streams within ${driveMiles} miles…`,"active");
-      const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,parseFloat(degRadius)),fetchUSGSHistory(lat,lng)]);
+      // Get drive-time isochrone from OpenRouteService
+      addStep(`Finding streams within ${driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr"} drive…`,"active");
+      let isoPolygon=null;
+      try{
+        const isoRes=await fetch(`https://api.openrouteservice.org/v2/isochrones/driving-car`,{
+          method:"POST",
+          headers:{"Content-Type":"application/json","Authorization":"5b3ce3597851110001cf62486e3b30a0a05047e19c9b3543a4e28e6c"},
+          body:JSON.stringify({locations:[[lng,lat]],range:[driveMinutes*60],range_type:"time"})
+        });
+        if(isoRes.ok){
+          const isoData=await isoRes.json();
+          isoPolygon=isoData.features?.[0]?.geometry?.coordinates?.[0];
+        }
+      }catch(isoErr){console.log("isochrone failed:",isoErr.message);}
+      const degRadius=Math.min((driveMinutes/60)*1.2, 3);
+      const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,degRadius),fetchUSGSHistory(lat,lng)]);
       const liveTS=liveD.value?.timeSeries??[];
       const pg=liveTS.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;
@@ -3074,9 +3087,9 @@ Context: `+reportTxt.slice(0,800),false,2000);
         </div>
         <label className="lbl">Trip Date</label>
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
-        <label className="lbl">How far will you drive? <span style={{color:"var(--gold)"}}>{driveMiles} miles</span></label>
-        <input type="range" min={10} max={200} step={10} value={driveMiles} onChange={e=>setDriveMiles(Number(e.target.value))} style={{width:"100%",accentColor:"var(--gold)",marginBottom:12}}/>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--stone)",marginTop:-10,marginBottom:12}}><span>10 mi</span><span>100 mi</span><span>200 mi</span></div>
+        <label className="lbl">How long will you drive? <span style={{color:"var(--gold)"}}>{driveMinutes<60?driveMinutes+" min":driveMinutes===60?"1 hour":(driveMinutes/60).toFixed(1).replace(".0","")+" hours"}</span></label>
+        <input type="range" min={30} max={180} step={15} value={driveMinutes} onChange={e=>setDriveMinutes(Number(e.target.value))} style={{width:"100%",accentColor:"var(--gold)",marginBottom:4}}/>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--stone)",marginBottom:12}}><span>30 min</span><span>1 hr</span><span>1.5 hr</span><span>2 hr</span><span>3 hr</span></div>
         {error&&<div className="err">{error}</div>}
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
