@@ -2,6 +2,22 @@ export const maxDuration = 60;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  
+  // Isochrone proxy
+  if (req.body?.isochrone) {
+    try {
+      const { lat, lng, minutes } = req.body;
+      const r = await fetch("https://api.openrouteservice.org/v2/isochrones/driving-car", {
+        method: "POST",
+        headers: {"Content-Type":"application/json","Authorization":"5b3ce3597851110001cf62486e3b30a0a05047e19c9b3543a4e28e6c"},
+        body: JSON.stringify({locations:[[lng,lat]],range:[minutes*60],range_type:"time"})
+      });
+      const data = await r.json();
+      return res.status(200).json(data);
+    } catch(e) {
+      return res.status(500).json({error: e.message});
+    }
+  }
 
   const { proxy_url, ...body } = req.body;
 

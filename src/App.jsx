@@ -2993,10 +2993,10 @@ function TripPlanner({defaultLocation}){
       addStep(`Finding streams within ${driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr"} drive…`,"active");
       let isoPolygon=null;
       try{
-        const isoRes=await fetch(`https://api.openrouteservice.org/v2/isochrones/driving-car`,{
+        const isoRes=await fetch("/api/claude",{
           method:"POST",
-          headers:{"Content-Type":"application/json","Authorization":"5b3ce3597851110001cf62486e3b30a0a05047e19c9b3543a4e28e6c"},
-          body:JSON.stringify({locations:[[lng,lat]],range:[driveMinutes*60],range_type:"time"})
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({isochrone:true,lat,lng,minutes:driveMinutes})
         });
         if(isoRes.ok){
           const isoData=await isoRes.json();
@@ -3035,7 +3035,7 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          const reportTxt=await askClaude(`Search fly shop websites for current fishing reports within ${driveMiles} miles of ${loc.label} for ${ds}. The user is willing to drive up to ${driveMiles} miles. Find the BEST streams to fish within that radius based on current conditions, flows, and season. Find streams mentioned in actual shop reports. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
+          const reportTxt=await askClaude(`Search fly shop websites for current fishing reports within ${Math.round(driveMinutes*0.8)} miles of ${loc.label} for ${ds}. The user is willing to drive up to ${Math.round(driveMinutes*0.8)} miles. Find the BEST streams to fish within that radius based on current conditions, flows, and season. Find streams mentioned in actual shop reports. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
 
 Respond with ONLY this JSON structure, no other text, no markdown fences:
 {"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow if known","conditions":"conditions and forecast","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatches active now","bestTimes":"best times today","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,3000);
