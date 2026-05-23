@@ -3003,7 +3003,7 @@ function TripPlanner({defaultLocation}){
           isoPolygon=isoData.features?.[0]?.geometry?.coordinates?.[0];
         }
       }catch(isoErr){console.log("isochrone failed:",isoErr.message);}
-      const degRadius=Math.min((driveMinutes/60)*0.6, 1.5);
+      const degRadius=Math.min((driveMinutes/60)*1.0, 2.0);
       const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,degRadius),fetchUSGSHistory(lat,lng)]);
       const liveTS=liveD.value?.timeSeries??[];
       const pg=liveTS.map(t=>{
