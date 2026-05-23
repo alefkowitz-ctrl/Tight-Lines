@@ -3027,7 +3027,7 @@ function TripPlanner({defaultLocation}){
         const pts=(best.values?.[0]?.value??[]).map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>=0&&v.v<500000);
         setFlowPts(pts);setFlowLabel(best.sourceInfo?.siteName??"");
       }
-      addStep(`${pg.length} stream gauges loaded ✓`);
+      addStep(`${pg.length} gauges found: ${pg.slice(0,5).map(g=>g.name.split(" ").slice(0,3).join(" ")).join(", ")}${pg.length>5?"...":""}`);
 
       {
         addStep("Finding fly shops & fishing report…","active");
