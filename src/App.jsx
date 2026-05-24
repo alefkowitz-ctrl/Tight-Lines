@@ -2946,7 +2946,7 @@ function StreamGaugeChart({streamName, localGauges}){
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const [driveMinutes,setDriveMinutes]=useState(60);
-  const [date,setDate]=useState(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().split("T")[0];});
+  const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
   const [steps,setSteps]=useState([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState(null);
@@ -3040,7 +3040,7 @@ function TripPlanner({defaultLocation}){
 Rank streams by current conditions + fishing quality. Include lat/lng for each stream.
 
 Respond ONLY with this JSON, no markdown:
-{"overview":"2-3 sentence summary","recommendation":"best stream today and why","rivers":[{"name":"full stream name","lat":0.0,"lng":0.0,"cfs":"CFS if known","condition":"Low/Normal/High/Optimal","conditions":"2-3 sentences","techniques":"specific techniques","flies":["Pattern #size","Pattern #size"],"why":"why this ranks here today"}],"hatches":"active hatches","bestTimes":"best time windows","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size"]}`,true,3000);
+{"overview":"2-3 sentence summary","recommendation":"best stream today and why","rivers":[{"name":"full stream name","lat":0.0,"lng":0.0,"cfs":"CFS if known","condition":"Low/Normal/High/Optimal","conditions":"2-3 sentences","techniques":"specific techniques","flies":["Pattern #size","Pattern #size"],"why":"why this ranks here today"}],"hatches":"active hatches","bestTimes":"best time windows","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size"],"shops":[{"name":"shop name","website":"url","location":"city, state","reportUrl":"url of specific report if found"}]}`,true,3000);
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
           try{rpt=JSON.parse(clean);}catch{}
@@ -3198,7 +3198,8 @@ Context: `+reportTxt.slice(0,800),false,2000);
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
           {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
-          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></>}
+          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></> }
+          {report.shops?.length>0&&<><div className="divider"/><div className="slbl">🪝 Support Your Local Fly Shops</div>{report.shops.map((s,i)=><div key={i} style={{padding:"8px 0",borderBottom:i<report.shops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}><div style={{fontSize:13,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>{s.location&&<div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{s.location}</div>}{s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--gold)",textDecoration:"none",display:"block",marginTop:2}}>{s.website.replace(/^https?:\/\//,"")}</a>}{s.reportUrl&&s.reportUrl!==s.website&&<a href={s.reportUrl.startsWith("http")?s.reportUrl:"https://"+s.reportUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none",display:"block",marginTop:2}}>📋 View Report</a>}</div>)}</> }
         </div>
       )}
     </div>
