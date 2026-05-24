@@ -2923,7 +2923,7 @@ function StreamGaugeChart({streamName, localGauges}){
 
     // Otherwise search USGS by stream name
     const query=streamName.split("(")[0].split(",")[0].trim();
-    fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${((loc?.lng||(-105))-1.5).toFixed(2)},${((loc?.lat||39.7)-1.5).toFixed(2)},${((loc?.lng||(-105))+1.5).toFixed(2)},${((loc?.lat||39.7)+1.5).toFixed(2)}&parameterCd=00060&siteStatus=active&siteType=ST`)
+    fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=-107,38,-104,41&parameterCd=00060&siteStatus=active&siteType=ST`)
       .then(r=>r.json())
       .then(d=>{
         const ts=d.value?.timeSeries||[];
