@@ -3040,7 +3040,7 @@ function TripPlanner({defaultLocation}){
           let foundShops=[];
           try{const sc=shopSearchTxt.replace(/```json|```/g,"").trim();const si=sc.indexOf("{"),se=sc.lastIndexOf("}");if(si!==-1&&se>si){const sp=JSON.parse(sc.slice(si,se+1));foundShops=sp.shops||[];}console.log("found shops:",foundShops);}catch(se2){console.log("shop search parse failed:",se2.message);}
           const shopCtx=foundShops.length>0?`Use ONLY these real fly shop sources: ${foundShops.map(s=>s.name+" ("+s.reportUrl+") mentions: "+s.rivers?.join(", ")).join("; ")}`:`Search current conditions for: Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte (Deckers/Cheesman), Arkansas River`;
-          const reportTxt=await askClaude("Search current fly fishing conditions near "+loc.label+" for "+ds+". Weather: "+(wxData?Math.round((wxData.current&&wxData.current.temperature_2m)||0)+"F":"unknown")+". Max drive: "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+". "+shopCtx+". Search for ALL fly fishable streams and rivers within the drive time from the starting location. Rank them best to worst based on current conditions. Respond ONLY with valid JSON starting with {. Fields: overview, recommendation, rivers array each with name lat lng cfs condition conditions techniques flies why, hatches, bestTimes, tips, flyBoxEssentials, shops array each with name website reportUrl.",true,5000);
+          const reportTxt="";
           console.log("raw report txt:",reportTxt.slice(0,200));
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
