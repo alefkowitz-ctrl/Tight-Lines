@@ -3047,7 +3047,7 @@ Respond ONLY with this JSON, no markdown:
           if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
           if(!rpt)rpt=extractJSON(reportTxt);
           if(rpt&&(rpt.overview||rpt.rivers)){
-            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});
+            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});window._lastReport=rpt;console.log("shops:",rpt.shops);
           } else {
             // Model returned prose instead of JSON - extract what we can and reformat
             try{
