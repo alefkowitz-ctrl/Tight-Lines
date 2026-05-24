@@ -3039,8 +3039,8 @@ function TripPlanner({defaultLocation}){
 
 Rank streams by current conditions + fishing quality. Include lat/lng for each stream.
 
-Respond ONLY with this JSON, no markdown:
-{"overview":"2-3 sentence summary","recommendation":"best stream today and why","rivers":[{"name":"full stream name","lat":0.0,"lng":0.0,"cfs":"CFS if known","condition":"Low/Normal/High/Optimal","conditions":"2-3 sentences","techniques":"specific techniques","flies":["Pattern #size","Pattern #size"],"why":"why this ranks here today"}],"hatches":"active hatches","bestTimes":"best time windows","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size"],"shops":[{"name":"shop name","website":"url","location":"city, state","reportUrl":"url of specific report if found"}]}`,true,3000);
+YOU MUST respond with ONLY a valid JSON object. No prose, no apologies, no explanation. Start your response with { and end with }.
+{"overview":"...","recommendation":"...","rivers":[{"name":"...","lat":39.9,"lng":-105.1,"cfs":"...","condition":"Normal","conditions":"...","techniques":"...","flies":["..."],"why":"..."}],"hatches":"...","bestTimes":"...","tips":"...","flyBoxEssentials":["..."],"shops":[{"name":"...","website":"...","location":"...","reportUrl":"..."}]}`,true,3000);
           console.log("raw report txt:",reportTxt.slice(0,200));
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
@@ -3053,7 +3053,7 @@ Respond ONLY with this JSON, no markdown:
             // Model returned prose instead of JSON - extract what we can and reformat
             try{
               const retryTxt=await askClaude(`You are a local fly fishing expert for ${loc.label}. For ${ds}, use your knowledge of this region's fisheries to write a report. Respond with ONLY this JSON (no text before or after, no markdown fences). The "tips" field must be a genuine tactical tip — NOT "contact local shops":
-{"overview":"2-3 sentence summary with specific stream names and current conditions","recommendation":"specific best water today and exactly why","rivers":[{"name":"stream name","cfs":"actual CFS if known","conditions":"detailed conditions and forecast window","techniques":"specific presentation and approach","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active right now based on date and region","bestTimes":"specific time windows today","tips":"one genuine insider tip a local guide would share — NOT contact local shops","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"]}
+{"overview":"2-3 sentence summary with specific stream names and current conditions","recommendation":"specific best water today and exactly why","rivers":[{"name":"stream name","cfs":"actual CFS if known","conditions":"detailed conditions and forecast window","techniques":"specific presentation and approach","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active right now based on date and region","bestTimes":"specific time windows today","tips":"one genuine insider tip a local guide would share — NOT contact local shops","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"],"shops":[{"name":"shop name","website":"url","location":"city"}]}
 
 Context: `+reportTxt.slice(0,800),false,2000);
               const c2=retryTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
