@@ -3035,10 +3035,12 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          const reportTxt=await askClaude(`Search fly shop websites and fishing reports for the best streams within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label} for ${ds}. Search broadly across ALL rivers reachable in that drive time — do not limit to streams immediately near ${loc.label}. Find where fish are actually biting right now. For each stream found, provide current conditions, recommended flies, and techniques. Current weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}. Active hatches this season: ${hi}.
+          const reportTxt=await askClaude(`You are a fly fishing guide. Search fly shop reports for the best streams within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label} for ${ds}. Search ALL major rivers reachable in that time (Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte, Arkansas, etc). Weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}.
 
-Respond with ONLY this JSON structure, no other text, no markdown fences:
-{"overview":"2-3 sentence summary","recommendation":"best water and why","rivers":[{"name":"stream name","cfs":"flow if known","conditions":"conditions and forecast","techniques":"techniques","flies":["Fly #size","Fly #size","Fly #size"]}],"hatches":"hatches active now","bestTimes":"best times today","tips":"insider tip","flyBoxEssentials":["Fly #size","Fly #size","Fly #size","Fly #size"]}`,true,3000);
+Rank streams by current conditions + fishing quality. Include lat/lng for each stream.
+
+Respond ONLY with this JSON, no markdown:
+{"overview":"2-3 sentence summary","recommendation":"best stream today and why","rivers":[{"name":"full stream name","lat":0.0,"lng":0.0,"cfs":"CFS if known","condition":"Low/Normal/High/Optimal","conditions":"2-3 sentences","techniques":"specific techniques","flies":["Pattern #size","Pattern #size"],"why":"why this ranks here today"}],"hatches":"active hatches","bestTimes":"best time windows","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size"]}`,true,3000);
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
           try{rpt=JSON.parse(clean);}catch{}
@@ -3184,7 +3186,7 @@ Context: `+reportTxt.slice(0,800),false,2000);
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div className="rriver">🏞 {r.name}{r.cfs&&r.cfs!=="unknown"&&r.cfs!=="variable - check USGS"&&<span style={{fontSize:12,color:"var(--sky)",marginLeft:8,fontStyle:"normal"}}>· {r.cfs}</span>}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name+" Colorado")}`} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.cfs&&r.cfs!=="unknown"&&<div style={{fontSize:11,color:"var(--gold)",marginBottom:4}}>💧 {r.cfs} · <span style={{color:r.condition==="Optimal"?"#9cd47a":"var(--foam)"}}>{r.condition||""}</span></div>}{r.why&&<div style={{fontSize:12,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
