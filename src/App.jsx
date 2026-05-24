@@ -3035,40 +3035,18 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          // Step 1: Find real fly shops with reports
-          const shopSearchTxt=await askClaude(`Search the web for current fly fishing reports from fly shops within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label}. Find actual fly shop websites with fishing reports. Return ONLY JSON: {"shops":[{"name":"shop name","website":"https://...","reportUrl":"https://...specific-report-page","rivers":["river1","river2"]}]}`,true,2000);
-          let foundShops=[];
-          try{const sc=shopSearchTxt.replace(/```json|```/g,"").trim();const si=sc.indexOf("{"),se=sc.lastIndexOf("}");if(si!==-1&&se>si){const sp=JSON.parse(sc.slice(si,se+1));foundShops=sp.shops||[];}console.log("found shops:",foundShops);}catch(se2){console.log("shop search parse failed:",se2.message);}
-          const shopCtx=foundShops.length>0?`Use ONLY these real fly shop sources: ${foundShops.map(s=>s.name+" ("+s.reportUrl+") mentions: "+s.rivers?.join(", ")).join("; ")}`:`Search current conditions for: Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte (Deckers/Cheesman), Arkansas River`;
-          const reportTxt="";
-          console.log("raw report txt:",reportTxt.slice(0,200));
-          let rpt=null;
-          const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
-          try{rpt=JSON.parse(clean);}catch{}
-          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
-          if(!rpt)rpt=extractJSON(reportTxt);
-          if(rpt&&(rpt.overview||rpt.rivers)){
-            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});window._lastReport=rpt;console.log("shops:",rpt.shops);
-          } else {
-            // Model returned prose instead of JSON - extract what we can and reformat
-            try{
-              console.log("Starting retry with web search...");
-              let retryTxt="";
-              try{retryTxt=await askClaude("Search current fly fishing reports for streams within "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+" drive of "+loc.label+" for "+ds+". "+shopCtx+". List ALL fishable streams ranked best to worst. Return ONLY valid JSON: {overview,recommendation,rivers:[{name,lat,lng,cfs,condition,conditions,techniques,flies,why}],hatches,bestTimes,tips,flyBoxEssentials,shops:[{name,website,reportUrl}]}",false,2000);}catch(retryFetchErr){console.log("retry fetch error:",retryFetchErr.message);}
-              const c2=retryTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
-              let r2=null;
-              try{r2=JSON.parse(c2);}catch{}
-              if(!r2){const s=c2.indexOf("{"),e=c2.lastIndexOf("}");if(s!==-1&&e>s)try{r2=JSON.parse(c2.slice(s,e+1));}catch{}}
-              if(r2&&(r2.overview||r2.rivers)){
-                setReport({overview:(r2.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(r2.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(r2.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(r2.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(r2.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(r2.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:r2.flyBoxEssentials||[],shops:r2.shops||[]});window._lastReport=r2;console.log("shops from retry:",r2.shops);
-              } else {
-                setReport({overview:"Generating report from available data…",recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
-              }
-            }catch(retryErr){
-              setReport({overview:"Unable to generate report. Please try again.",recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
-            }
-          }
-        }catch(e2){console.log("report error:",e2.message,e2);}
+          // Step 1: Search fly shop reports (prose is fine here)
+          addStep("Searching fly shop reports…","active");
+          const searchPrompt="Search fly shop websites for current fishing reports within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Find which streams are fishing well, what flies are working, and current flow conditions. Also list which fly shops you found reports from.";
+          const searchTxt=await askClaude(searchPrompt,true,2000);
+          console.log("search result:",searchTxt.slice(0,200));
+
+          // Step 2: Synthesize into JSON (no web search, just structure the prose)
+          addStep("Building recommendations…","active");
+          const synthPrompt="Based on this fly fishing report data: "+searchTxt.slice(0,1500)+"\n\nLocation: "+loc.label+". Date: "+ds+". Weather: "+(wxData?Math.round((wxData.current&&wxData.current.temperature_2m)||0)+"F, "+(WX_DESC&&WX_DESC[wxData.current&&wxData.current.weather_code]||""):"unknown")+". Max drive time: "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+".\n\nCreate a structured fishing guide ranking ALL streams mentioned from best to worst. For streams not mentioned in reports, use your knowledge of typical conditions for this date and region. Include lat/lng for each stream. Return ONLY valid JSON with no other text: {\"overview\":\"...\"\,\"recommendation\":\"...\"\,\"rivers\":[{\"name\":\"...\"\,\"lat\":39.9\,\"lng\":-105.1\,\"cfs\":\"...\"\,\"condition\":\"Low/Normal/High/Optimal\"\,\"conditions\":\"...\"\,\"techniques\":\"...\"\,\"flies\":[\"Pattern #size\"]\,\"why\":\"...\"}]\,\"hatches\":\"...\"\,\"bestTimes\":\"...\"\,\"tips\":\"...\"\,\"flyBoxEssentials\":[\"Pattern #size\"]\,\"shops\":[{\"name\":\"...\"\,\"website\":\"...\"\,\"reportUrl\":\"...\"}]}";
+          const reportTxt=await askClaude(synthPrompt,false,3000);
+          console.log("synth result:",reportTxt.slice(0,200));
+        }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
