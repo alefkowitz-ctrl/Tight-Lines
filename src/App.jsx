@@ -3060,7 +3060,7 @@ Context: `+reportTxt.slice(0,800),false,2000);
               try{r2=JSON.parse(c2);}catch{}
               if(!r2){const s=c2.indexOf("{"),e=c2.lastIndexOf("}");if(s!==-1&&e>s)try{r2=JSON.parse(c2.slice(s,e+1));}catch{}}
               if(r2&&(r2.overview||r2.rivers)){
-                setReport({overview:(r2.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(r2.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(r2.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(r2.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(r2.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(r2.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:r2.flyBoxEssentials||[],shops:r2.shops||[]});
+                setReport({overview:(r2.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(r2.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(r2.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(r2.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(r2.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(r2.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:r2.flyBoxEssentials||[],shops:r2.shops||[]});window._lastReport=r2;console.log("shops from retry:",r2.shops);
               } else {
                 setReport({overview:"Generating report from available data…",recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
               }
