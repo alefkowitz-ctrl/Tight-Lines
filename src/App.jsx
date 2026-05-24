@@ -3052,6 +3052,7 @@ function TripPlanner({defaultLocation}){
           } else {
             // Model returned prose instead of JSON - extract what we can and reformat
             try{
+              console.log("Starting retry with web search...");
               const retryTxt=await askClaude("Search current fly fishing reports for streams within "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+" drive of "+loc.label+" for "+ds+". "+shopCtx+". List ALL fishable streams ranked best to worst. Return ONLY valid JSON: {overview,recommendation,rivers:[{name,lat,lng,cfs,condition,conditions,techniques,flies,why}],hatches,bestTimes,tips,flyBoxEssentials,shops:[{name,website,reportUrl}]}",true,4000);
               const c2=retryTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
               let r2=null;
