@@ -3052,10 +3052,7 @@ function TripPlanner({defaultLocation}){
           } else {
             // Model returned prose instead of JSON - extract what we can and reformat
             try{
-              const retryTxt=await askClaude(`You are a local fly fishing expert for ${loc.label}. For ${ds}, use your knowledge of this region's fisheries to write a report. Respond with ONLY this JSON (no text before or after, no markdown fences). The "tips" field must be a genuine tactical tip — NOT "contact local shops":
-{"overview":"2-3 sentence summary with specific stream names and current conditions","recommendation":"specific best water today and exactly why","rivers":[{"name":"stream name","cfs":"actual CFS if known","conditions":"detailed conditions and forecast window","techniques":"specific presentation and approach","flies":["Pattern #size","Pattern #size","Pattern #size"]}],"hatches":"specific hatches active right now based on date and region","bestTimes":"specific time windows today","tips":"one genuine insider tip a local guide would share — NOT contact local shops","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size","Pattern #size"],"shops":[{"name":"shop name","website":"url","location":"city"}]}
-
-Context: `+reportTxt.slice(0,800),false,2000);
+              const retryTxt=await askClaude("Search current fly fishing reports for streams within "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+" drive of "+loc.label+" for "+ds+". "+shopCtx+". List ALL fishable streams ranked best to worst. Return ONLY valid JSON: {overview,recommendation,rivers:[{name,lat,lng,cfs,condition,conditions,techniques,flies,why}],hatches,bestTimes,tips,flyBoxEssentials,shops:[{name,website,reportUrl}]}",true,4000);
               const c2=retryTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
               let r2=null;
               try{r2=JSON.parse(c2);}catch{}
