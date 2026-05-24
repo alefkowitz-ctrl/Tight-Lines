@@ -3048,7 +3048,7 @@ function TripPlanner({defaultLocation}){
           if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
           if(!rpt)rpt=extractJSON(reportTxt);
           if(rpt&&(rpt.overview||rpt.rivers)){
-            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});window._lastReport=rpt;console.log("shops:",rpt.shops);
+            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});window._lastReport=rpt;console.log("shops:",rpt.shops);
           } else {
             // Model returned prose instead of JSON - extract what we can and reformat
             try{
@@ -3061,7 +3061,7 @@ Context: `+reportTxt.slice(0,800),false,2000);
               try{r2=JSON.parse(c2);}catch{}
               if(!r2){const s=c2.indexOf("{"),e=c2.lastIndexOf("}");if(s!==-1&&e>s)try{r2=JSON.parse(c2.slice(s,e+1));}catch{}}
               if(r2&&(r2.overview||r2.rivers)){
-                setReport({overview:(r2.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(r2.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(r2.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(r2.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(r2.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(r2.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:r2.flyBoxEssentials||[],shops:r2.shops||[]});window._lastReport=r2;console.log("shops from retry:",r2.shops);
+                setReport({overview:(r2.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(r2.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(r2.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(r2.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(r2.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(r2.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:r2.flyBoxEssentials||[],shops:r2.shops||[]});window._lastReport=r2;console.log("shops from retry:",r2.shops);
               } else {
                 setReport({overview:"Generating report from available data…",recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
               }
