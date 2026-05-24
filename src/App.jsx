@@ -3041,6 +3041,7 @@ Rank streams by current conditions + fishing quality. Include lat/lng for each s
 
 Respond ONLY with this JSON, no markdown:
 {"overview":"2-3 sentence summary","recommendation":"best stream today and why","rivers":[{"name":"full stream name","lat":0.0,"lng":0.0,"cfs":"CFS if known","condition":"Low/Normal/High/Optimal","conditions":"2-3 sentences","techniques":"specific techniques","flies":["Pattern #size","Pattern #size"],"why":"why this ranks here today"}],"hatches":"active hatches","bestTimes":"best time windows","tips":"one insider tip","flyBoxEssentials":["Pattern #size","Pattern #size","Pattern #size"],"shops":[{"name":"shop name","website":"url","location":"city, state","reportUrl":"url of specific report if found"}]}`,true,3000);
+          console.log("raw report txt:",reportTxt.slice(0,200));
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
           try{rpt=JSON.parse(clean);}catch{}
@@ -3068,7 +3069,7 @@ Context: `+reportTxt.slice(0,800),false,2000);
               setReport({overview:"Unable to generate report. Please try again.",recommendation:"",rivers:[],hatches:"",bestTimes:"",tips:"",flyBoxEssentials:[]});
             }
           }
-        }catch(e2){console.log("report error:",e2.message);}
+        }catch(e2){console.log("report error:",e2.message,e2);}
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
