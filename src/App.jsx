@@ -3035,12 +3035,12 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          const reportTxt=await askClaude(`You are a fly fishing guide. Search fly shop reports for the best streams within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label} for ${ds}. Search ALL major rivers reachable in that time (Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte, Arkansas, etc). Weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}.
+          const reportTxt=await askClaude(`You are a fly fishing guide. IMPORTANT: You must list ALL fishable streams within the drive time, not just a few. Search fly shop reports for the best streams within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label} for ${ds}. Search ALL major rivers reachable in that time (Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte, Arkansas, etc). Weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}.
 
 Rank streams by current conditions + fishing quality. Include lat/lng for each stream.
 
 YOU MUST respond with ONLY a valid JSON object. No prose, no apologies, no explanation. Start your response with { and end with }.
-{"overview":"...","recommendation":"...","rivers":[{"name":"...","lat":39.9,"lng":-105.1,"cfs":"...","condition":"Normal","conditions":"...","techniques":"...","flies":["..."],"why":"..."}],"hatches":"...","bestTimes":"...","tips":"...","flyBoxEssentials":["..."],"shops":[{"name":"...","website":"...","location":"...","reportUrl":"..."}]}`,true,3000);
+{"overview":"...","recommendation":"...","rivers":[{"name":"...","lat":39.9,"lng":-105.1,"cfs":"...","condition":"Normal","conditions":"...","techniques":"...","flies":["..."],"why":"..."}],"hatches":"...","bestTimes":"...","tips":"...","flyBoxEssentials":["..."],"shops":[{"name":"...","website":"...","location":"...","reportUrl":"..."}]}`,true,4000);
           console.log("raw report txt:",reportTxt.slice(0,200));
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
