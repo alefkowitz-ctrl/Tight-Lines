@@ -3035,12 +3035,12 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          const reportTxt=await askClaude(`You are a fly fishing guide. IMPORTANT: You must list ALL fishable streams within the drive time, not just a few. Search fly shop reports for the best streams within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label} for ${ds}. Search ALL major rivers reachable in that time (Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte, Arkansas, etc). Weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F":"unknown"}.
-
-Rank streams by current conditions + fishing quality. Include lat/lng for each stream.
-
-YOU MUST respond with ONLY a valid JSON object. No prose, no apologies, no explanation. Start your response with { and end with }.
-{"overview":"...","recommendation":"...","rivers":[{"name":"...","lat":39.9,"lng":-105.1,"cfs":"...","condition":"Normal","conditions":"...","techniques":"...","flies":["..."],"why":"..."}],"hatches":"...","bestTimes":"...","tips":"...","flyBoxEssentials":["..."],"shops":[{"name":"...","website":"...","location":"...","reportUrl":"..."}]}`,true,4000);
+          // Step 1: Find real fly shops with reports
+          const shopSearchTxt=await askClaude(`Search the web for current fly fishing reports from fly shops within a ${driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour"} drive of ${loc.label}. Find actual fly shop websites with fishing reports. Return ONLY JSON: {"shops":[{"name":"shop name","website":"https://...","reportUrl":"https://...specific-report-page","rivers":["river1","river2"]}]}`,true,2000);
+          let foundShops=[];
+          try{const sc=shopSearchTxt.replace(/```json|```/g,"").trim();const si=sc.indexOf("{"),se=sc.lastIndexOf("}");if(si!==-1&&se>si){const sp=JSON.parse(sc.slice(si,se+1));foundShops=sp.shops||[];}console.log("found shops:",foundShops);}catch(se2){console.log("shop search parse failed:",se2.message);}
+          const shopCtx=foundShops.length>0?`Use ONLY these real fly shop sources: ${foundShops.map(s=>s.name+" ("+s.reportUrl+") mentions: "+s.rivers?.join(", ")).join("; ")}`:`Search current conditions for: Cache la Poudre, Big Thompson, St Vrain, Boulder Creek, Clear Creek, South Platte (Deckers/Cheesman), Arkansas River`;
+          const reportTxt=await askClaude(`Fly fishing guide for ${loc.label}. Date: ${ds}. Weather: ${wxData?Math.round(wxData.current?.temperature_2m||0)+"°F, "+WX_DESC[wxData.current?.weather_code]:"unknown"}. Max drive: ${driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr"}. ${shopCtx}. List ALL fishable streams within drive time ranked best to worst with lat/lng. Respond ONLY with JSON starting with {: {"overview":"...","recommendation":"...","rivers":[{"name":"...","lat":39.9,"lng":-105.1,"cfs":"...","condition":"Low/Normal/High/Optimal","conditions":"...","techniques":"...","flies":["Pattern #size"],"why":"..."}],"hatches":"...","bestTimes":"...","tips":"...","flyBoxEssentials":["Pattern #size"],"shops":${JSON.stringify(foundShops.map(s=>({name:s.name,website:s.website,reportUrl:s.reportUrl})))}}`,true,3000);
           console.log("raw report txt:",reportTxt.slice(0,200));
           let rpt=null;
           const clean=reportTxt.replace(/[`]{3}json|[`]{3}/g,"").trim();
