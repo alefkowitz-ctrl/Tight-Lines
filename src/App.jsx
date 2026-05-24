@@ -3046,6 +3046,14 @@ function TripPlanner({defaultLocation}){
           const synthPrompt="Based on this fly fishing report data: "+searchTxt.slice(0,1500)+"\n\nLocation: "+loc.label+". Date: "+ds+". Weather: "+(wxData?Math.round((wxData.current&&wxData.current.temperature_2m)||0)+"F, "+(WX_DESC&&WX_DESC[wxData.current&&wxData.current.weather_code]||""):"unknown")+". Max drive time: "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+".\n\nCreate a structured fishing guide ranking ALL streams mentioned from best to worst. For streams not mentioned in reports, use your knowledge of typical conditions for this date and region. Include lat/lng for each stream. Return ONLY valid JSON with no other text: {\"overview\":\"...\"\,\"recommendation\":\"...\"\,\"rivers\":[{\"name\":\"...\"\,\"lat\":39.9\,\"lng\":-105.1\,\"cfs\":\"...\"\,\"condition\":\"Low/Normal/High/Optimal\"\,\"conditions\":\"...\"\,\"techniques\":\"...\"\,\"flies\":[\"Pattern #size\"]\,\"why\":\"...\"}]\,\"hatches\":\"...\"\,\"bestTimes\":\"...\"\,\"tips\":\"...\"\,\"flyBoxEssentials\":[\"Pattern #size\"]\,\"shops\":[{\"name\":\"...\"\,\"website\":\"...\"\,\"reportUrl\":\"...\"}]}";
           const reportTxt=await askClaude(synthPrompt,false,3000);
           console.log("synth result:",reportTxt.slice(0,200));
+          const clean=reportTxt.replace(/```json|```/g,"").trim();
+          let rpt=null;
+          try{rpt=JSON.parse(clean);}catch{}
+          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
+          if(!rpt) rpt=extractJSON(reportTxt);
+          if(rpt&&(rpt.overview||rpt.rivers)){
+            setReport({overview:(rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});
+          }
         }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
