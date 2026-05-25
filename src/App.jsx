@@ -3571,7 +3571,7 @@ function App({user}){
     setEnriching(true);
     let updated=0;
     // Fish ID for catches with photos but no length
-    const toID=catches.filter(c2=>c2.photo&&(!c2.length||c2.species==="Unidentified"||c2.species==="Brown Trout")&&!c2._pending).slice(0,5);
+    const toID=catches.filter(c2=>c2.photo&&!c2.length&&!c2._pending).slice(0,5);
     console.log("catches to ID:",toID.length);
     for(const catch2 of toID){
       try{
