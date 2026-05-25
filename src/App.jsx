@@ -717,7 +717,9 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
     const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
     const prompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". Search fly shop reports to find what insects are actually hatching right now. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
     try{
+      console.log("hatch prompt:",prompt.slice(0,100));
       const txt=await askClaude(prompt,true,1000);
+      console.log("hatch result:",txt.slice(0,200));
       const parsed=extractJSON(txt);
       if(parsed && parsed.hatches){
       setResult(parsed.hatches);
