@@ -715,7 +715,6 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
     const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
     const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
     const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
-    const prompt="Fly fishing hatch matcher. Location: "+loc.label+". Month: "+month+". "+tempNote+"Nearby flows: "+(cfs||"unknown")+". Typical hatches: "+HL[mo]+". Identify 3 most likely active hatches NOW with best matching flies. Consider: BWO/midges thrive 45-55F, PMDs/caddis 55-65F, hoppers/tricos above 65F. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[],timing,notes}]}";
     try{
       const txt=await askClaude(prompt,true,1000);
       const parsed=extractJSON(txt);
