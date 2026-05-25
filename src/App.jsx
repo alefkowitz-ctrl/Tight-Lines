@@ -3575,6 +3575,8 @@ function App({user}){
     console.log("catches to ID:",toID.length);
     for(const catch2 of toID){
       try{
+        console.log("photo type:",catch2.photo?.slice(0,50));
+        if(!catch2.photo?.startsWith("data:")) {console.log("not base64, skipping");continue;}
         const base64=catch2.photo.split(",")[1];
         if(!base64) continue;
         const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Identify this fish. Choose species from: "+SPECIES.join(", ")+". Reply ONLY with JSON: {species:Rainbow Trout,length:14}. Use null for length if unknown."}]}]})});
