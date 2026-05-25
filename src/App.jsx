@@ -3866,7 +3866,7 @@ function App({user}){
     e.target.value="";
     const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
     // Set photo immediately
-    setForm(f=>({...f,photo:dataUrl,sizeEstimating:true}));
+    setForm(f=>({...f,photo:dataUrl,sizeEstimating:true,idNote:null}));
     setAddOpen(true);
     // Parse EXIF for date/GPS
     let photoTime=null,photoGps=null,photoLat=null,photoLng=null;
@@ -3917,8 +3917,15 @@ function App({user}){
       const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
       const rd=await res.json();
       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-      if(parsed.species||parsed.length!=null) setForm(f=>({...f,species:parsed.species||f.species,length:parsed.length!=null?String(Math.round(parsed.length)):f.length,sizeEstimated:parsed.length!=null}));
-    }catch(e3){console.log("Fish ID failed:",e3.message);}
+      if(parsed.species||parsed.length!=null){
+        setForm(f=>({...f,species:parsed.species||f.species,length:parsed.length!=null?String(Math.round(parsed.length)):f.length,sizeEstimated:parsed.length!=null}));
+      } else {
+        setForm(f=>({...f,idNote:"Could not identify fish from this photo. Please select species manually."}));
+      }
+    }catch(e3){
+      console.log("Fish ID failed:",e3.message);
+      setForm(f=>({...f,idNote:"Photo analysis failed. Please select species manually."}));
+    }
     setForm(f=>({...f,sizeEstimating:false}));
   }
 
@@ -4357,6 +4364,7 @@ ${shopPins}
           )}
           <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
           {form.sizeEstimating&&<div style={{fontSize:12,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(200,168,75,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
+          {form.idNote&&!form.sizeEstimating&&<div style={{fontSize:12,color:"var(--red)",marginBottom:8,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:8}}>⚠️ {form.idNote}</div>}
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
