@@ -4131,7 +4131,7 @@ ${shopPins}
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
               </div>
-              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating conditions…":"🔄 Update Conditions Data"}</button>
+              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating catch data…":"🔄 Update Catch Data"}</button>
               {catches.length>0&&(()=>{
                 const counts={};catches.forEach(c=>{if(c.species)counts[c.species]=(counts[c.species]||0)+1;});
                 const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
