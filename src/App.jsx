@@ -2661,6 +2661,36 @@ function GuideBook({user, loc}){
                     )}
                     {cd.gps&&<div className="cgps">📍 <GpsLocation gps={cd.gps}/></div>}
                     <div style={{display:"flex",gap:8,marginTop:8}}>
+                      {(!cd.species||cd.species==="Unknown"||!cd.length)&&<button onClick={async e=>{
+                        e.stopPropagation();
+                        const btn=e.currentTarget;btn.textContent="🔍 Identifying…";btn.disabled=true;
+                        try{
+                          let base64=null;
+                          if(p?.startsWith("data:")){base64=p.split(",")[1];}
+                          else if(p?.startsWith("http")){
+                            const imgRes=await fetch(p);const blob=await imgRes.blob();
+                            const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(blob);});
+                            const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=dataUrl;});
+                            const canvas=document.createElement("canvas");const max=800;
+                            const scale=Math.min(1,max/Math.max(img.width,img.height));
+                            canvas.width=Math.round(img.width*scale);canvas.height=Math.round(img.height*scale);
+                            canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+                            base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
+                          }
+                          if(!base64){btn.textContent="🔍 Identify";btn.disabled=false;return;}
+                          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Cutthroat have red slash under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
+                          const rd=await res.json();
+                          const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+                          if(parsed.species){
+                            const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});
+                            d[i]={...d[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):d[i].length};
+                            const upd={...selectedTrip,catchDetails:d};
+                            setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
+                            if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);
+                          }
+                        }catch(err){console.log("guide fish ID failed:",err.message);}
+                        btn.textContent="🔍 Identify";btn.disabled=false;
+                      }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🔍 Identify</button>}
                       <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
                         style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         ✏️ Edit
