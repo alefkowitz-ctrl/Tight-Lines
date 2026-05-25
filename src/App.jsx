@@ -3576,18 +3576,26 @@ function App({user}){
     for(const catch2 of toID){
       try{
         let base64=null;
-        let mediaType="image/jpeg";
-        if(catch2.photo?.startsWith("data:")){
-          base64=catch2.photo.split(",")[1];
-          mediaType=catch2.photo.split(";")[0].split(":")[1]||"image/jpeg";
-        } else if(catch2.photo?.startsWith("http")){
-          try{
+        const mediaType="image/jpeg";
+        try{
+          let dataUrl=null;
+          if(catch2.photo?.startsWith("data:")){dataUrl=catch2.photo;}
+          else if(catch2.photo?.startsWith("http")){
             const imgRes=await fetch(catch2.photo);
             const blob=await imgRes.blob();
-            mediaType=blob.type||"image/jpeg";
-            base64=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(",")[1]);r.readAsDataURL(blob);});
-          }catch(fetchErr){console.log("photo fetch failed:",fetchErr.message);continue;}
-        }
+            dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(blob);});
+          }
+          if(!dataUrl) continue;
+          // Resize to max 800px
+          const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
+          const canvas=document.createElement("canvas");
+          const max=800;
+          const scale=Math.min(1,max/Math.max(img.width,img.height));
+          canvas.width=Math.round(img.width*scale);
+          canvas.height=Math.round(img.height*scale);
+          canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+          base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
+        }catch(fetchErr){console.log("photo prep failed:",fetchErr.message);continue;}
         if(!base64) continue;
         const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Identify this fish. Choose species from: "+SPECIES.join(", ")+". Reply ONLY with JSON: {species:Rainbow Trout,length:14}. Use null for length if unknown."}]}]})});
         const rd=await res.json();
