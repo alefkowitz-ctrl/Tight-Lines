@@ -1981,7 +1981,7 @@ function GuideBook({user, loc}){
       // Use EXIF time, fall back to trip date (not today's date)
       const tripDateFallback=tripForm.date?new Date(tripForm.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true}):new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
       const t=photoTime||tripDateFallback;
-      const detail={photo:dataUrl,time:t,gps:photoGps,species:"",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
+      const detail={photo:dataUrl,time:t,gps:photoGps,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
       setTripForm(f=>({...f,catchDetails:[...(f.catchDetails||[]),detail]}));
       // Get location: EXIF GPS → locRef (always current, no stale closure) → geolocation
       let fetchLat=photoLat,fetchLng=photoLng,fetchGps=photoGps;
