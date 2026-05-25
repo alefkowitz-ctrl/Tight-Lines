@@ -707,18 +707,22 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
   React.useEffect(()=>{if(autoRun&&loc&&!result&&!loading)runMatcher();},[autoRun,loc]);
   async function runMatcher(){
     if(!loc) return;
+    const hKey="tl_hatch_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
+    try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setResult(data);setOpen(true);return;}}}catch{}
     setLoading(true);setOpen(true);setResult(null);
-    const mo=new Date().getMonth();
-    const HL={0:"Midge, BWO",1:"Midge, BWO",2:"Midge, BWO, Skwala",3:"BWO, Skwala, March Brown",4:"PMD, Caddis, Green Drake",5:"Green Drake, PMD, Salmonfly, Caddis",6:"Caddis, PMD, Yellow Sally, Trico",7:"Hopper, Trico, Caddis",8:"Hopper, Trico, BWO",9:"BWO, Hopper, Mahogany Dun",10:"BWO, Midge, Mahogany Dun",11:"Midge, BWO"};
     const month=new Date().toLocaleString("en-US",{month:"long"});
     const nearestTemp=waterTemp||(gauges||[]).find(g=>g.waterTempF)?.waterTempF;
-    const tempNote=nearestTemp?"Water temp: "+nearestTemp+"F. ":"";
+    const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
+    const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
     const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
     const prompt="Fly fishing hatch matcher. Location: "+loc.label+". Month: "+month+". "+tempNote+"Nearby flows: "+(cfs||"unknown")+". Typical hatches: "+HL[mo]+". Identify 3 most likely active hatches NOW with best matching flies. Consider: BWO/midges thrive 45-55F, PMDs/caddis 55-65F, hoppers/tricos above 65F. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[],timing,notes}]}";
     try{
-      const txt=await askClaude(prompt,false,800);
+      const txt=await askClaude(prompt,true,1000);
       const parsed=extractJSON(txt);
-      if(parsed && parsed.hatches) setResult(parsed.hatches);
+      if(parsed && parsed.hatches){
+      setResult(parsed.hatches);
+      try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
+    }
     }catch(e){console.log("hatch matcher failed:",e.message);}
     setLoading(false);
   }
@@ -4137,28 +4141,6 @@ ${shopPins}
               })()}
 
             </div>
-            {catches.length>=3&&(
-              <div style={{marginBottom:12}}>
-                <button onClick={async()=>{
-                  if(summaryLoading) return;
-                  setSummaryLoading(true);setCatchSummary(null);
-                  try{
-                    const data=catches.slice(0,50).map((c,i)=>`${i+1}. ${c.species||"Unknown"}${c.length?" ("+c.length+'")':""}${c.time?" on "+c.time:""}${c.gps?" at "+c.gps:""}${c.flies?.length?" using "+c.flies.join(", "):""}${c.weatherDesc?" | "+c.weatherDesc:""}${c.airTemp?" "+c.airTemp+"°F":""}${c.streamCFS?" | "+c.streamCFS+" CFS":""}${c.waterTemp?" | "+c.waterTemp+"°F water":""}`).join("\n");
-                    const txt=await askClaude(`Fly fishing catch data:\n${data}\n\nAnalyze and provide a 2-3 paragraph trend summary covering: best species/sizes, patterns in location/time/conditions/flies, and 2-3 actionable recommendations. Be specific with numbers. Plain text only.`,false,600);
-                    setCatchSummary(txt);
-                  }catch(e){setCatchSummary("Could not generate summary.");}
-                  setSummaryLoading(false);
-                }} className="btn btnp" style={{width:"100%",marginBottom:catchSummary?10:0}}>
-                  {summaryLoading?"⏳ Analyzing…":"✦ AI Catch Trend Summary"}
-                </button>
-                {catchSummary&&(
-                  <div style={{background:"rgba(0,0,0,0.25)",borderRadius:12,padding:"14px 16px"}}>
-                    <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Trend Analysis</div>
-                    <div style={{fontSize:13,color:"var(--foam)",lineHeight:1.75,fontFamily:"'Crimson Pro',serif",whiteSpace:"pre-wrap"}}>{catchSummary}</div>
-                  </div>
-                )}
-              </div>
-            )}
             {(()=>{
               const parseGpsCoord=gps=>{
                 if(!gps||gps==="Location not recorded") return null;
