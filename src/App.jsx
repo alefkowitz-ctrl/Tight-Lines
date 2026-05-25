@@ -3611,8 +3611,8 @@ function App({user}){
       }catch{}
     }
     setEnriching(false);
-    if(updated>0) alert(updated+" catches enriched with stream data!");
-    else alert("No new stream data found for catches with GPS coordinates.");
+    if(updated>0) alert(updated+" catches updated!");
+    else alert("All catches are up to date.");
   }
 
   async function addCatch(catchData){
