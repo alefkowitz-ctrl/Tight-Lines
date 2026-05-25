@@ -1402,7 +1402,7 @@ function TripLocationWeather({tripForm, setTripForm}){
   return(
     <div>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <input className="inp" style={{marginBottom:0,flex:1}} placeholder="e.g. South Platte at Deckers"
+        <input className="inp" style={{marginBottom:0,flex:1}} placeholder="e.g. River name or gauge #"
           value={tripForm.location}
           onChange={e=>setTripForm(f=>({...f,location:e.target.value}))}/>
         <button className="btn" style={{whiteSpace:"nowrap",padding:"0 12px"}} disabled={wxLoading}
@@ -4021,7 +4021,7 @@ function App({user}){
 
         <div className="content">
           {tab==="conditions"&&<>
-            {!loc&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Boulder, CO"</em> · <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em></div>}
+            {!loc&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em> · <em>"Au Sable River, MI"</em></div>}
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
@@ -4098,7 +4098,7 @@ function App({user}){
                   </div>
                 ):(
                   <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:12,cursor:"pointer"}}>
-                    ⭐ Pin a gauge (e.g. South Boulder Creek)
+                    ⭐ Pin a gauge (e.g. your local river)
                   </button>
                 )}
               </div>
