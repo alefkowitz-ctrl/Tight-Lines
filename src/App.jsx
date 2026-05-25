@@ -3570,6 +3570,23 @@ function App({user}){
     if(!catches.length||enriching) return;
     setEnriching(true);
     let updated=0;
+    // Fish ID for catches with photos but no length
+    const toID=catches.filter(c2=>c2.photo&&!c2.length&&!c2._pending).slice(0,5);
+    console.log("catches to ID:",toID.length);
+    for(const catch2 of toID){
+      try{
+        const base64=catch2.photo.split(",")[1];
+        if(!base64) continue;
+        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Identify this fish. Choose species from: "+SPECIES.join(", ")+". Reply ONLY with JSON: {species:Rainbow Trout,length:14}. Use null for length if unknown."}]}]})});
+        const rd=await res.json();
+        const txt=((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim();
+        const parsed=JSON.parse(txt);
+        if(parsed.species&&parsed.species!=="Unidentified"){
+          await updateCatch(catch2.id,{species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):catch2.length});
+          updated++;
+        }
+      }catch(idErr){console.log("enrich ID failed:",idErr.message);}
+    }
     const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded");
     console.log("Catches to enrich:",toEnrich.length,toEnrich.map(c2=>c2.gps?.slice(0,30)));
     for(const catch2 of toEnrich){
