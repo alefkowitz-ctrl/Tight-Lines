@@ -3073,8 +3073,8 @@ function TripPlanner({defaultLocation}){
         try{
           // Step 1: Run two parallel searches for broader coverage
           addStep("Searching fly shop reports…","active");
-          const searchPrompt1="Search fly shop websites in ALL towns within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for current fishing reports for "+ds+". Find shops in every nearby town. List which streams are fishing well, current conditions, and recommended flies.";
-          const searchPrompt2="Search for current trout fishing conditions on ALL major rivers and streams within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Which rivers are freestone vs tailwater? What are current flows, water clarity, and crowd levels on each?";
+          const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" near "+loc.label+". Find reports from shops both close to "+loc.label+" AND in towns up to "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" away. List every stream mentioned with current conditions and flies working.";
+          const searchPrompt2="Search current USGS flows and fishing reports for all trout streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+". Include both nearby streams AND streams further away up to the full drive time. Note which are freestone vs tailwater, current CFS, crowd levels, and best techniques for "+ds+".";
           const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
           const searchTxt=searchTxt1+" "+searchTxt2;
           console.log("search result:",searchTxt.slice(0,200));
