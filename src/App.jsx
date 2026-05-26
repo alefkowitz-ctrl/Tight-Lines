@@ -3071,10 +3071,12 @@ function TripPlanner({defaultLocation}){
         const mo=new Date(date+"T12:00:00").getMonth();
         const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
-          // Step 1: Search fly shop reports (prose is fine here)
+          // Step 1: Run two parallel searches for broader coverage
           addStep("Searching fly shop reports…","active");
-          const searchPrompt="Search fly shop websites and fishing forums for current conditions within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". For each stream find: current flow conditions (high/normal/low), water clarity, crowd levels compared to other streams, whether it is freestone or tailwater, best access points, and what flies are working. Note which streams are best for: most fish, best scenery, most solitude. List the fly shops you found reports from with their URLs.";
-          const searchTxt=await askClaude(searchPrompt,true,2000);
+          const searchPrompt1="Search fly shop websites for current fishing reports within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Find which streams are fishing well, current flows, crowd levels, and recommended flies. List every stream mentioned.";
+          const searchPrompt2="Search for current trout fishing conditions and USGS flow data for streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Include freestone rivers, tailwaters, and spring creeks. What are flows like? Which are crowded vs uncrowded?";
+          const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
+          const searchTxt=searchTxt1+" "+searchTxt2;
           console.log("search result:",searchTxt.slice(0,200));
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
