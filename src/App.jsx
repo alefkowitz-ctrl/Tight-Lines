@@ -3092,7 +3092,7 @@ function TripPlanner({defaultLocation}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            setReport({overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[r.accessPoints]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
+            setReport({overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
           }
         }catch(e2){console.log("report error:",e2.message);}
         addStep("Report complete ✓");
