@@ -3073,8 +3073,8 @@ function TripPlanner({defaultLocation}){
         try{
           // Step 1: Run two parallel searches for broader coverage
           addStep("Searching fly shop reports…","active");
-          const searchPrompt1="Search fly shop websites for current fishing reports within a "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Find which streams are fishing well, current flows, crowd levels, and recommended flies. List every stream mentioned.";
-          const searchPrompt2="Search for current trout fishing conditions and USGS flow data for streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for "+ds+". Include freestone rivers, tailwaters, and spring creeks. What are flows like? Which are crowded vs uncrowded?";
+          const searchPrompt1="Search fly shop websites in ALL towns within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" for fishing reports for "+ds+". Search shops in Fort Collins, Boulder, Denver, Colorado Springs, Estes Park, Loveland, and any other nearby towns. Find which streams are fishing well and why.";
+          const searchPrompt2="Search for current trout fishing reports for major rivers within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" of "+loc.label+". Specifically check: Cache la Poudre, Big Thompson, St Vrain, Clear Creek, South Platte, Boulder Creek, Arkansas River. Which are freestone vs tailwater? What are current flows and crowd levels?";
           const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
           const searchTxt=searchTxt1+" "+searchTxt2;
           console.log("search result:",searchTxt.slice(0,200));
