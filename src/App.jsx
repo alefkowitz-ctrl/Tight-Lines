@@ -3210,6 +3210,19 @@ function TripPlanner({defaultLocation}){
               </div>
             </div>
           )}
+          {report.bestFor&&Object.values(report.bestFor).some(v=>v)&&(
+            <div style={{marginTop:12}}>
+              <div className="slbl">🎯 Best For</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+                {[["mostFish","🐟 Most Fish"],["bestScenery","🏔 Best Scenery"],["mostSolitude","🧘 Most Solitude"],["beginners","🎣 Beginners"]].map(([k,label])=>report.bestFor[k]?(
+                  <div key={k} style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"8px 10px"}}>
+                    <div style={{fontSize:9,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{label}</div>
+                    <div style={{fontSize:12,color:"var(--foam)"}}>{report.bestFor[k]}</div>
+                  </div>
+                ):null)}
+              </div>
+            </div>
+          )}
           {report.rivers?.length>0&&<><div className="divider"/>
             {report.rivers.map((r,i)=>{
               return(
