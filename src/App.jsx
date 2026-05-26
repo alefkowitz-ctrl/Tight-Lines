@@ -3081,7 +3081,8 @@ function TripPlanner({defaultLocation}){
           addStep("Building recommendations…","active");
           const synthPrompt="You are an expert fly fishing guide for the "+loc.label+" area. Based on these current reports (may be incomplete): "+(searchTxt.slice(0,2500)||"No shop reports found, use your knowledge of the area")+"\n\nDate: "+ds+". Weather: "+(wxData?Math.round((wxData.current&&wxData.current.temperature_2m)||0)+"F, "+(WX_DESC&&WX_DESC[wxData.current&&wxData.current.weather_code]||""):"unknown")+". Drive time: "+(driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr")+".\n\nWrite a guide-quality report like you are telling a friend. For EVERY stream within drive time include: freestone vs tailwater, crowd level vs other options, best time of day, specific access points, honest fishing quality vs scenery vs solitude, and how current flows affect strategy. Include a bestFor section comparing streams.\n\nReturn ONLY valid JSON: {overview,recommendation,bestFor:{mostFish,bestScenery,mostSolitude,beginners},rivers:[{name,lat,lng,type,cfs,condition,crowdLevel,conditions,techniques,bestTime,accessPoints:[],flies:[],why}],hatches,bestTimes,tips,flyBoxEssentials:[],shops:[{name,website,reportUrl}]}"
           const reportTxt=await askClaude(synthPrompt,false,4000);
-          console.log("synth result:",reportTxt.slice(0,200));
+          console.log("synth result:",reportTxt.slice(0,300));
+          console.log("synth length:",reportTxt.length);
           const clean=reportTxt.replace(/```json|```/g,"").trim();
           let rpt=null;
           try{rpt=JSON.parse(clean);}catch{}
