@@ -3085,9 +3085,10 @@ function TripPlanner({defaultLocation}){
           console.log("synth length:",reportTxt.length);
           const clean=reportTxt.replace(/```json|```/g,"").trim();
           let rpt=null;
-          try{rpt=JSON.parse(clean);}catch{}
-          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch{}}
+          try{rpt=JSON.parse(clean);}catch(pe){console.log("parse error:",pe.message);}
+          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch(pe2){console.log("slice parse error:",pe2.message);}}
           if(!rpt) rpt=extractJSON(reportTxt);
+          console.log("rpt parsed:",!!rpt,rpt?.overview?.slice(0,50));
           if(rpt&&(rpt.overview||rpt.rivers)){
             setReport({overview:(Array.isArray(rpt.overview)?rpt.overview.join(" "):rpt.overview||"").replace(/<cite[^>]*>|<\/cite>/g,""),recommendation:(Array.isArray(rpt.recommendation)?rpt.recommendation.join(" "):rpt.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,""),techniques:(Array.isArray(r.techniques)?r.techniques.join(". "):r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"")})),hatches:(Array.isArray(rpt.hatches)?rpt.hatches.join(", "):rpt.hatches||"").replace(/<cite[^>]*>|<\/cite>/g,""),bestTimes:(Array.isArray(rpt.bestTimes)?rpt.bestTimes.join(", "):rpt.bestTimes||"").replace(/<cite[^>]*>|<\/cite>/g,""),tips:(Array.isArray(rpt.tips)?rpt.tips.join(" "):rpt.tips||"").replace(/<cite[^>]*>|<\/cite>/g,""),flyBoxEssentials:rpt.flyBoxEssentials||[],shops:rpt.shops||[]});
           }
