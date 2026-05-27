@@ -3540,6 +3540,7 @@ function App({user}){
   const [catchesLoading,setCatchesLoading]=useState(true);
   const [catchLogTab,setCatchLogTab]=useState("list");
   const [enriching,setEnriching]=useState(false);
+  const [batchProgress,setBatchProgress]=useState(null);
   const encKeyRef=React.useRef(null);
   const lastCatchIdRef=React.useRef(null);
   React.useEffect(()=>{if(user?.id)getOrCreateKey(user.id).then(k=>encKeyRef.current=k);},[user?.id]);
@@ -3951,8 +3952,57 @@ function App({user}){
   }
 
   async function handlePhoto(e){
-    const file=e.target.files[0];if(!file)return;
+    const files=Array.from(e.target.files||[]);
+    if(!files.length)return;
     e.target.value="";
+    // Batch mode: multiple files selected
+    if(files.length>1){
+      setBatchProgress({total:files.length,done:0,current:""});
+      for(let fi=0;fi<files.length;fi++){
+        const file=files[fi];
+        setBatchProgress({total:files.length,done:fi,current:file.name});
+        try{
+          const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+          let photoTime=null,photoGps=null,photoLat=null,photoLng=null;
+          try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoGps=exif.gps;photoLat=exif.lat??null;photoLng=exif.lng??null;}catch{}
+          const fetchLat=photoLat??loc?.lat;
+          const fetchLng=photoLng??loc?.lng;
+          const now=new Date();
+          const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+          const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"Location not recorded";
+          // Fish ID
+          let species="Unidentified",length="",idNote=null;
+          try{
+            const base64=dataUrl.split(",")[1];
+            const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+            const rd=await res.json();
+            const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+            if(parsed.species&&parsed.species!=="Unidentified"){species=parsed.species;if(parsed.length!=null)length=String(Math.round(parsed.length));}
+            else idNote="Could not identify fish from photo.";
+          }catch{}
+          // Conditions
+          let catchData={species,length,flies:[],photo:dataUrl,gps:coords,time:t,notes:"",air_temp:null,weather_desc:null,wind_speed:null,wind_dir:null,pressure:null,stream_cfs:null,stream_condition:null,stream_gauge_name:null,water_temp:null};
+          if(fetchLat&&fetchLng){
+            try{
+              const d2=new Date(t.replace(" at "," "));
+              const today=new Date().toISOString().split("T")[0];
+              const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:null;
+              if(dateStr&&dateStr<today){
+                const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");
+                if(conds){catchData={...catchData,air_temp:conds.airTemp||null,weather_desc:conds.weatherDesc||null,wind_speed:conds.windSpeed||null,wind_dir:conds.windDir||null,pressure:conds.pressure||null,stream_cfs:conds.streamCFS||null,stream_condition:conds.streamCondition||null,stream_gauge_name:conds.streamGaugeName||null};}
+              }
+            }catch{}
+          }
+          const savedId=await addCatch(catchData);
+          if(savedId) lastCatchIdRef.current=savedId;
+        }catch(batchErr){console.log("batch catch failed:",batchErr.message);}
+      }
+      setBatchProgress({total:files.length,done:files.length,current:""});
+      setTimeout(()=>setBatchProgress(null),2000);
+      return;
+    }
+    // Single file mode — original flow
+    const file=files[0];
     const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
     // Set photo immediately
     setForm(f=>({...f,photo:dataUrl,sizeEstimating:true,idNote:null}));
@@ -4037,7 +4087,7 @@ function App({user}){
         📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
       </div>}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
-      <input ref={galRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhoto}/>
+      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhoto}/>
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
@@ -4423,6 +4473,19 @@ ${shopPins}
           {tab==="guide"&&<GuideBook user={user} loc={loc}/>}
         </div>
 
+        {batchProgress&&(
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{background:"var(--water)",borderRadius:16,padding:"28px 32px",textAlign:"center",maxWidth:300}}>
+              <div style={{fontSize:32,marginBottom:12}}>📷</div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",marginBottom:8}}>Adding Catches</div>
+              <div style={{fontSize:13,color:"var(--stone)",marginBottom:16}}>{batchProgress.done} of {batchProgress.total} photos processed</div>
+              <div style={{background:"rgba(0,0,0,0.3)",borderRadius:8,height:8,overflow:"hidden"}}>
+                <div style={{height:"100%",background:"var(--gold)",borderRadius:8,width:`${(batchProgress.done/batchProgress.total)*100}%`,transition:"width 0.3s"}}/>
+              </div>
+              {batchProgress.done===batchProgress.total&&<div style={{marginTop:12,fontSize:13,color:"#9cd47a"}}>✓ All done!</div>}
+            </div>
+          </div>
+        )}
         {tab==="log"&&(
           <button className="fab" onClick={()=>{setForm(blank);setAddOpen(true);}}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
