@@ -3995,8 +3995,18 @@ function App({user}){
               if(dateStr&&dateStr<today){
                 const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");
                 if(conds){catchData={...catchData,air_temp:conds.airTemp||null,weather_desc:conds.weatherDesc||null,wind_speed:conds.windSpeed||null,wind_dir:conds.windDir||null,pressure:conds.pressure||null,stream_cfs:conds.streamCFS||null,stream_condition:conds.streamCondition||null,stream_gauge_name:conds.streamGaugeName||null};}
+              } else {
+                const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
+                const wc=wx.current;
+                const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
+                catchData={...catchData,air_temp:String(Math.round(wc.temperature_2m)),weather_desc:WX_DESC[wc.weather_code]||"",wind_speed:String(Math.round(wc.wind_speed_10m)),wind_dir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
+                const ts2=(usgs.value?.timeSeries)??[];
+                if(ts2.length){
+                  const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+                  if(parsed2.length)catchData={...catchData,stream_cfs:String(Math.round(parsed2[0].cfs)),stream_condition:parsed2[0].label,stream_gauge_name:parsed2[0].name};
+                }
               }
-            }catch{}
+            }catch(condErr){console.log("batch conditions failed:",condErr.message);}
           }
           const savedId=await addCatch(catchData);
           if(savedId) lastCatchIdRef.current=savedId;
