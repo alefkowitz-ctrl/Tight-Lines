@@ -4493,57 +4493,103 @@ ${shopPins}
 
 function SplashScreen({onDone}){
   const [fade,setFade]=React.useState(false);
+  const [screen,setScreen]=React.useState(0);
+  const total=4;
   function dismiss(){setFade(true);setTimeout(()=>onDone(),700);}
+  function next(){if(screen<total-1)setScreen(s=>s+1);else dismiss();}
+  function skip(){dismiss();}
+  const screens=[
+    {
+      icon:null,
+      title:null,
+      subtitle:null,
+      isSplash:true,
+    },
+    {
+      icon:"💧",
+      title:"Live Conditions",
+      subtitle:"Intel Tab",
+      body:"Check real-time stream flows, water temp, and 7-day weather before every trip. Star your favorite gauges to track them daily.",
+      tip:"Tap 💧 Streams to save your home river.",
+    },
+    {
+      icon:"🗺",
+      title:"Find the Best Water",
+      subtitle:"Plan Tab",
+      body:"Enter your location and how long you'll drive. Get every fishable stream ranked best to worst with crowd levels, access points, and fly recommendations.",
+      tip:"Sourced from real fly shop reports updated daily.",
+    },
+    {
+      icon:"📷",
+      title:"Document Every Fish",
+      subtitle:"Catch Log Tab",
+      body:"Upload a photo and the app auto-identifies the species, records your GPS location, and pulls historical conditions for that exact day.",
+      tip:"Your catch locations are encrypted and never shared.",
+    },
+  ];
+  const s=screens[screen];
   return(
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'linear-gradient(170deg,#0d1f26 0%,#1a3a4a 50%,#0d2a1f 100%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:9999,transition:'opacity 0.7s',opacity:fade?0:1,pointerEvents:fade?'none':'all',padding:'32px 24px'}}>
-      <svg viewBox="0 0 340 180" width="340" height="180" style={{marginBottom:24}}>
-        <defs>
-          <linearGradient id="skg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0a1a2e"/><stop offset="100%" stopColor="#1a3a4a"/></linearGradient>
-          <linearGradient id="wtg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1a4a5a"/><stop offset="100%" stopColor="#0d2a35"/></linearGradient>
-        </defs>
-        <rect width="340" height="180" fill="url(#skg)"/>
-        {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
-        <circle cx="290" cy="25" r="14" fill="#c8a84b" opacity="0.9"/>
-        <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
-        <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
-        <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
-        <polygon points="140,100 220,45 300,100" fill="#1e3d2e" opacity="0.85"/>
-        <polygon points="240,100 300,50 340,100" fill="#1a3a2a" opacity="0.9"/>
-        <polygon points="60,40 72,55 48,55" fill="white" opacity="0.6"/>
-        <polygon points="130,35 143,52 117,52" fill="white" opacity="0.6"/>
-        <polygon points="220,45 232,60 208,60" fill="white" opacity="0.55"/>
-        <path d="M0,130 Q85,118 170,128 Q255,138 340,125 L340,180 L0,180 Z" fill="url(#wtg)"/>
-        <path d="M20,138 Q60,133 100,138" stroke="#2dd4bf" strokeWidth="1.5" fill="none" opacity="0.4"/>
-        <path d="M140,142 Q190,136 240,142" stroke="#2dd4bf" strokeWidth="1.5" fill="none" opacity="0.3"/>
-        <g transform="translate(155,95)">
-          <ellipse cx="0" cy="18" rx="6" ry="10" fill="#0d1f26"/>
-          <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
-          <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
-          <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
-          <line x1="6" y1="10" x2="50" y2="-15" stroke="#c8a84b" strokeWidth="1.5"/>
-          <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
-          <line x1="-3" y1="28" x2="-5" y2="38" stroke="#0d1f26" strokeWidth="4"/>
-          <line x1="3" y1="28" x2="5" y2="38" stroke="#0d1f26" strokeWidth="4"/>
-        </g>
-        <polygon points="15,100 22,75 29,100" fill="#1a3a2a" opacity="0.8"/>
-        <polygon points="305,100 312,72 319,100" fill="#1a3a2a" opacity="0.8"/>
-      </svg>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--gold)",marginBottom:4,letterSpacing:1}}>Guide's <span style={{fontStyle:'italic'}}>Choice</span></div>
-      <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:28}}>Fly Fishing Journal</div>
-      <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center'}}>
-        <div style={{fontSize:18,marginBottom:8}}>🔒</div>
-        <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are stored privately and encrypted in your account and never shared. We will also never sell any of your data to third-parties.</p>
-        <div style={{marginTop:12,fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",fontStyle:'italic'}}>Tight lines! 🪶</div>
+    {screen>0&&(
+      <div style={{position:'absolute',top:0,left:0,right:0,display:'flex',gap:4,padding:'16px 24px'}}>
+        {[0,1,2,3].map(i=><div key={i} style={{flex:1,height:3,borderRadius:2,background:i<=screen-1?"var(--gold)":"rgba(255,255,255,0.2)"}}/>)}
       </div>
-      <button onClick={dismiss} style={{marginTop:28,background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Let's Fish →</button>
+    )}
+      {s.isSplash?(
+        <>
+          <svg viewBox="0 0 340 180" width="300" height="160" style={{marginBottom:20}}>
+            <defs>
+              <linearGradient id="skg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0a1a2e"/><stop offset="100%" stopColor="#1a3a4a"/></linearGradient>
+              <linearGradient id="wtg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1a4a5a"/><stop offset="100%" stopColor="#0d2a35"/></linearGradient>
+            </defs>
+            <rect width="340" height="180" fill="url(#skg)"/>
+            {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
+            <circle cx="290" cy="25" r="14" fill="#c8a84b" opacity="0.9"/>
+            <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
+            <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
+            <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
+            <polygon points="140,100 220,45 300,100" fill="#1e3d2e" opacity="0.85"/>
+            <polygon points="240,100 300,50 340,100" fill="#1a3a2a" opacity="0.9"/>
+            <path d="M0,130 Q85,118 170,128 Q255,138 340,125 L340,180 L0,180 Z" fill="url(#wtg)"/>
+            <g transform="translate(155,95)">
+              <ellipse cx="0" cy="18" rx="6" ry="10" fill="#0d1f26"/>
+              <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
+              <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
+              <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
+              <line x1="6" y1="10" x2="50" y2="-15" stroke="#c8a84b" strokeWidth="1.5"/>
+              <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
+            </g>
+          </svg>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--gold)",marginBottom:4,letterSpacing:1}}>Guide's <span style={{fontStyle:'italic'}}>Choice</span></div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
+          <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
+            <div style={{fontSize:18,marginBottom:8}}>🔒</div>
+            <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
+          </div>
+          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Get Started →</button>
+          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip intro</button>
+        </>
+      ):(
+        <>
+          <div style={{fontSize:64,marginBottom:16}}>{s.icon}</div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:12,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:"var(--foam)",marginBottom:16,textAlign:"center"}}>{s.title}</div>
+          <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:16,padding:"20px 24px",maxWidth:320,textAlign:"center",marginBottom:24}}>
+            <p style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--foam)",lineHeight:1.7,margin:0,marginBottom:12}}>{s.body}</p>
+            <div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
+          </div>
+          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
+          <button onClick={skip} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
+        </>
+      )}
     </div>
   );
 }
 
 function Root(){
-  const [showSplash,setShowSplash]=React.useState(true);
+  const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
   const {user, loading} = useAuth();
-  if(showSplash) return <SplashScreen onDone={()=>setShowSplash(false)}/>;
+  if(showSplash) return <SplashScreen onDone={()=>{localStorage.setItem("gc_onboarded","1");setShowSplash(false);}}/>;
   if(loading) return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
