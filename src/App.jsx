@@ -3970,16 +3970,21 @@ function App({user}){
           const now=new Date();
           const t=photoTime||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
           const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"Location not recorded";
-          // Fish ID
+          // Fish ID - resize first to avoid 413
           let species="Unidentified",length="",idNote=null;
           try{
-            const base64=dataUrl.split(",")[1];
-            const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},{type:"text",text:`Identify this fish. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
+            const img2=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
+            const canvas2=document.createElement("canvas");
+            const scale2=Math.min(1,800/Math.max(img2.width,img2.height));
+            canvas2.width=Math.round(img2.width*scale2);canvas2.height=Math.round(img2.height*scale2);
+            canvas2.getContext("2d").drawImage(img2,0,0,canvas2.width,canvas2.height);
+            const base64=canvas2.toDataURL("image/jpeg",0.7).split(",")[1];
+            const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
             const rd=await res.json();
             const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
             if(parsed.species&&parsed.species!=="Unidentified"){species=parsed.species;if(parsed.length!=null)length=String(Math.round(parsed.length));}
             else idNote="Could not identify fish from photo.";
-          }catch{}
+          }catch(fishErr){console.log("batch fish ID failed:",fishErr.message);}
           // Conditions
           let catchData={species,length,flies:[],photo:dataUrl,gps:coords,time:t,notes:"",air_temp:null,weather_desc:null,wind_speed:null,wind_dir:null,pressure:null,stream_cfs:null,stream_condition:null,stream_gauge_name:null,water_temp:null};
           if(fetchLat&&fetchLng){
