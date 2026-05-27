@@ -4579,7 +4579,8 @@ function SplashScreen({onDone}){
             <div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
           </div>
           <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
-          <button onClick={skip} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
+          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:13,color:"var(--stone)",fontFamily:"'Crimson Pro',serif"}}>Don't show again</span></label>}
+          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
         </>
       )}
     </div>
