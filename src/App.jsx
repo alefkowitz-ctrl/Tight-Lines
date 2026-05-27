@@ -2417,7 +2417,7 @@ function GuideBook({user, loc}){
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
             {tripForm.photos.map((p,i)=>(
               <div key={i} style={{position:"relative"}}>
-                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy"/>
                 <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
                   style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
               </div>
@@ -2494,7 +2494,7 @@ function GuideBook({user, loc}){
               return(
                 <div key={i} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"flex-start"}}>
                   <div style={{position:"relative",flexShrink:0}}>
-                    <img src={p} style={{width:72,height:72,objectFit:"cover",borderRadius:8}} alt="catch"/>
+                    <img src={p} style={{width:72,height:72,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy"/>
                     <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i),catchDetails:(f.catchDetails||[]).filter((_,j)=>j!==i)}))}
                       style={{position:"absolute",top:-4,right:-4,background:"rgba(150,80,80,0.9)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                   </div>
@@ -2640,7 +2640,7 @@ function GuideBook({user, loc}){
               const cd=(selectedTrip.catchDetails||[])[i]||{};
               return(
                 <div key={i} className="cc" style={{marginBottom:10}}>
-                  <img src={p} className="c-img" alt="catch" style={{cursor:"pointer"}}
+                  <img src={p} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}}
                     onClick={()=>{if(window._setLightbox)window._setLightbox(p);}}/>
                   <div className="cb">
                     <div className="csp">{cd.species||"Unknown"}</div>
@@ -2850,7 +2850,7 @@ function GuideBook({user, loc}){
           <div className="csub">Tap to edit before sharing</div>
           {selectedTrip.photos&&selectedTrip.photos.length>0&&(
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
-              {selectedTrip.photos.map((p,i)=><img key={i} src={p} style={{width:"calc(50% - 4px)",height:140,objectFit:"cover",borderRadius:10}} alt="trip"/>)}
+              {selectedTrip.photos.map((p,i)=><img key={i} src={p} loading="lazy" style={{width:"calc(50% - 4px)",height:140,objectFit:"cover",borderRadius:10}} alt="trip"/>)}
             </div>
           )}
           <textarea
@@ -4310,7 +4310,7 @@ ${shopPins}
           {catchLogTab==="list"&&catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catchLogTab==="list"&&catches.map(c=>(
               <div className="cc" key={c.id}>
-                {c.photo?<img src={c.photo} className="c-img" alt="catch" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
+                {c.photo?<img src={c.photo} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
                 <div className="cb">
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <div className="csp">{c.species}</div>
