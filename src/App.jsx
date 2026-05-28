@@ -3055,8 +3055,6 @@ function TripPlanner({defaultLocation}){
       {
         addStep("Finding fly shops & fishing report…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
-        const mo=new Date(date+"T12:00:00").getMonth();
-        const hi=HATCHES[mo].map(h=>`${h.name} (${h.a})`).join(", ");
         try{
           // Step 1: Run two parallel searches for broader coverage
           addStep("Searching fly shop reports…","active");
