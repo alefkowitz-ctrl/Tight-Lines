@@ -3069,7 +3069,7 @@ function StreamGaugeChart({streamName, localGauges}){
 
 function TripPlanner({defaultLocation}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
-  const [driveMinutes,setDriveMinutes]=useState(60);
+  const driveMinutes=120;
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
   const [steps,setSteps]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -3158,6 +3158,15 @@ function TripPlanner({defaultLocation}){
       addStep(`${pg.length} gauges found: ${pg.slice(0,5).map(g=>g.name.split(" ").slice(0,3).join(" ")).join(", ")}${pg.length>5?"...":""}`);
 
       {
+        // Filter USGS gauges to fishable streams only
+        const NON_FISHABLE2=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
+        const fishableGauges=pgScaled.filter(g=>{
+          const n=g.name.toLowerCase();
+          const waterWords=["creek","river"," run"," fork","branch","stream","gulch","canyon"," rio ","platte","arkansas","colorado r","poudre","thompson","vrain","boulder","clear creek"];
+          const hasWater=waterWords.some(w=>n.includes(w));
+          const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
+          return hasWater&&!hasNonFish;
+        }).slice(0,25);
         addStep("Finding fly shops & fishing report…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         try{
@@ -3171,7 +3180,7 @@ function TripPlanner({defaultLocation}){
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". IMPORTANT: Always provide a complete fishing report regardless of date - use your expert knowledge of THIS SPECIFIC REGION only - never generalize from other areas. Never refuse. Data source: "+(searchTxt.length>200?"current fly shop reports":"estimated from seasonal knowledge")+". Current reports: "+(searchTxt.slice(0,2000)||"none")+". Date: "+ds+". Month: "+new Date(date).toLocaleString("en-US",{month:"long"})+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". Drive: "+(driveMinutes<60?driveMinutes+"min":Math.round(driveMinutes/60*10)/10+"hr")+". Using reports AND your expert knowledge of ALL quality trout fisheries within this drive time, rank every fishable river from best to worst. Exclude irrigation ditches. Fly recommendations must match what actually hatches in this specific region. Keep each field 1 sentence. For shops: ONLY include shops whose websites you actually found and verified in the search results. Do NOT invent shop names or URLs. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". IMPORTANT: Always provide a complete report - use THIS SPECIFIC REGION only. Never refuse. Fly shop reports: "+(searchTxt.slice(0,2000)||"none")+". USGS-monitored streams within 2hr drive: "+fishableGauges.map(g=>g.name).join(", ")+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". Evaluate EVERY stream from the USGS list above plus any other well-known trout fisheries in this region. Rank all from best to worst for today. Fly recommendations must match local hatches only. Keep each field 1 sentence. Only include shops verified in search - do NOT invent shop names. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
@@ -3244,9 +3253,7 @@ function TripPlanner({defaultLocation}){
         </div>
         <label className="lbl">Trip Date</label>
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
-        <label className="lbl">How long will you drive? <span style={{color:"var(--gold)"}}>{driveMinutes<60?driveMinutes+" min":driveMinutes===60?"1 hour":(driveMinutes/60).toFixed(1).replace(".0","")+" hours"}</span></label>
-        <input type="range" min={30} max={180} step={15} value={driveMinutes} onChange={e=>setDriveMinutes(Number(e.target.value))} style={{width:"100%",accentColor:"var(--gold)",marginBottom:4}}/>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:14,color:"var(--stone)",marginBottom:12}}><span>30 min</span><span>1 hr</span><span>1.5 hr</span><span>2 hr</span><span>3 hr</span></div>
+        <div style={{fontSize:14,color:"var(--stone)",marginBottom:12}}>Shows all fishable streams within a <span style={{color:"var(--gold)"}}>2 hour drive</span></div>
         {error&&<div className="err">{error}</div>}
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
