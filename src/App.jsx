@@ -1793,6 +1793,14 @@ function GuideBook({user, loc}){
         console.log("trip_photos empty, using trips.photos fallback, count:",tripData.photos.length);
         photos=tripData.photos.filter(Boolean);
       }
+      // Fall back to photos embedded in catchDetails
+      if(photos.length===0 && catchDetails.length>0){
+        const cdPhotos=catchDetails.map(d=>d.photo).filter(Boolean);
+        if(cdPhotos.length>0){
+          console.log("using catchDetails photos fallback, count:",cdPhotos.length);
+          photos=cdPhotos;
+        }
+      }
       console.log("loadTripPhotos result: photos=",photos.length,"catchDetails=",catchDetails.length);
       setSelectedTrip(st=>({...st,photos,catchDetails,photosLoading:false}));
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
