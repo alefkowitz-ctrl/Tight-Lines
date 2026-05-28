@@ -3067,7 +3067,7 @@ function StreamGaugeChart({streamName, localGauges}){
 }
 
 
-function TripPlanner({defaultLocation}){
+function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const driveMinutes=120;
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
@@ -3180,7 +3180,7 @@ function TripPlanner({defaultLocation}){
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". IMPORTANT: Always provide a complete report - use THIS SPECIFIC REGION only. Never refuse. Fly shop reports: "+(searchTxt.slice(0,2000)||"none")+". USGS-monitored streams within 2hr drive: "+fishableGauges.map(g=>g.name).join(", ")+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". Evaluate EVERY stream from the USGS list above plus any other well-known trout fisheries in this region. Rank all from best to worst for today. Fly recommendations must match local hatches only. Keep each field 1 sentence. Only include shops verified in search - do NOT invent shop names. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Using your expert knowledge, rank ALL quality trout fisheries within a 2 hour drive from best to worst for today. Fly shop reports: "+(searchTxt.slice(0,2000)||"none")+". Live USGS flow data: "+pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS, "+g.label+")").join(", ")+(savedInRadius.length?". User home waters (prioritize these): "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):".")+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". Include ALL well-known trout rivers in this region even if not in USGS list. Use flow data to inform conditions. Exclude urban drainage and irrigation. Keep each field 1 sentence. Only include shops verified in search. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
@@ -4608,7 +4608,7 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""} key="trip-planner"/>}
+          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>}
           {tab==="guide"&&<GuideBook user={user} loc={loc}/>}
         </div>
 
