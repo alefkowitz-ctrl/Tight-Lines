@@ -2786,7 +2786,7 @@ function GuideBook({user, loc}){
                         const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
                         setSelectedTrip(upd);
                         setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                        if(sb){sb.from("trips").update({catch_details:newDetails,photos:newPhotos.filter(p=>p&&p.startsWith("http"))}).eq("id",selectedTrip.id);sb.from("trip_photos").delete().eq("trip_id",selectedTrip.id).then(()=>{const httpPhotos=newPhotos.filter(p=>p&&p.startsWith("http"));if(httpPhotos.length>0)sb.from("trip_photos").insert(httpPhotos.map((p,i)=>({trip_id:selectedTrip.id,photo:p,sort_order:i})));});}
+                        if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)console.log("delete error:",error.message);else console.log("deleted ok, remaining:",newDetails.length);});}
                       }}}
                         style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
