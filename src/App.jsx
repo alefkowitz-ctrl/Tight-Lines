@@ -3358,13 +3358,13 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         const p=1.5;const bbox=`${((loc?.lng||0)-p).toFixed(2)},${((loc?.lat||0)-p).toFixed(2)},${((loc?.lng||0)+p).toFixed(2)},${((loc?.lat||0)+p).toFixed(2)}`;const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`;
         const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
         const d=await r.json();
-        const ts=(d.value?.timeSeries||[]).slice(0,6).map(t=>({
+        const ts=(d.value?.timeSeries||[]).map(t=>({
           name:t.sourceInfo?.siteName||"",
           siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
           lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
           lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
-        })).filter(x=>x.siteNo&&x.name);
-        setSearchResults(ts);
+        })).filter(x=>x.siteNo&&x.name&&x.name.toLowerCase().includes(q));
+        setSearchResults(ts.slice(0,6));
       }catch{}
       setSearching(false);
     },500);
