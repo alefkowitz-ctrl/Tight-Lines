@@ -60,8 +60,8 @@ function parseExif(buffer){
                   const ge=gpsIFDOffset+2+g*12;
                   const gtag=get16(ge);
                   const gvo=ge+8;
-                  if(gtag===1){const v=view.getUint8(tiffOffset+gvo);latRef=v===78?"N":v===83?"S":"N";}
-                  if(gtag===3){const v=view.getUint8(tiffOffset+gvo);lngRef=v===69?"E":v===87?"W":"W";}
+                  if(gtag===1){const v=view.getUint8(tiffOffset+gvo);const vc=String.fromCharCode(v);latRef=(vc==="S"||v===83)?"S":"N";}
+                  if(gtag===3){const v=view.getUint8(tiffOffset+gvo);const vc=String.fromCharCode(v);lngRef=(vc==="E"||v===69)?"E":"W";console.log("lngRef byte:",v,"char:",vc,"ref:",lngRef);}
                   if(gtag===2){try{const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
                   if(gtag===4){try{const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
                 }
