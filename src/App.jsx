@@ -3363,7 +3363,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
           lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
           lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
-        })).filter(x=>x.siteNo&&x.name);console.log("gauge search raw:",ts.length,"q:",q,"filtered:",ts.filter(x=>x.name.toLowerCase().includes(q)).length);
+        })).filter(x=>x.siteNo&&x.name);
         setSearchResults(ts.filter(x=>x.name.toLowerCase().includes(q)).slice(0,6));
       }catch{}
       setSearching(false);
