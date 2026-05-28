@@ -132,3 +132,31 @@ select.inp{-webkit-appearance:none;}
 .api-setup p{font-size:13px;color:var(--sky);line-height:1.6;margin-bottom:10px;}
 .api-input{width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 12px;color:var(--foam);font-family:monospace;font-size:13px;outline:none;margin-bottom:8px;}
 .api-save{background:var(--gold);color:var(--deep);border:none;border-radius:8px;padding:8px 16px;font-family:'Crimson Pro',serif;font-size:14px;font-weight:600;cursor:pointer;width:100%;}
+@media (max-width: 600px) {
+  body { font-size: 17px; }
+  .card { padding: 16px; }
+  .ctitle { font-size: 20px; }
+  .csp { font-size: 24px; }
+  .cmi { font-size: 16px; }
+  .cfly { font-size: 15px; padding: 5px 14px; }
+  .gname { font-size: 16px; }
+  .gval { font-size: 15px; }
+  .lbl { font-size: 14px; }
+  .inp { font-size: 17px; padding: 14px; }
+  .btn { font-size: 16px; padding: 12px; }
+  .nb { font-size: 14px; padding: 12px 4px; }
+  .nb .ic { font-size: 24px; }
+  .wx-temp { font-size: 64px; }
+  .wx-val { font-size: 20px; }
+  .wx-lbl { font-size: 13px; }
+  .c-img { height: 240px; }
+  .hr { font-size: 17px; padding: 12px 0; }
+  .csub { font-size: 14px; }
+  .cgps { font-size: 14px; }
+  .slide-title { font-size: 22px; }
+  .lttl { font-size: 17px; }
+  .rbody { font-size: 16px; }
+  .rriver { font-size: 20px; }
+  .rtech { font-size: 15px; }
+  .slbl { font-size: 14px; }
+}
