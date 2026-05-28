@@ -62,8 +62,8 @@ function parseExif(buffer){
                   const gvo=ge+8;
                   if(gtag===1){const v=view.getUint8(tiffOffset+gvo);latRef=v===78?"N":v===83?"S":"N";}
                   if(gtag===3){const v=view.getUint8(tiffOffset+gvo);lngRef=v===69?"E":v===87?"W":"W";}
-                  if(gtag===2){const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
-                  if(gtag===4){const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}
+                  if(gtag===2){try{const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
+                  if(gtag===4){try{const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
                 }
                 if(latD!=null&&lngD!=null){
                   result.lat=latRef==="S"?-latD:latD;
