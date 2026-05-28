@@ -593,10 +593,16 @@ function locIcon(item){
 
 function GpsLocation({gps}){
   if(!gps)return null;
-  const nums=gps.match(/-?\d+\.?\d*/g);
+  // Handle "46.8535°N, 114.0358°W" format
+  const dmsMatch=gps.match(/([\d.]+)[°\s]*([NS])[\s,]+([\d.]+)[°\s]*([EW])/i);
+  if(dmsMatch){
+    const lat=parseFloat(dmsMatch[1])*(dmsMatch[2].toUpperCase()==="S"?-1:1);
+    const lng=parseFloat(dmsMatch[3])*(dmsMatch[4].toUpperCase()==="W"?-1:1);
+    return <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer">{gps}</a>;
+  }
+  const nums=gps.match(/-?[\d.]+/g);
   if(!nums||nums.length<2)return <span>{gps}</span>;
-  const lat=nums[0],lng=nums[1];
-  return <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer">{gps}</a>;
+  return <a href={`https://maps.google.com/?q=${nums[0]},${nums[1]}`} target="_blank" rel="noopener noreferrer">{gps}</a>;
 }
 // ── SVG Flow Chart ────────────────────────────────────────────────────────────
 // ── SVG Flow Chart ────────────────────────────────────────────────────────────
