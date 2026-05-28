@@ -2595,7 +2595,10 @@ function GuideBook({user, loc}){
           const files=Array.from(e.target.files||[]);
           e.target.value="";
           if(!files.length) return;
-          for(const file of files){
+          setBatchProgress({total:files.length,done:0,current:""});
+          for(let fi=0;fi<files.length;fi++){
+          const file=files[fi];
+          setBatchProgress({total:files.length,done:fi,current:file.name});
             const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
             const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
             let photoLat=null,photoLng=null,photoTime=null,photoGpsStr=null;
@@ -2652,6 +2655,8 @@ function GuideBook({user, loc}){
               }catch{}
             }
           }
+          setBatchProgress({total:files.length,done:files.length,current:""});
+          setTimeout(()=>setBatchProgress(null),2000);
         }}/>
         <button className="pbtn" style={{width:"100%"}} onClick={()=>document.getElementById("tripDetailPhotoInput").click()}>
           <span className="pi">📷</span>Add Catch Photos
