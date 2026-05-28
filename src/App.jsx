@@ -3113,49 +3113,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       addStep("Forecast loaded ✓");
 
       addStep("Loading stream data…","active");
-      // Get drive-time isochrone from OpenRouteService
-      addStep(`Finding streams within ${driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr"} drive…`,"active");
-      let isoPolygon=null;
-      try{
-        const isoCtrl=new AbortController();
-        const isoTimer=setTimeout(()=>isoCtrl.abort(),8000);
-        const isoRes=await fetch("/api/claude",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({isochrone:true,lat,lng,minutes:driveMinutes}),
-          signal:isoCtrl.signal
-        });
-        clearTimeout(isoTimer);
-        if(isoRes.ok){
-          const isoData=await isoRes.json();
-          isoPolygon=isoData.features?.[0]?.geometry?.coordinates?.[0];
-        }
-      }catch(isoErr){void 0;}
-      const degRadius=Math.min((driveMinutes/60)*1.0, 2.0);
-      const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,degRadius),fetchUSGSHistory(lat,lng)]);
-      const liveTS=liveD.value?.timeSeries??[];
-      const pg=liveTS.map(t=>{
-        const raw=t.values?.[0]?.value?.[0]?.value;
-        const cfs=raw!=null?parseFloat(raw):null;
-        const{label,cls}=cfsLabel(cfs);
-        const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
-        const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-        const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-        const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-        return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
-      }).filter(s=>s.cfs===null||(s.cfs>=0&&s.cfs<500000))
-        .sort((a,b)=>a.dist-b.dist)
-        .slice(0,20);
-      const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
-      const pgScaled=pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
+      // Use Intel tab gauges — already fetched, filtered, and correct
+      const pgScaled=(parentGauges||[]);
       setGauges(pgScaled);
-      const histTS=histD.value?.timeSeries??[];
-      if(histTS.length){
-        const best=histTS.sort((a,b)=>(b.values?.[0]?.value?.length||0)-(a.values?.[0]?.value?.length||0))[0];
-        const pts=(best.values?.[0]?.value??[]).map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>=0&&v.v<500000);
-        setFlowPts(pts);setFlowLabel(best.sourceInfo?.siteName??"");
-      }
-      addStep(`${pg.length} gauges found: ${pg.slice(0,5).map(g=>g.name.split(" ").slice(0,3).join(" ")).join(", ")}${pg.length>5?"...":""}`);
+      addStep(`${pgScaled.length} streams loaded from Intel tab`);
 
       {
         // Filter USGS gauges to fishable streams only
