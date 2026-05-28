@@ -3355,7 +3355,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
     const timer=setTimeout(async()=>{
       setSearching(true);
       try{
-        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${loc?.state||"co"}&parameterCd=00060&siteNameMatchOperator=start&siteName=${encodeURIComponent(q)}&siteType=ST`;
+        const p=1.5;const bbox=`${((loc?.lng||0)-p).toFixed(2)},${((loc?.lat||0)-p).toFixed(2)},${((loc?.lng||0)+p).toFixed(2)},${((loc?.lat||0)+p).toFixed(2)}`;const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`;
         const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
         const d=await r.json();
         const ts=(d.value?.timeSeries||[]).slice(0,6).map(t=>({
