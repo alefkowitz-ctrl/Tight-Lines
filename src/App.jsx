@@ -2597,6 +2597,8 @@ function GuideBook({user, loc}){
           if(!files.length) return;
           const btn=document.getElementById("tripDetailAddBtn");
           if(btn){btn.textContent="⏳ "+files.length+" photos…";btn.disabled=true;}
+          let accDetails=[...(selectedTrip.catchDetails||[])];
+          let accPhotos=[...(selectedTrip.photos||[])];
           for(let fi=0;fi<files.length;fi++){
           const file=files[fi];
           if(btn)btn.textContent="⏳ "+(fi+1)+"/"+files.length+"…";
@@ -2632,15 +2634,12 @@ function GuideBook({user, loc}){
               const rd=await res.json();
               const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
               if(parsed.species){
-                setSelectedTrip(prev=>{
-                  const d2=[...(prev.catchDetails||[])];
-                  const idx2=d2.length-1;
-                  if(idx2>=0)d2[idx2]={...d2[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};
-                  const upd2={...prev,catchDetails:d2};
-                  setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===prev.id?upd2:t2)})));
-                  if(sb)sb.from("trips").update({catch_details:d2}).eq("id",prev.id);
-                  return upd2;
-                });
+                const idx2=accDetails.length-1;
+                if(idx2>=0){accDetails[idx2]={...accDetails[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};}
+                const tripId2=selectedTrip.id;
+                setSelectedTrip(prev=>({...prev,catchDetails:accDetails}));
+                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId2?{...t2,catchDetails:accDetails}:t2)})));
+                if(sb)sb.from("trips").update({catch_details:accDetails}).eq("id",tripId2);
               }
             }catch{}
             // Conditions
@@ -2652,7 +2651,7 @@ function GuideBook({user, loc}){
                 let conds=null;
                 if(dateStr&&dateStr<today){conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");}
                 else{const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);conds={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg,streamCFS:"",streamCondition:"",streamGaugeName:""};const ts2=(usgs.value?.timeSeries)??[];if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){conds.streamCFS=String(Math.round(p2[0].cfs));conds.streamCondition=p2[0].label;conds.streamGaugeName=p2[0].name;}}}
-                if(conds){setSelectedTrip(prev=>{const d3=[...(prev.catchDetails||[])];const idx3=d3.length-1;if(idx3>=0)d3[idx3]={...d3[idx3],...conds,analyzing:false};const upd3={...prev,catchDetails:d3};setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===prev.id?upd3:t2)})));if(sb)sb.from("trips").update({catch_details:d3}).eq("id",prev.id);return upd3;});}
+                if(conds){const idx3=accDetails.length-1;if(idx3>=0){accDetails[idx3]={...accDetails[idx3],...conds,analyzing:false};}const tripId3=selectedTrip.id;setSelectedTrip(prev=>({...prev,catchDetails:accDetails}));setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId3?{...t2,catchDetails:accDetails}:t2)})));if(sb)sb.from("trips").update({catch_details:accDetails}).eq("id",tripId3);}
               }catch{}
             }
           }
