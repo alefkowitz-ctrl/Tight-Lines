@@ -2591,13 +2591,18 @@ function GuideBook({user, loc}){
             const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"";
             // Upload to storage
             const url=await uploadPhotoToStorage(dataUrl,"trips/"+selectedTrip.id);
-            const newPhotos=[...(selectedTrip.photos||[]),url||dataUrl];
-            const newDetail={photo:url||dataUrl,time:t,gps:coords,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
-            const newDetails=[...(selectedTrip.catchDetails||[]),newDetail];
-            const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
-            setSelectedTrip(upd);
-            setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===selectedTrip.id?upd:t2)})));
-            if(sb){await sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id);if(url)await sb.from("trip_photos").insert({trip_id:selectedTrip.id,photo:url,sort_order:newPhotos.length-1});}
+            const photoToStore=url||dataUrl;
+            const newDetail={photo:photoToStore,time:t,gps:coords,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
+            let newPhotos,newDetails,tripId;
+            setSelectedTrip(prev=>{
+              newPhotos=[...(prev.photos||[]),photoToStore];
+              newDetails=[...(prev.catchDetails||[]),newDetail];
+              tripId=prev.id;
+              const upd={...prev,photos:newPhotos,catchDetails:newDetails};
+              setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===prev.id?upd:t2)})));
+              return upd;
+            });
+            if(sb&&tripId){await sb.from("trips").update({catch_details:newDetails}).eq("id",tripId);if(url)await sb.from("trip_photos").insert({trip_id:tripId,photo:url,sort_order:newPhotos.length-1});}
             // Fish ID
             try{
               const img2=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
@@ -2607,13 +2612,15 @@ function GuideBook({user, loc}){
               const rd=await res.json();
               const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
               if(parsed.species){
-                const d2=[...(selectedTrip.catchDetails||[])];
-                const idx2=d2.length-1;
-                d2[idx2]={...d2[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};
-                const upd2={...selectedTrip,catchDetails:d2,photos:newPhotos};
-                setSelectedTrip(upd2);
-                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===selectedTrip.id?upd2:t2)})));
-                if(sb)await sb.from("trips").update({catch_details:d2}).eq("id",selectedTrip.id);
+                setSelectedTrip(prev=>{
+                  const d2=[...(prev.catchDetails||[])];
+                  const idx2=d2.length-1;
+                  if(idx2>=0)d2[idx2]={...d2[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};
+                  const upd2={...prev,catchDetails:d2};
+                  setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===prev.id?upd2:t2)})));
+                  if(sb)sb.from("trips").update({catch_details:d2}).eq("id",prev.id);
+                  return upd2;
+                });
               }
             }catch{}
             // Conditions
