@@ -2592,12 +2592,12 @@ function GuideBook({user, loc}){
           for(const file of files){
             const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
             const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
-            let photoLat=null,photoLng=null,photoTime=null;
-            try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoLat=exif.lat??null;photoLng=exif.lng??null;}catch{}
+            let photoLat=null,photoLng=null,photoTime=null,photoGpsStr=null;
+            try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoLat=exif.lat??null;photoLng=exif.lng??null;photoGpsStr=exif.gps||null;console.log("guide EXIF:",exif.gps,exif.lat,exif.lng);}catch{}
             const fetchLat=photoLat??locRef.current?.lat;
             const fetchLng=photoLng??locRef.current?.lng;
             const t=photoTime||new Date(selectedTrip.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-            const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"";
+            const coords=photoGpsStr||(photoLat&&photoLng?fmtCoord(photoLat,photoLng):"");
             // Upload to storage
             const url=await uploadPhotoToStorage(dataUrl,"trips/"+selectedTrip.id);
             console.log("photo upload - url:",url?.slice(0,50),"dataUrl:",dataUrl?.slice(0,30));
