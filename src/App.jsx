@@ -3865,6 +3865,8 @@ function App({user}){
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
     setWxLoading(true);setWxError(null);setCondReport(null);
+    // Check localStorage for cached weather to show instantly
+    try{const cachedWx=localStorage.getItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2));if(cachedWx){const{data,ts}=JSON.parse(cachedWx);if(Date.now()-ts<30*60*1000){const c2=data.current;const pressureInHg=(c2.surface_pressure*0.02953).toFixed(2);const trend=pressureTrend(parseFloat(pressureInHg),null);setWeather({temp:Math.round(c2.temperature_2m),humidity:c2.relative_humidity_2m,wind:Math.round(c2.wind_speed_10m),windDir:windDir(c2.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c2.uv_index??0),desc:`${WX_EMOJI[c2.weather_code]||""} ${WX_DESC[c2.weather_code]||""}`.trim()});setWxForecast(data);setWxLoading(false);}}}catch{}
     // Fly shops load on demand (button) to keep initial load fast
     try{
       const d=await fetchWeather(lat,lng);
@@ -3883,10 +3885,10 @@ function App({user}){
         uv:Math.round(c.uv_index??0),
         desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()
       });
-      setWxForecast(d);
+      setWxForecast(d);try{localStorage.setItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2),JSON.stringify({data:d,ts:Date.now()}));}catch{}
     }catch{setWxError("Weather unavailable.");}
     finally{setWxLoading(false);}
-    setGaugeLoading(true);setGaugeError(null);setGauges([]);
+    setGaugeLoading(true);setGaugeError(null);
     try{
       const d=await fetchUSGSLive(lat,lng);
       const ts=d.value?.timeSeries??[];
