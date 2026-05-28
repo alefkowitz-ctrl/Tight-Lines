@@ -1986,7 +1986,7 @@ function GuideBook({user, loc}){
         }
       }
       // Fetch conditions using EXIF or device location
-      if(photoLat&&photoLng){
+      if(fetchLat&&fetchLng){
         // Update GPS on the detail we just added
         setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,idx)=>idx===(f.catchDetails.length-1)?{...d,gps:fetchGps||d.gps}:d)}));
         try{
