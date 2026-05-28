@@ -3991,7 +3991,7 @@ function App({user}){
       const ts=d.value?.timeSeries??[];
       if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
       // Keywords that indicate non-fishable sites
-      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","rocky flats","buffer zone"," rfp","landfill"," plant","facility","treatment"];
+      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","nuclear","superfund","buffer zone"," rfp","landfill"," plant","facility","treatment"];
       const isFishable=name=>{
         const n=name.toLowerCase();
         // Extract stream name only — before near/at/below/above/nr/abv
