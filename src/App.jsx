@@ -61,7 +61,7 @@ function parseExif(buffer){
                   const gtag=get16(ge);
                   const gvo=ge+8;
                   if(gtag===1){const v=view.getUint8(tiffOffset+gvo);const vc=String.fromCharCode(v);latRef=(vc==="S"||v===83)?"S":"N";}
-                  if(gtag===3){const v=view.getUint8(tiffOffset+gvo);const vc=String.fromCharCode(v);lngRef=(vc==="E"||v===69)?"E":"W";console.log("lngRef byte:",v,"char:",vc,"ref:",lngRef);}
+                  if(gtag===3){const v=view.getUint8(tiffOffset+gvo);const vc=String.fromCharCode(v);lngRef=(vc==="E"||v===69)?"E":"W";void 0;}
                   if(gtag===2){try{const o2=get32(gvo);latD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
                   if(gtag===4){try{const o2=get32(gvo);lngD=getRational(o2)+getRational(o2+8)/60+getRational(o2+16)/3600;}catch{}}
                 }
@@ -69,7 +69,7 @@ function parseExif(buffer){
                   result.lat=latRef==="S"?-latD:latD;
                   result.lng=lngRef==="W"?-lngD:lngD;
                   result.gps=Math.abs(result.lat).toFixed(4)+"°"+(result.lat>=0?"N":"S")+", "+Math.abs(result.lng).toFixed(4)+"°"+(result.lng>=0?"E":"W");
-                  console.log("EXIF GPS found:",result.gps,"latRef:",latRef,"lngRef:",lngRef);
+                  void 0;
                 }
               }
             }
@@ -95,10 +95,10 @@ async function uploadPhotoToStorage(base64DataUrl, folder){
     const ext=blob.type.split("/")[1]||"jpg";
     const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const {data,error}=await sb.storage.from("trip-photos").upload(fileName,blob,{contentType:blob.type,upsert:false});
-    if(error){console.log("Storage upload error:",error.message);return null;}
+    if(error){void 0;return null;}
     const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
     return publicUrl;
-  }catch(e){console.log("uploadPhotoToStorage failed:",e.message);return null;}
+  }catch(e){void 0;return null;}
 }
 
 
@@ -711,15 +711,15 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
     const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
     const prompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". Search ONLY local fly shop reports and hatch charts specific to this exact location. Do not include hatches from other regions. Verify each hatch is known to occur in this specific watershed. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
     try{
-      console.log("hatch prompt:",prompt.slice(0,100));
+      void 0;
       const txt=await askClaude(prompt,true,1000);
-      console.log("hatch result:",txt.slice(0,200));
+      void 0;
       const parsed=extractJSON(txt);
       if(parsed && parsed.hatches){
       setResult(parsed.hatches);
       try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
     }
-    }catch(e){console.log("hatch matcher failed:",e.message);}
+    }catch(e){void 0;}
     setLoading(false);
   }
   return(
@@ -1763,10 +1763,10 @@ function GuideBook({user, loc}){
       const ext=blob.type.split("/")[1]||"jpg";
       const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const {data,error}=await sb.storage.from("trip-photos").upload(fileName, blob, {contentType:blob.type,upsert:false});
-      if(error){ console.log("Storage upload error:",error.message); return null; }
+      if(error){ void 0; return null; }
       const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
       return publicUrl;
-    }catch(e){ console.log("uploadPhotoToStorage failed:",e.message); return null; }
+    }catch(e){ void 0; return null; }
   }
 
   // Upload all photos in array, return URLs (falls back to base64 if storage fails)
@@ -1791,28 +1791,28 @@ function GuideBook({user, loc}){
         sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
         sb.from("trips").select("photos").eq("id",tripId).single()
       ]);
-      if(photoErr) console.log("trip_photos query error:",photoErr.message);
-      if(cdErr) console.log("catch_details query error:",cdErr.message);
+      if(photoErr) void 0;
+      if(cdErr) void 0;
       const catchDetails=((cdData?.catch_details)||[]).map(d=>({...d,analyzing:false}));
       // Use trip_photos table first; fall back to trips.photos JSON column
       let photos=(photoRows||[]).map(r=>r.photo).filter(Boolean);
       if(photos.length===0 && tripData?.photos?.length>0){
-        console.log("trip_photos empty, using trips.photos fallback, count:",tripData.photos.length);
+        void 0;
         photos=tripData.photos.filter(Boolean);
       }
       // Fall back to photos embedded in catchDetails
       if(photos.length===0 && catchDetails.length>0){
         const cdPhotos=catchDetails.map(d=>d.photo).filter(Boolean);
         if(cdPhotos.length>0){
-          console.log("using catchDetails photos fallback, count:",cdPhotos.length);
+          void 0;
           photos=cdPhotos;
         }
       }
-      console.log("loadTripPhotos result: photos=",photos.length,"catchDetails=",catchDetails.length);
+      void 0;
       setSelectedTrip(st=>({...st,photos,catchDetails,photosLoading:false}));
       setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===tripId?{...t,photos,catchDetails}:t)})));
     }catch(e){
-      console.log("loadTripPhotos exception:",e.message);
+      void 0;
       setSelectedTrip(st=>({...st,photosLoading:false}));
     }
   }
@@ -1822,17 +1822,17 @@ function GuideBook({user, loc}){
     try{
       // Upload any base64 photos to Storage first, keep existing URLs as-is
       const urls=await uploadPhotosToStorage(photos||[], `trips/${tripId}`);
-      console.log("saveTripPhotos: uploading",photos?.length,"photos, got",urls.length,"urls for trip",tripId);
+      void 0;
       // Always delete + reinsert so removals are persisted too
       await sb.from("trip_photos").delete().eq("trip_id",tripId);
       if(urls.length>0){
         const {error}=await sb.from("trip_photos").insert(
           urls.map((photo,sort_order)=>({trip_id:tripId,photo,sort_order}))
         );
-        if(error) console.log("trip_photos insert error:",error.message);
-        else console.log("saveTripPhotos: saved",urls.length,"photos to DB");
+        if(error) void 0;
+        else void 0;
       }
-    }catch(e){ console.log("saveTripPhotos failed:",e.message); }
+    }catch(e){ void 0; }
   }
 
   async function saveGuestToDb(guestData){
@@ -1894,7 +1894,7 @@ function GuideBook({user, loc}){
       catch_details:(tripData.catchDetails||[]).map(d=>({...d,analyzing:false}))
     }).select().single();
       if(!error && data){
-        if(tripData.photos?.length>0) saveTripPhotos(data.id, tripData.photos).catch(e=>console.log("Photo save failed:",e));
+        if(tripData.photos?.length>0) saveTripPhotos(data.id, tripData.photos).catch(()=>{});
         return data;
       }
       // Show error to user so they know it didn't save to cloud
@@ -2126,7 +2126,7 @@ function GuideBook({user, loc}){
         await sb.from("trip_photos").delete().eq("trip_id",tripId);
       }
       await deleteTripFromDb(tripId);
-    }catch(e){ console.log("deleteTrip error:",e.message); }
+    }catch(e){ void 0; }
     const stored=JSON.parse(localStorage.getItem("tl_trips")||"[]");
     localStorage.setItem("tl_trips",JSON.stringify(stored.filter(t=>t.id!==tripId)));
     setGuests(gs=>gs.map(g=>g.id===guestId?{...g,trips:(g.trips||[]).filter(t=>t.id!==tripId)}:g));
@@ -2624,7 +2624,7 @@ function GuideBook({user, loc}){
                 const rd=await res.json();
                 const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                 if(parsed.species&&parsed.species!=="Unidentified"){species=parsed.species;if(parsed.length!=null)length=String(Math.round(parsed.length));}
-              }catch(fishErr){console.log("fish ID failed:",fishErr.message);}
+              }catch(fishErr){void 0;}
               // Conditions
               let detail={photo:dataUrl,time:t,gps:coords,species,length,airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:false};
               if(fetchLat&&fetchLng){
@@ -2642,7 +2642,7 @@ function GuideBook({user, loc}){
                     const ts2=(usgs.value?.timeSeries)??[];
                     if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){detail.streamCFS=String(Math.round(p2[0].cfs));detail.streamCondition=p2[0].label;detail.streamGaugeName=p2[0].name;}}
                   }
-                }catch(condErr){console.log("conditions failed:",condErr.message);}
+                }catch(condErr){void 0;}
               }
               // Upload photo to storage
               const url=await uploadPhotoToStorage(dataUrl,"trips/"+tripId);
@@ -2652,7 +2652,7 @@ function GuideBook({user, loc}){
               setSelectedTrip(prev=>({...prev,photos:accPhotos,catchDetails:accDetails}));
               setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId?{...t2,photos:accPhotos,catchDetails:accDetails}:t2)})));
               if(sb){await sb.from("trips").update({catch_details:accDetails}).eq("id",tripId);if(url)await sb.from("trip_photos").insert({trip_id:tripId,photo:url,sort_order:accPhotos.length-1});}
-            }catch(err){console.log("photo upload failed:",err.message);}
+            }catch(err){void 0;}
           }
           if(btn){btn.textContent="📷 Add Catch Photos";btn.disabled=false;}
         }}/>
@@ -2700,7 +2700,7 @@ function GuideBook({user, loc}){
                           const blobUrl=URL.createObjectURL(blob);
                           try{imageSource={type:"base64",media_type:"image/jpeg",data:await resizeToB64(blobUrl)};}
                           finally{URL.revokeObjectURL(blobUrl);}
-                        }catch(fe){console.log("img fetch failed:",fe.message);continue;}
+                        }catch(fe){void 0;continue;}
                       }
                       if(!imageSource){continue;}
                       const claudeRes=await Promise.race([
@@ -2711,13 +2711,13 @@ function GuideBook({user, loc}){
                       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                       if(parsed.species){details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};}
                       setSelectedTrip(st=>({...st,catchDetails:[...details]}));
-                    }catch(e2){console.log("identify photo",i,"failed:",e2.message);}
+                    }catch(e2){void 0;}
                   }
                   const upd={...selectedTrip,catchDetails:details};
                   setSelectedTrip(upd);
                   setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
                   if(sb) sb.from("trips").update({catch_details:details.map(d=>({...d,analyzing:false}))}).eq("id",selectedTrip.id);
-                }catch(outerErr){console.log("identify fish outer error:",outerErr.message);}
+                }catch(outerErr){void 0;}
                 finally{reset();}
               }} style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                 ✦ Identify Fish
@@ -2776,7 +2776,7 @@ function GuideBook({user, loc}){
                             setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
                             if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);
                           }
-                        }catch(err){console.log("guide fish ID failed:",err.message);}
+                        }catch(err){void 0;}
                         btn.textContent="🔍 Identify";btn.disabled=false;
                       }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🔍 Identify</button>}
                       <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
@@ -2789,7 +2789,7 @@ function GuideBook({user, loc}){
                         const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
                         setSelectedTrip(upd);
                         setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                        console.log("del sb:",!!sb,"id:",selectedTrip?.id);if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)console.log("delete error:",error.message);else console.log("deleted ok, remaining:",newDetails.length);});}
+                        void 0;if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)void 0;else void 0;});}
                       }}}
                         style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
@@ -3126,7 +3126,7 @@ function TripPlanner({defaultLocation}){
           const isoData=await isoRes.json();
           isoPolygon=isoData.features?.[0]?.geometry?.coordinates?.[0];
         }
-      }catch(isoErr){console.log("isochrone failed:",isoErr.message);}
+      }catch(isoErr){void 0;}
       const degRadius=Math.min((driveMinutes/60)*1.0, 2.0);
       const[liveD,histD]=await Promise.all([fetchUSGSLive(lat,lng,degRadius),fetchUSGSHistory(lat,lng)]);
       const liveTS=liveD.value?.timeSeries??[];
@@ -3163,26 +3163,26 @@ function TripPlanner({defaultLocation}){
           const searchPrompt2="Search current USGS flows and fishing reports for all trout streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+". Include both nearby streams AND streams further away up to the full drive time. Note which are freestone vs tailwater, current CFS, crowd levels, and best techniques for "+ds+".";
           const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
           const searchTxt=searchTxt1+" "+searchTxt2;
-          console.log("search result:",searchTxt.slice(0,200));
+          void 0;
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const synthPrompt="You are a fly fishing guide for "+loc.label+". IMPORTANT: Always provide a complete fishing report regardless of date - use your expert knowledge of THIS SPECIFIC REGION only - never generalize from other areas. Never refuse. Data source: "+(searchTxt.length>200?"current fly shop reports":"estimated from seasonal knowledge")+". Current reports: "+(searchTxt.slice(0,2000)||"none")+". Date: "+ds+". Month: "+new Date(date).toLocaleString("en-US",{month:"long"})+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". Drive: "+(driveMinutes<60?driveMinutes+"min":Math.round(driveMinutes/60*10)/10+"hr")+". Using reports AND your expert knowledge of ALL quality trout fisheries within this drive time, rank every fishable river from best to worst. Exclude irrigation ditches. Fly recommendations must match what actually hatches in this specific region. Keep each field 1 sentence. Only include shops verified in search. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
-          console.log("synth result:",reportTxt.slice(0,300));
-          console.log("synth length:",reportTxt.length);
+          void 0;
+          void 0;
           const clean=reportTxt.replace(/```json|```/g,"").trim();
           let rpt=null;
-          try{rpt=JSON.parse(clean);}catch(pe){console.log("parse error:",pe.message);}
-          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch(pe2){console.log("slice parse error:",pe2.message);}}
+          try{rpt=JSON.parse(clean);}catch(pe){void 0;}
+          if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch(pe2){void 0;}}
           if(!rpt) rpt=extractJSON(reportTxt);
-          console.log("rpt parsed:",!!rpt,rpt?.overview?.slice(0,50));
+          void 0;
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
           }
-        }catch(e2){console.log("report error:",e2.message);}
+        }catch(e2){void 0;}
         addStep("Report complete ✓");
         setBusy(false);
         // Fetch gauges AFTER report so we know which streams to prioritize
@@ -3220,11 +3220,11 @@ function TripPlanner({defaultLocation}){
             setFlowPts(pts);setFlowLabel(best.sourceInfo?.siteName??"");
           }
           addStep(`${pg.length} gauges loaded ✓`);
-        }catch(ge){console.log("gauge error:",ge.message);}
+        }catch(ge){void 0;}
       }
     }catch(e){
       setError(e.message||"Something went wrong. Please try again.");
-      console.log("Trip planner error:",e.message,e);
+      void 0;
     }finally{setBusy(false);}
   }
 
@@ -3559,7 +3559,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   const [expanded,setExpanded]=useState(null);
   useEffect(()=>{
     if(!savedGauges.length) return;
-    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(e=>console.log("gauge data error:",e.message));
+    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(()=>{});
   },[savedGauges.length]);
   return(
     <div className="card" style={{marginBottom:12}}>
@@ -3695,7 +3695,7 @@ function App({user}){
         pressure:updates.pressure, stream_cfs:updates.streamCFS,
         stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName, water_temp:updates.waterTemp
       }).eq("id",id);
-    }catch(e){ console.log("updateCatch failed:",e); }
+    }catch(e){ void 0; }
   }
 
   async function syncOfflineCatches(){
@@ -3735,7 +3735,7 @@ function App({user}){
     let updated=0;
     // Fish ID for catches with photos but no length
     const toID=catches.filter(c2=>c2.photo&&!c2.length&&!c2._pending).slice(0,5);
-    console.log("catches to ID:",toID.length);
+    void 0;
     for(const catch2 of toID){
       try{
         let base64=null;
@@ -3758,22 +3758,22 @@ function App({user}){
           canvas.height=Math.round(img.height*scale);
           canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
           base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
-        }catch(fetchErr){console.log("photo prep failed:",fetchErr.message);continue;}
+        }catch(fetchErr){void 0;continue;}
         if(!base64) continue;
         const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Look carefully at this fish photo. Identify the exact species based on coloring, spot patterns, and body shape. Rainbow trout have pink/red lateral stripe and black spots. Brown trout have brown/golden coloring with red spots. Cutthroat trout have red slash marks under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if a hand or scale is visible for reference. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
         const rd=await res.json();
         const txt=((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim();
-        console.log("fish ID response:",txt.slice(0,100));
+        void 0;
         const parsed=JSON.parse(txt);
-        console.log("parsed:",parsed);
+        void 0;
         if(parsed.species&&parsed.species!=="Unidentified"){
           await updateCatch(catch2.id,{species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):catch2.length});
           updated++;
         }
-      }catch(idErr){console.log("enrich ID failed:",idErr.message,idErr);}
+      }catch(idErr){void 0;}
     }
     const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded");
-    console.log("Catches to enrich:",toEnrich.length,toEnrich.map(c2=>c2.gps?.slice(0,30)));
+    void 0;
     for(const catch2 of toEnrich){
       if(catch2.streamCFS||!catch2.gps) continue;
       const gpsStr=catch2.gps||"";
@@ -3870,8 +3870,8 @@ function App({user}){
     if(!sb||!user||String(user.id).startsWith("local")) return;
     sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data,error})=>{
       if(data) setSavedGauges(data);
-      if(error) console.log("saved_gauges load error:",error.message,"code:",error.code);
-    }).catch(e=>console.log("saved_gauges fetch error:",e.message));
+      if(error) void 0;
+    }).catch(()=>{});
   },[user?.id]);
 
   async function fetchSavedGaugeData(gauge){
@@ -3958,7 +3958,7 @@ function App({user}){
       const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
       if(txt) setCondReport(txt.replace(/<cite[^>]*>|<\/cite>/g,""));
-    }catch(e){console.log("cond report failed:",e.message);}
+    }catch(e){void 0;}
     setCondReportLoading(false);
   }
 
@@ -3980,7 +3980,7 @@ function App({user}){
       const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
       const s=txt.indexOf('['),e=txt.lastIndexOf(']');
       if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}setCondShops(shops);setCondShopsLoading(false);return;}}
-    }catch(err){console.log('shops failed:',err.message);}
+    }catch(err){void 0;}
     setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
     setCondShopsLoading(false);
   }
@@ -4098,7 +4098,7 @@ function App({user}){
             const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
             if(parsed.species&&parsed.species!=="Unidentified"){species=parsed.species;if(parsed.length!=null)length=String(Math.round(parsed.length));}
             else idNote="Could not identify fish from photo.";
-          }catch(fishErr){console.log("batch fish ID failed:",fishErr.message);}
+          }catch(fishErr){void 0;}
           // Conditions
           let catchData={species,length,flies:[],photo:dataUrl,gps:coords,time:t,notes:"",air_temp:null,weather_desc:null,wind_speed:null,wind_dir:null,pressure:null,stream_cfs:null,stream_condition:null,stream_gauge_name:null,water_temp:null};
           if(fetchLat&&fetchLng){
@@ -4120,11 +4120,11 @@ function App({user}){
                   if(parsed2.length)catchData={...catchData,stream_cfs:String(Math.round(parsed2[0].cfs)),stream_condition:parsed2[0].label,stream_gauge_name:parsed2[0].name};
                 }
               }
-            }catch(condErr){console.log("batch conditions failed:",condErr.message);}
+            }catch(condErr){void 0;}
           }
           const savedId=await addCatch(catchData);
           if(savedId) lastCatchIdRef.current=savedId;
-        }catch(batchErr){console.log("batch catch failed:",batchErr.message);}
+        }catch(batchErr){void 0;}
       }
       setBatchProgress({total:files.length,done:files.length,current:""});
       setTimeout(()=>setBatchProgress(null),2000);
@@ -4177,7 +4177,7 @@ function App({user}){
             }
           }
         }
-      }catch(e2){console.log("Conditions fetch failed:",e2.message);}
+      }catch(e2){void 0;}
     }
     // AI fish ID
     try{
@@ -4191,7 +4191,7 @@ function App({user}){
         setForm(f=>({...f,idNote:"Could not identify fish from this photo. Please select species manually."}));
       }
     }catch(e3){
-      console.log("Fish ID failed:",e3.message);
+      void 0;
       setForm(f=>({...f,idNote:"Photo analysis failed. Please select species manually."}));
     }
     setForm(f=>({...f,sizeEstimating:false}));
