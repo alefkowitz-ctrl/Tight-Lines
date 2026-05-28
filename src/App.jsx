@@ -1994,7 +1994,23 @@ function GuideBook({user, loc}){
           const d2=new Date(t.replace(" at "," "));
           if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
           const today=new Date().toISOString().split("T")[0];
-          const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr):null;
+          let conds=null;
+          if(dateStr&&dateStr<today){
+            conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr);
+          } else {
+            // Live conditions for today
+            try{
+              const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
+              const wc=wx.current;
+              const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
+              conds={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg,streamCFS:"",streamCondition:"",streamGaugeName:""};
+              const ts2=(usgs.value?.timeSeries)??[];
+              if(ts2.length){
+                const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t2.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+                if(parsed2.length){conds.streamCFS=String(Math.round(parsed2[0].cfs));conds.streamCondition=parsed2[0].label;conds.streamGaugeName=parsed2[0].name;}
+              }
+            }catch{}
+          }
           if(conds) setTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map((d,idx)=>idx===(f.catchDetails.length-1)?{...d,...conds}:d)}));
         }catch{}
       }
