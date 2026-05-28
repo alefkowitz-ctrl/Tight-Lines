@@ -3117,11 +3117,15 @@ function TripPlanner({defaultLocation}){
       addStep(`Finding streams within ${driveMinutes<60?driveMinutes+" min":Math.round(driveMinutes/60*10)/10+" hr"} drive…`,"active");
       let isoPolygon=null;
       try{
+        const isoCtrl=new AbortController();
+        const isoTimer=setTimeout(()=>isoCtrl.abort(),8000);
         const isoRes=await fetch("/api/claude",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({isochrone:true,lat,lng,minutes:driveMinutes})
+          body:JSON.stringify({isochrone:true,lat,lng,minutes:driveMinutes}),
+          signal:isoCtrl.signal
         });
+        clearTimeout(isoTimer);
         if(isoRes.ok){
           const isoData=await isoRes.json();
           isoPolygon=isoData.features?.[0]?.geometry?.coordinates?.[0];
