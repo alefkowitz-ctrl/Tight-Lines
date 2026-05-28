@@ -1024,7 +1024,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
       {(showStarredOnly&&isStarred?gauges.filter(g=>isStarred(g.siteNo)):gauges||[]).map((g,i)=>(
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
-            {g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
+            <div style={{flex:1}}>{g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{g.distMi} miles away</div>}</div>
             <span className={`gbadge ${g.cls}`}>{g.label}</span>
             {toggleStar&&<button onClick={e=>{e.stopPropagation();toggleStar(g);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px",color:isStarred&&isStarred(g.siteNo)?"var(--gold)":"var(--stone)"}}>
               {isStarred&&isStarred(g.siteNo)?"⭐":"☆"}
