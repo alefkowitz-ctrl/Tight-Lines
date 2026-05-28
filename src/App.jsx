@@ -2575,7 +2575,66 @@ function GuideBook({user, loc}){
             <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
-        {(selectedTrip.photosLoading||selectedTrip.photos.length>0)&&(
+        <div style={{marginTop:12,marginBottom:8}}>
+        <input type="file" accept="image/*" multiple id="tripDetailPhotoInput" style={{display:"none"}} onChange={async(e)=>{
+          const files=Array.from(e.target.files||[]);
+          e.target.value="";
+          if(!files.length) return;
+          for(const file of files){
+            const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+            const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
+            let photoLat=null,photoLng=null,photoTime=null;
+            try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoLat=exif.lat??null;photoLng=exif.lng??null;}catch{}
+            const fetchLat=photoLat??locRef.current?.lat;
+            const fetchLng=photoLng??locRef.current?.lng;
+            const t=photoTime||new Date(selectedTrip.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+            const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"";
+            // Upload to storage
+            const url=await uploadPhotoToStorage(dataUrl,"trips/"+selectedTrip.id);
+            const newPhotos=[...(selectedTrip.photos||[]),url||dataUrl];
+            const newDetail={photo:url||dataUrl,time:t,gps:coords,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
+            const newDetails=[...(selectedTrip.catchDetails||[]),newDetail];
+            const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
+            setSelectedTrip(upd);
+            setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===selectedTrip.id?upd:t2)})));
+            if(sb){await sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id);if(url)await sb.from("trip_photos").insert({trip_id:selectedTrip.id,photo:url,sort_order:newPhotos.length-1});}
+            // Fish ID
+            try{
+              const img2=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
+              const cv=document.createElement("canvas");const scale=Math.min(1,1024/Math.max(img2.width,img2.height));cv.width=Math.round(img2.width*scale);cv.height=Math.round(img2.height*scale);cv.getContext("2d").drawImage(img2,0,0,cv.width,cv.height);
+              const b64=cv.toDataURL("image/jpeg",0.82).split(",")[1];
+              const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:"Identify this fish. Choose from: "+SPECIES.join(", ")+". Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null if unknown."}]}]})});
+              const rd=await res.json();
+              const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+              if(parsed.species){
+                const d2=[...(selectedTrip.catchDetails||[])];
+                const idx2=d2.length-1;
+                d2[idx2]={...d2[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};
+                const upd2={...selectedTrip,catchDetails:d2,photos:newPhotos};
+                setSelectedTrip(upd2);
+                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===selectedTrip.id?upd2:t2)})));
+                if(sb)await sb.from("trips").update({catch_details:d2}).eq("id",selectedTrip.id);
+              }
+            }catch{}
+            // Conditions
+            if(fetchLat&&fetchLng){
+              try{
+                const d2=new Date(t.replace(" at "," "));
+                const today=new Date().toISOString().split("T")[0];
+                const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:null;
+                let conds=null;
+                if(dateStr&&dateStr<today){conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");}
+                else{const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);conds={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg,streamCFS:"",streamCondition:"",streamGaugeName:""};const ts2=(usgs.value?.timeSeries)??[];if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){conds.streamCFS=String(Math.round(p2[0].cfs));conds.streamCondition=p2[0].label;conds.streamGaugeName=p2[0].name;}}}
+                if(conds){const d3=[...(selectedTrip.catchDetails||[])];const idx3=d3.length-1;d3[idx3]={...d3[idx3],...conds,analyzing:false};const upd3={...selectedTrip,catchDetails:d3,photos:newPhotos};setSelectedTrip(upd3);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===selectedTrip.id?upd3:t2)})));if(sb)await sb.from("trips").update({catch_details:d3}).eq("id",selectedTrip.id);}
+              }catch{}
+            }
+          }
+        }}/>
+        <button className="pbtn" style={{width:"100%"}} onClick={()=>document.getElementById("tripDetailPhotoInput").click()}>
+          <span className="pi">📷</span>Add Catch Photos
+        </button>
+      </div>
+      {(selectedTrip.photosLoading||selectedTrip.photos.length>0)&&(
           <div style={{marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div className="lbl" style={{marginBottom:0}}>Catches · {selectedTrip.photosLoading?"…":selectedTrip.photos.length}</div>
