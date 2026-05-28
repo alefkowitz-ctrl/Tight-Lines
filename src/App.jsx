@@ -2591,6 +2591,7 @@ function GuideBook({user, loc}){
             const coords=photoLat&&photoLng?fmtCoord(photoLat,photoLng):"";
             // Upload to storage
             const url=await uploadPhotoToStorage(dataUrl,"trips/"+selectedTrip.id);
+            console.log("photo upload - url:",url?.slice(0,50),"dataUrl:",dataUrl?.slice(0,30));
             const photoToStore=url||dataUrl;
             const newDetail={photo:photoToStore,time:t,gps:coords,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
             let newPhotos,newDetails,tripId;
