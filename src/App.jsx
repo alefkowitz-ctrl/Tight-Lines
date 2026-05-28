@@ -3184,7 +3184,6 @@ function TripPlanner({defaultLocation}){
           }
         }catch(e2){void 0;}
         addStep("Report complete ✓");
-        setBusy(false);
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
         try{
