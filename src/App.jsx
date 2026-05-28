@@ -819,12 +819,12 @@ function WeekForecast({data, highlightDay}){
           const isSel = i===sel;
           return(
             <div key={i} onClick={()=>setSelDay(i)}
-              style={{flex:"0 0 auto",width:44,background:isSel?"var(--water)":isHi?"rgba(200,168,75,0.15)":"rgba(0,0,0,0.2)",
+              style={{flex:"0 0 auto",width:54,background:isSel?"var(--water)":isHi?"rgba(200,168,75,0.15)":"rgba(0,0,0,0.2)",
                 border:`1px solid ${isSel?"var(--water)":isHi?"var(--gold)":"rgba(255,255,255,0.08)"}`,
-                borderRadius:10,padding:"6px 3px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
-              <div style={{fontSize:15,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
-              <div style={{fontSize:18,margin:"3px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
+                borderRadius:10,padding:"8px 4px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
+              <div style={{fontSize:13,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
+              <div style={{fontSize:22,margin:"4px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
               <div style={{fontSize:14,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
               {(d.precipitation_probability_max?.[i]??0)>0&&<div style={{fontSize:15,color:"#7ec8c8"}}>💧{d.precipitation_probability_max[i]}%</div>}
             </div>
@@ -833,30 +833,30 @@ function WeekForecast({data, highlightDay}){
       </div>
       {/* Selected day detail */}
       <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px"}}>
-        <div style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
+        <div style={{fontSize:17,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
-            <div style={{fontSize:15,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
+            <div style={{fontSize:13,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
+            <div style={{fontSize:16,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Wind</div>
-            <div style={{fontSize:15,color:"var(--foam)"}}>💨 {selWind?Math.round(selWind):"—"} mph</div>
-            {selGust&&<div style={{fontSize:14,color:"var(--stone)"}}>Gusts {Math.round(selGust)}</div>}
-            {selWindDir!=null&&<div style={{fontSize:14,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
+            <div style={{fontSize:17,color:"var(--foam)"}}>💨 {selWind?Math.round(selWind):"—"} mph</div>
+            {selGust&&<div style={{fontSize:15,color:"var(--stone)"}}>Gusts {Math.round(selGust)}</div>}
+            {selWindDir!=null&&<div style={{fontSize:15,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
-            <div style={{fontSize:14,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
-            {trend&&<div style={{fontSize:14,color:trend.color}}>{trend.icon} {trend.label}</div>}
+            <div style={{fontSize:18,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
+            {trend&&<div style={{fontSize:15,color:trend.color}}>{trend.icon} {trend.label}</div>}
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
-            <div style={{fontSize:15,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
+            <div style={{fontSize:18,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
           </div>
         </div>
 
