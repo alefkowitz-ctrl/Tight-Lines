@@ -170,33 +170,33 @@ function AuthScreen(){
         <div style={{textAlign:"center",marginBottom:40}}>
           <div style={{fontSize:48,marginBottom:12}}>🎣</div>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--foam)"}}>Guide's <span style={{color:"var(--gold)",fontStyle:"italic"}}>Choice</span></div>
-          <div style={{fontSize:12,color:"var(--sky)",letterSpacing:2.5,textTransform:"uppercase",marginTop:4}}>Fly Fishing Journal</div>
+          <div style={{fontSize:15,color:"var(--sky)",letterSpacing:2.5,textTransform:"uppercase",marginTop:4}}>Fly Fishing Journal</div>
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
             {mode==="login"?"Welcome Back":mode==="signup"?"Create Account":"Reset Password"}
           </div>
           {mode==="signup"&&<>
-            <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
+            <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
             <input className="inp" placeholder="John Smith" value={name} onChange={e=>setName(e.target.value)}/>
           </>}
-          <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Email</label>
+          <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Email</label>
           <input className="inp" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
           {mode!=="reset"&&<>
-            <label style={{display:"block",fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Password</label>
+            <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Password</label>
             <input className="inp" type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
           </>}
-          {error&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"var(--red)",marginBottom:12}}>{error}</div>}
-          {success&&<div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#9cd47a",marginBottom:12}}>{success}</div>}
+          {error&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:15,color:"var(--red)",marginBottom:12}}>{error}</div>}
+          {success&&<div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:10,padding:"10px 14px",fontSize:15,color:"#9cd47a",marginBottom:12}}>{success}</div>}
           <button className="btn btnp" disabled={loading} onClick={handleSubmit} style={{marginTop:4}}>
             {loading?"Please wait…":mode==="login"?"Sign In":mode==="signup"?"Create Account":"Send Reset Email"}
           </button>
           <div style={{display:"flex",justifyContent:"space-between",marginTop:16,flexWrap:"wrap",gap:8}}>
             {mode==="login"&&<>
-              <button onClick={()=>{setMode("signup");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Create account</button>
-              <button onClick={()=>{setMode("reset");setError("");}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Forgot password?</button>
+              <button onClick={()=>{setMode("signup");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Create account</button>
+              <button onClick={()=>{setMode("reset");setError("");}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Forgot password?</button>
             </>}
-            {mode!=="login"&&<button onClick={()=>{setMode("login");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>← Back to sign in</button>}
+            {mode!=="login"&&<button onClick={()=>{setMode("login");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>← Back to sign in</button>}
           </div>
         </div>
       </div>
@@ -613,7 +613,7 @@ function FlowChart({points,label}){
   const xi=[0,Math.floor(points.length/2),points.length-1];
   return(
     <div>
-      {label&&<div style={{fontSize:11,color:"var(--stone)",marginBottom:4,fontStyle:"italic"}}>{label}</div>}
+      {label&&<div style={{fontSize:14,color:"var(--stone)",marginBottom:4,fontStyle:"italic"}}>{label}</div>}
       <svg width={W} height={H} style={{display:"block",maxWidth:"100%"}}>
         <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#b8d4dc" stopOpacity="0.35"/><stop offset="100%" stopColor="#b8d4dc" stopOpacity="0.03"/></linearGradient></defs>
         {[0,0.5,1].map((f,i)=><line key={i} x1={PL} x2={PL+iW} y1={PT+iH*(1-f)} y2={PT+iH*(1-f)} stroke="rgba(255,255,255,0.07)" strokeWidth="1"/>)}
@@ -664,10 +664,10 @@ function MoonCard(){
         <span style={{fontSize:42}}>{m.emoji}</span>
         <div>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
-          <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div>
+          <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div>
         </div>
       </div>
-      <div style={{fontSize:13,color:"var(--sky)",fontStyle:"italic",padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10}}>🎣 {m.fishingNote}</div>
+      <div style={{fontSize:15,color:"var(--sky)",fontStyle:"italic",padding:"8px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10}}>🎣 {m.fishingNote}</div>
     </div>
   );
 }
@@ -719,7 +719,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
     React.createElement('div',{className:"card"},
       React.createElement('div',{className:"ctitle",style:{cursor:"pointer",userSelect:"none"},onClick:()=>open?setOpen(false):runMatcher()},
         "🪲 Hatch Matcher",
-        React.createElement('span',{style:{fontSize:12,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}},open?"▲ collapse":"▼ match hatches"),
+        React.createElement('span',{style:{fontSize:15,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}},open?"▲ collapse":"▼ match hatches"),
         loc&&React.createElement('button',{className:"rfsh",onClick:e=>{e.stopPropagation();runMatcher();}},"↻")
       ),
       React.createElement('div',{className:"csub"},"AI-matched hatches based on water temp, flows & season"),
@@ -728,16 +728,16 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
         React.createElement('div',{key:i,style:{padding:"10px 0",borderBottom:i<result.length-1?"1px solid rgba(255,255,255,0.06)":"none"}},
           React.createElement('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
             React.createElement('span',{style:{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}},h.name),
-            React.createElement('span',{style:{fontSize:11,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(200,168,75,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
+            React.createElement('span',{style:{fontSize:14,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(200,168,75,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
           ),
-          React.createElement('div',{style:{fontSize:11,color:"var(--stone)",marginBottom:6}},"Water: "+h.waterTempRange+" · "+h.timing),
+          React.createElement('div',{style:{fontSize:14,color:"var(--stone)",marginBottom:6}},"Water: "+h.waterTempRange+" · "+h.timing),
           React.createElement('div',{style:{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}},
             (h.flies||[]).map((f,j)=>React.createElement('a',{key:j,className:"chip",href:"https://www.google.com/search?q="+encodeURIComponent(f+" fly pattern")+"&tbm=isch",target:"_blank",rel:"noreferrer",style:{textDecoration:"none",cursor:"pointer"}},"🪶 "+f))
           ),
-          h.notes&&React.createElement('div',{style:{fontSize:12,color:"var(--sky)",fontStyle:"italic"}},h.notes)
+          h.notes&&React.createElement('div',{style:{fontSize:15,color:"var(--sky)",fontStyle:"italic"}},h.notes)
         )
       ),
-      open&&!loading&&!result&&React.createElement('div',{style:{fontSize:13,color:"var(--stone)",fontStyle:"italic"}},"Tap refresh to match hatches for current conditions.")
+      open&&!loading&&!result&&React.createElement('div',{style:{fontSize:15,color:"var(--stone)",fontStyle:"italic"}},"Tap refresh to match hatches for current conditions.")
     )
   );
 }
@@ -752,7 +752,7 @@ function HatchList({hatches}){
           <span className="hn">{h.name}</span>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <span className="ha">{h.a}</span>
-            <span style={{fontSize:11,color:"var(--stone)"}}>ℹ</span>
+            <span style={{fontSize:14,color:"var(--stone)"}}>ℹ</span>
           </div>
         </div>
       ))}
@@ -768,22 +768,22 @@ function HatchModal({hatch, onClose}){
       <div style={{background:"var(--deep)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:430}} onClick={e=>e.stopPropagation()}>
         <div style={{width:36,height:4,background:"rgba(255,255,255,0.2)",borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--gold)",marginBottom:4}}>{hatch.name}</div>
-        {d.latin&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",marginBottom:16}}>{d.latin}</div>}
+        {d.latin&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",marginBottom:16}}>{d.latin}</div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
           {[["Hook Size",d.sizes||"Varies"],["Activity",hatch.a],["Timing",d.timing||"Seasonal"],["Depth",d.depth||"Surface"]].map(([l,v])=>(
             <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"10px 12px"}}>
-              <div style={{fontSize:10,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
-              <div style={{fontSize:13,color:"var(--foam)"}}>{v}</div>
+              <div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
+              <div style={{fontSize:15,color:"var(--foam)"}}>{v}</div>
             </div>
           ))}
         </div>
         {d.patterns&&<>
-          <div style={{fontSize:11,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Matching Patterns</div>
+          <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Matching Patterns</div>
           <div className="chips" style={{marginBottom:14}}>
             {d.patterns.map((p,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(p+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none"}}>🪶 {p}</a>)}
           </div>
         </>}
-        {d.tip&&<div style={{background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:12,padding:"12px 14px",fontSize:13,color:"var(--sky)",lineHeight:1.6}}>💡 {d.tip}</div>}
+        {d.tip&&<div style={{background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:12,padding:"12px 14px",fontSize:15,color:"var(--sky)",lineHeight:1.6}}>💡 {d.tip}</div>}
         <button className="btn" style={{width:"100%",marginTop:16}} onClick={onClose}>Done</button>
       </div>
     </div>
@@ -822,40 +822,40 @@ function WeekForecast({data, highlightDay}){
               style={{flex:"0 0 auto",width:44,background:isSel?"var(--water)":isHi?"rgba(200,168,75,0.15)":"rgba(0,0,0,0.2)",
                 border:`1px solid ${isSel?"var(--water)":isHi?"var(--gold)":"rgba(255,255,255,0.08)"}`,
                 borderRadius:10,padding:"6px 3px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
-              <div style={{fontSize:9,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
+              <div style={{fontSize:15,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
               <div style={{fontSize:18,margin:"3px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
-              <div style={{fontSize:10,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
-              {(d.precipitation_probability_max?.[i]??0)>0&&<div style={{fontSize:9,color:"#7ec8c8"}}>💧{d.precipitation_probability_max[i]}%</div>}
+              <div style={{fontSize:14,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
+              {(d.precipitation_probability_max?.[i]??0)>0&&<div style={{fontSize:15,color:"#7ec8c8"}}>💧{d.precipitation_probability_max[i]}%</div>}
             </div>
           );
         })}
       </div>
       {/* Selected day detail */}
       <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px"}}>
-        <div style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
+        <div style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
-            <div style={{fontSize:12,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
+            <div style={{fontSize:15,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Wind</div>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Wind</div>
             <div style={{fontSize:15,color:"var(--foam)"}}>💨 {selWind?Math.round(selWind):"—"} mph</div>
-            {selGust&&<div style={{fontSize:11,color:"var(--stone)"}}>Gusts {Math.round(selGust)}</div>}
-            {selWindDir!=null&&<div style={{fontSize:11,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
+            {selGust&&<div style={{fontSize:14,color:"var(--stone)"}}>Gusts {Math.round(selGust)}</div>}
+            {selWindDir!=null&&<div style={{fontSize:14,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
             <div style={{fontSize:14,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
-            {trend&&<div style={{fontSize:11,color:trend.color}}>{trend.icon} {trend.label}</div>}
+            {trend&&<div style={{fontSize:14,color:trend.color}}>{trend.icon} {trend.label}</div>}
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
             <div style={{fontSize:15,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
           </div>
         </div>
@@ -990,28 +990,28 @@ function GaugeChart({siteNo, siteName, initialCFS}){
     <div style={{marginTop:10,borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:10}}>
       {/* Timeframe selector */}
       <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
-        <span style={{fontSize:11,color:"var(--stone)",marginRight:2}}>Show:</span>
+        <span style={{fontSize:14,color:"var(--stone)",marginRight:2}}>Show:</span>
         {TIMEFRAMES.map(tf=>(
           <button key={tf.label} onClick={e=>{e.stopPropagation();setDays(tf.days);}}
             style={{
               background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
               border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
               borderRadius:6, padding:"3px 10px", color:days===tf.days?"var(--foam)":"var(--stone)",
-              fontSize:11, cursor:"pointer", fontFamily:"'Crimson Pro',serif",
+              fontSize:14, cursor:"pointer", fontFamily:"'Crimson Pro',serif",
               transition:"all .15s"
             }}>
             {tf.label}
           </button>
         ))}
       </div>
-      <div style={{display:"flex",gap:12,marginBottom:6,fontSize:10,color:"var(--stone)",alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:12,marginBottom:6,fontSize:14,color:"var(--stone)",alignItems:"center",flexWrap:"wrap"}}>
         <span style={{display:"inline-block",width:16,height:2,background:"#b8d4dc",verticalAlign:"middle"}}></span>Flow (CFS)
         {histAvg.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(200,168,75,0.6)",borderTop:"1px dashed rgba(200,168,75,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev avg</>}
         {tempPoints.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(255,100,100,0.7)",verticalAlign:"middle",marginLeft:8}}></span>Water Temp (°F)</>}
       </div>
-      {loading&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
+      {loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
       {!loading&&points.length>0&&renderChart()}
-      {!loading&&points.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
+      {!loading&&points.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
     </div>
   );
 }
@@ -1024,7 +1024,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
       {(showStarredOnly&&isStarred?gauges.filter(g=>isStarred(g.siteNo)):gauges||[]).map((g,i)=>(
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
-            {g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<span style={{fontSize:10,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
+            {g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.distMi}mi</span>}
             <span className={`gbadge ${g.cls}`}>{g.label}</span>
             {toggleStar&&<button onClick={e=>{e.stopPropagation();toggleStar(g);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px",color:isStarred&&isStarred(g.siteNo)?"var(--gold)":"var(--stone)"}}>
               {isStarred&&isStarred(g.siteNo)?"⭐":"☆"}
@@ -1032,9 +1032,9 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
           </div>
           <div className="grow">
             <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
-            {g.waterTempF&&<span style={{fontSize:11,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
-            {g.histMax&&<span style={{fontSize:11,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
-            <span style={{fontSize:11,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
+            {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
+            {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
+            <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
           {expanded===i&&(
             <GaugeChart siteNo={g.siteNo} siteName={g.name} initialCFS={g.cfs}/>
@@ -1121,13 +1121,13 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
             onChange={e=>onChange(e.target.value)}
             onFocus={()=>suggs.length&&setOpen(true)}
             autoComplete="off" spellCheck={false}/>
-          {loading&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"var(--sky)",fontSize:13,animation:"pulse 1s infinite"}}>✦</span>}
+          {loading&&<span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"var(--sky)",fontSize:15,animation:"pulse 1s infinite"}}>✦</span>}
         </div>
         <button className="gps-btn" onClick={handleGPS} disabled={gpsState==="loading"} title="Use my location">
           {gpsState==="loading"?"…":"📍"}
         </button>
       </div>
-      {gpsState==="error"&&<div style={{marginTop:6,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:10,fontSize:12,color:"var(--red)",lineHeight:1.5}}>{gpsMsg}</div>}
+      {gpsState==="error"&&<div style={{marginTop:6,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:10,fontSize:15,color:"var(--red)",lineHeight:1.5}}>{gpsMsg}</div>}
       {open&&suggs.length>0&&(
         <div className="sugg-list">
           {suggs.map((item,i)=>(
@@ -1397,16 +1397,16 @@ function TripLocationWeather({tripForm, setTripForm}){
           {wxLoading?"⏳ Fetching…":"🌤 Get Conditions"}
         </button>
       </div>
-      {wxFetched&&<div style={{fontSize:11,color:"#9cd47a",marginBottom:8,fontStyle:"italic"}}>✓ Conditions auto-populated — adjust below if needed</div>}
+      {wxFetched&&<div style={{fontSize:14,color:"#9cd47a",marginBottom:8,fontStyle:"italic"}}>✓ Conditions auto-populated — adjust below if needed</div>}
       {nearbyGauges.length>0&&(
         <div style={{marginBottom:12}}>
           <div className="lbl" style={{marginBottom:6}}>Select Body of Water Being Fished</div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {nearbyGauges.map((g,i)=>(
               <button key={i} onClick={()=>setTripForm(f=>({...f,streamCFS:String(Math.round(g.cfs)),streamCondition:g.label,streamGaugeName:g.name}))}
-                style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+(tripForm.streamGaugeName===g.name?"var(--water)":"rgba(255,255,255,0.1)"),background:tripForm.streamGaugeName===g.name?"rgba(44,95,110,0.5)":"rgba(0,0,0,0.2)",color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+(tripForm.streamGaugeName===g.name?"var(--water)":"rgba(255,255,255,0.1)"),background:tripForm.streamGaugeName===g.name?"rgba(44,95,110,0.5)":"rgba(0,0,0,0.2)",color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span>{g.name}</span>
-                <span style={{fontSize:11,color:"var(--sky)"}}>{Number(g.cfs).toLocaleString()} CFS · {g.label}</span>
+                <span style={{fontSize:14,color:"var(--sky)"}}>{Number(g.cfs).toLocaleString()} CFS · {g.label}</span>
               </button>
             ))}
           </div>
@@ -1467,7 +1467,7 @@ function TripLocationWeather({tripForm, setTripForm}){
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
             <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
-              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               {c}
             </button>
           ))}
@@ -1505,7 +1505,7 @@ function GuideStats({guests}){
           <div key={s.label} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
             <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--foam)"}}>{s.val}</div>
-            <div style={{fontSize:10,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+            <div style={{fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -1514,7 +1514,7 @@ function GuideStats({guests}){
           <div className="ctitle">🐟 Top Species</div>
           {topSpecies.map(([sp,ct])=>(
             <div key={sp} style={{marginBottom:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"var(--foam)",marginBottom:3}}><span>{sp}</span><span style={{color:"var(--sky)"}}>{ct} caught</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:15,color:"var(--foam)",marginBottom:3}}><span>{sp}</span><span style={{color:"var(--sky)"}}>{ct} caught</span></div>
               <div style={{background:"rgba(0,0,0,0.3)",borderRadius:6,height:8,overflow:"hidden"}}><div style={{height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:6,width:Math.round((ct/topSpecies[0][1])*100)+"%"}}/></div>
             </div>
           ))}
@@ -1524,7 +1524,7 @@ function GuideStats({guests}){
         <div className="card">
           <div className="ctitle">🪶 Top Flies</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {topFlies.map(([fly,ct])=>(<span key={fly} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"4px 12px",fontSize:12,color:"var(--gold)"}}>🪶 {fly} <span style={{color:"var(--stone)",fontSize:10}}>×{ct}</span></span>))}
+            {topFlies.map(([fly,ct])=>(<span key={fly} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"4px 12px",fontSize:15,color:"var(--gold)"}}>🪶 {fly} <span style={{color:"var(--stone)",fontSize:14}}>×{ct}</span></span>))}
           </div>
         </div>
       )}
@@ -1542,7 +1542,7 @@ function GuideSeasonLog({guests}){
   if(!show.length) return <div className="empty"><div className="ei">📅</div><p>No trips logged yet.</p></div>;
   return(
     <div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
         {display.length?thisYear+" Season — "+display.length+" trips":"All Trips"} · {show.reduce((s,t)=>s+(t.catches||0),0)} fish
       </div>
       {show.map(t=>(
@@ -1550,21 +1550,21 @@ function GuideSeasonLog({guests}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
             <div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Unnamed Location"}</div>
-              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.guestName} · {new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
+              <div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{t.guestName} · {new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
-              {t.catches>0&&<span style={{fontSize:13,color:"var(--sky)"}}>🐟 {t.catches}</span>}
-              {t.streamCFS&&<span style={{fontSize:11,color:"var(--stone)"}}>{Number(t.streamCFS).toLocaleString()} CFS</span>}
+              {t.catches>0&&<span style={{fontSize:15,color:"var(--sky)"}}>🐟 {t.catches}</span>}
+              {t.streamCFS&&<span style={{fontSize:14,color:"var(--stone)"}}>{Number(t.streamCFS).toLocaleString()} CFS</span>}
             </div>
           </div>
           {t.flies&&t.flies.length>0&&(
             <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
-              {t.flies.slice(0,3).map((f,i)=><span key={i} style={{background:"rgba(74,122,58,0.25)",border:"1px solid rgba(74,122,58,0.4)",borderRadius:20,padding:"2px 10px",fontSize:11,color:"var(--sky)"}}>🪶 {f}</span>)}
-              {t.flies.length>3&&<span style={{fontSize:11,color:"var(--stone)",padding:"2px 6px"}}>+{t.flies.length-3}</span>}
+              {t.flies.slice(0,3).map((f,i)=><span key={i} style={{background:"rgba(74,122,58,0.25)",border:"1px solid rgba(74,122,58,0.4)",borderRadius:20,padding:"2px 10px",fontSize:14,color:"var(--sky)"}}>🪶 {f}</span>)}
+              {t.flies.length>3&&<span style={{fontSize:14,color:"var(--stone)",padding:"2px 6px"}}>+{t.flies.length-3}</span>}
             </div>
           )}
           {(t.tripCost||t.tipAmount)&&(
-            <div style={{display:"flex",gap:12,marginTop:6,fontSize:12}}>
+            <div style={{display:"flex",gap:12,marginTop:6,fontSize:15}}>
               {t.tripCost&&<span style={{color:"var(--gold)"}}>💵 ${t.tripCost}</span>}
               {t.tipAmount&&<span style={{color:"#9cd47a"}}>🤝 ${t.tipAmount}</span>}
             </div>
@@ -1612,16 +1612,16 @@ function GuideSavedGauges({user}){
       {sgData.map((g,i)=>(
         <div key={g.id||i} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
-            <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:11,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
+            <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.cfs>=1000?(g.cfs/1000).toFixed(1)+"k":g.cfs?.toFixed(0)} CFS</span>}
-              <span className={"gbadge "+(g.cls||"")} style={{fontSize:10}}>{g.label}</span>
+              <span className={"gbadge "+(g.cls||"")} style={{fontSize:14}}>{g.label}</span>
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10}}>
-            <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
-            <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:12,cursor:"pointer",padding:0,fontFamily:"'Crimson Pro',serif"}}>✕ Remove</button>
-            <span style={{fontSize:10,color:"var(--stone)",marginLeft:8}}>{expanded===i?"▲ hide":"▼ chart"}</span>
+            <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
+            <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",padding:0,fontFamily:"'Crimson Pro',serif"}}>✕ Remove</button>
+            <span style={{fontSize:14,color:"var(--stone)",marginLeft:8}}>{expanded===i?"▲ hide":"▼ chart"}</span>
           </div>
           {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
         </div>
@@ -2112,7 +2112,7 @@ function GuideBook({user, loc}){
             style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
               background:guideSection===s.id?"var(--water)":"transparent",
               color:guideSection===s.id?"var(--foam)":"var(--sky)",
-              fontFamily:"'Crimson Pro',serif",fontSize:11,
+              fontFamily:"'Crimson Pro',serif",fontSize:14,
               display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
             <span style={{fontSize:15}}>{s.icon}</span>{s.label}
           </button>
@@ -2121,7 +2121,7 @@ function GuideBook({user, loc}){
       {guideSection==="stats"?<GuideStats guests={guests}/>:guideSection==="seasonlog"?<GuideSeasonLog guests={guests}/>:guideSection==="gauges"?<GuideSavedGauges user={user}/>:null}
       <div style={{display:guideSection==="clients"?"block":"none"}}>
       {String(user?.id).startsWith("local")&&(
-        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
+        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
           ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only.
         </div>
       )}
@@ -2130,7 +2130,7 @@ function GuideBook({user, loc}){
         const localTrips=JSON.parse(localStorage.getItem("tl_trips")||"[]");
         if(!localGuests.length) return null;
         return(
-          <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:13,color:"var(--gold)",lineHeight:1.6}}>
+          <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
             📦 You have <strong>{localGuests.length} guest{localGuests.length!==1?"s":""}</strong> saved locally from before you logged in.
             <button className="btn" style={{width:"100%",marginTop:10,background:"rgba(200,168,75,0.3)",color:"var(--gold)",border:"1px solid rgba(200,168,75,0.5)"}}
               onClick={async()=>{
@@ -2162,7 +2162,7 @@ function GuideBook({user, loc}){
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
         <button onClick={runPhotoMigration} disabled={!!migrationStatus}
-          style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+          style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
           {migrationStatus||"🔄 Migrate Photos to Storage"}
         </button>
       </div>
@@ -2177,8 +2177,8 @@ function GuideBook({user, loc}){
               {g.phone&&<span className="cmi">📱 {g.phone}</span>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
-              <span style={{fontSize:12,color:"var(--stone)"}}>{(g.trips||[]).length} trip{(g.trips||[]).length!==1?"s":""} on record</span>
-              {(g.skillLevel||g.skill_level)&&<span style={{fontSize:11,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"1px 8px",color:"var(--sky)"}}>
+              <span style={{fontSize:15,color:"var(--stone)"}}>{(g.trips||[]).length} trip{(g.trips||[]).length!==1?"s":""} on record</span>
+              {(g.skillLevel||g.skill_level)&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"1px 8px",color:"var(--sky)"}}>
                 {(g.skillLevel||g.skill_level)==="Beginner"?"🌱":( g.skillLevel||g.skill_level)==="Intermediate"?"🎣":"🏆"} {g.skillLevel||g.skill_level}
               </span>}
             </div>
@@ -2319,7 +2319,7 @@ function GuideBook({user, loc}){
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
         {(selectedGuest.skillLevel||selectedGuest.skill_level)&&(()=>{const sl=selectedGuest.skillLevel||selectedGuest.skill_level;return(<div className="hr"><span className="hn">Skill Level</span><span className="ha">{sl==="Beginner"?"🌱 Beginner":sl==="Intermediate"?"🎣 Intermediate":"🏆 Expert"}</span></div>);})()}
         {selectedGuest.dietary&&<div className="hr"><span className="hn">🥗 Dietary</span><span className="ha">{selectedGuest.dietary}</span></div>}
-        {selectedGuest.notes&&<div style={{marginTop:10,fontSize:13,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
+        {selectedGuest.notes&&<div style={{marginTop:10,fontSize:15,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
         <div style={{display:"flex",gap:8,marginTop:14}}>
           <button className="btn" style={{flex:2}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
           <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest, skillLevel:selectedGuest.skillLevel||selectedGuest.skill_level||""});setView("editGuest");}}>✏️ Edit</button>
@@ -2330,9 +2330,9 @@ function GuideBook({user, loc}){
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
         <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setView("tripDetail");loadTripPhotos(trip.id,trip);}}>
-          <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:12,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
-          {trip.location&&<div style={{fontSize:13,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--stone)"}}>
+          <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:15,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
+          {trip.location&&<div style={{fontSize:15,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:15,color:"var(--stone)"}}>
             <span>🐟 ~{trip.catches} catches</span>
             {trip.styles.length>0&&<span>🎣 {trip.styles.join(", ")}</span>}
             {trip.photos.length>0&&<span>📷 {trip.photos.length} photo{trip.photos.length!==1?"s":""}</span>}
@@ -2368,7 +2368,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {FISHING_STYLES.map(s=>(
             <button key={s} onClick={()=>toggleStyle(s)}
-              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer"}}>
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer"}}>
               {s}
             </button>
           ))}
@@ -2392,7 +2392,7 @@ function GuideBook({user, loc}){
             <input className="inp" type="number" min="0" placeholder="0.00" style={{paddingLeft:24,marginBottom:0}} value={tripForm.tripCost||""} onChange={e=>setTripForm(f=>({...f,tripCost:e.target.value}))}/>
           </div>
           <div style={{position:"relative",flex:1}}>
-            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:13}}>Tip $</span>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:15}}>Tip $</span>
             <input className="inp" type="number" min="0" placeholder="0.00" style={{paddingLeft:40,marginBottom:0}} value={tripForm.tipAmount||""} onChange={e=>setTripForm(f=>({...f,tipAmount:e.target.value}))}/>
           </div>
         </div>
@@ -2406,7 +2406,7 @@ function GuideBook({user, loc}){
               <div key={i} style={{position:"relative"}}>
                 <img src={p} style={{width:80,height:80,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy"/>
                 <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))}
-                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",border:"none",color:"white",borderRadius:"50%",width:20,height:20,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
               </div>
             ))}
           </div>
@@ -2442,7 +2442,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {FISHING_STYLES.map(s=>(
             <button key={s} onClick={()=>toggleStyle(s)}
-              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles?.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles?.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles?.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:13,cursor:"pointer"}}>
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles?.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles?.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles?.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer"}}>
               {s}
             </button>
           ))}
@@ -2464,7 +2464,7 @@ function GuideBook({user, loc}){
             <input className="inp" type="number" min="0" style={{paddingLeft:24,marginBottom:0}} value={tripForm.tripCost||""} onChange={e=>setTripForm(f=>({...f,tripCost:e.target.value}))}/>
           </div>
           <div style={{position:"relative",flex:1}}>
-            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:13}}>Tip $</span>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--stone)",fontSize:15}}>Tip $</span>
             <input className="inp" type="number" min="0" style={{paddingLeft:40,marginBottom:0}} value={tripForm.tipAmount||""} onChange={e=>setTripForm(f=>({...f,tipAmount:e.target.value}))}/>
           </div>
         </div>
@@ -2483,17 +2483,17 @@ function GuideBook({user, loc}){
                   <div style={{position:"relative",flexShrink:0}}>
                     <img src={p} style={{width:72,height:72,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy"/>
                     <button onClick={()=>setTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i),catchDetails:(f.catchDetails||[]).filter((_,j)=>j!==i)}))}
-                      style={{position:"absolute",top:-4,right:-4,background:"rgba(150,80,80,0.9)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                      style={{position:"absolute",top:-4,right:-4,background:"rgba(150,80,80,0.9)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                   </div>
-                  <div style={{flex:1,fontSize:12}}>
+                  <div style={{flex:1,fontSize:15}}>
                     {cd.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic"}}>🔍 Analyzing…</div>}
                     {!cd.analyzing&&<>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:3}}>
                         {cd.species&&<span style={{color:"var(--foam)",fontStyle:"italic"}}>{cd.species}</span>}
                         {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
                       </div>
-                      {cd.time&&<div style={{color:"var(--stone)",fontSize:11}}>{cd.time}</div>}
-                      {(cd.airTemp||cd.streamCFS)&&<div style={{color:"var(--stone)",fontSize:11}}>{cd.airTemp&&`🌡 ${cd.airTemp}°F`}{cd.streamCFS&&` 💧 ${cd.streamCFS} CFS`}</div>}
+                      {cd.time&&<div style={{color:"var(--stone)",fontSize:14}}>{cd.time}</div>}
+                      {(cd.airTemp||cd.streamCFS)&&<div style={{color:"var(--stone)",fontSize:14}}>{cd.airTemp&&`🌡 ${cd.airTemp}°F`}{cd.streamCFS&&` 💧 ${cd.streamCFS} CFS`}</div>}
                     </>}
                   </div>
                 </div>
@@ -2534,8 +2534,8 @@ function GuideBook({user, loc}){
         {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions||selectedTrip.streamCFS)&&(
           <div style={{marginTop:10,marginBottom:4}}>
             <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
-            {selectedTrip.streamGaugeName&&<div style={{fontSize:13,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {selectedTrip.streamGaugeName}</div>}
-            <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:13,color:"var(--sky)"}}>
+            {selectedTrip.streamGaugeName&&<div style={{fontSize:15,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {selectedTrip.streamGaugeName}</div>}
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:15,color:"var(--sky)"}}>
               {selectedTrip.streamCFS&&<span>💧 {Number(selectedTrip.streamCFS).toLocaleString()} CFS · {selectedTrip.streamCondition}</span>}
               {selectedTrip.waterTemp&&<span>🌡 Water: {selectedTrip.waterTemp}°F</span>}
               {selectedTrip.weatherConditions&&<span>{selectedTrip.weatherConditions}</span>}
@@ -2556,7 +2556,7 @@ function GuideBook({user, loc}){
         {selectedTrip.guideNotes&&(
           <div style={{marginTop:12,padding:"10px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,borderLeft:"3px solid var(--water)"}}>
             <div className="lbl" style={{marginBottom:4}}>Guide Notes</div>
-            <p style={{fontSize:13,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
+            <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
         {(selectedTrip.photosLoading||selectedTrip.photos.length>0)&&(
@@ -2618,11 +2618,11 @@ function GuideBook({user, loc}){
                   if(sb) sb.from("trips").update({catch_details:details.map(d=>({...d,analyzing:false}))}).eq("id",selectedTrip.id);
                 }catch(outerErr){console.log("identify fish outer error:",outerErr.message);}
                 finally{reset();}
-              }} style={{fontSize:11,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              }} style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                 ✦ Identify Fish
               </button>
             </div>
-            {selectedTrip.photosLoading&&<div className="loading" style={{padding:20,fontSize:13}}>Loading catches…</div>}
+            {selectedTrip.photosLoading&&<div className="loading" style={{padding:20,fontSize:15}}>Loading catches…</div>}
             {selectedTrip.photos.map((p,i)=>{
               const cd=(selectedTrip.catchDetails||[])[i]||{};
               return(
@@ -2637,8 +2637,8 @@ function GuideBook({user, loc}){
                     </div>
                     {(cd.airTemp||cd.weatherDesc||cd.streamCFS||cd.windSpeed)&&(
                       <div style={{background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"6px 10px",marginTop:6,marginBottom:4}}>
-                        <div style={{fontSize:9,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Conditions</div>
-                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",fontSize:11,color:"var(--stone)"}}>
+                        <div style={{fontSize:15,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Conditions</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:"2px 10px",fontSize:14,color:"var(--stone)"}}>
                           {cd.weatherDesc&&<span>{cd.weatherDesc}</span>}
                           {cd.airTemp&&<span>🌡 {cd.airTemp}°F</span>}
                           {cd.windSpeed&&<span>💨 {cd.windSpeed}mph {cd.windDir}</span>}
@@ -2677,9 +2677,9 @@ function GuideBook({user, loc}){
                           }
                         }catch(err){console.log("guide fish ID failed:",err.message);}
                         btn.textContent="🔍 Identify";btn.disabled=false;
-                      }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🔍 Identify</button>}
+                      }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🔍 Identify</button>}
                       <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
-                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         ✏️ Edit
                       </button>
                       <button onClick={e=>{e.stopPropagation();if(window.confirm("Remove this photo and catch data?")){
@@ -2690,54 +2690,54 @@ function GuideBook({user, loc}){
                         setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
                         if(sb){sb.from("trip_photos").delete().eq("trip_id",selectedTrip.id).then(()=>{if(newPhotos.length>0)sb.from("trip_photos").insert(newPhotos.map((p,i)=>({trip_id:selectedTrip.id,photo:p,sort_order:i})));});sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id);}
                       }}}
-                        style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
                       </button>
                     </div>
                   </div>
                   {editingTripCatchIdx===i&&(
                     <div style={{background:"rgba(0,0,0,0.3)",padding:"14px",borderTop:"1px solid rgba(255,255,255,0.08)"}} onClick={e=>e.stopPropagation()}>
-                      <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                      <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Species</div>
-                          <select className="inp" style={{marginBottom:0,fontSize:12}} value={cd.species||""}
+                          <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
+                          <select className="inp" style={{marginBottom:0,fontSize:15}} value={cd.species||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],species:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}>
                             <option value="">Select…</option>
                             {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
                           </select>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.length||""}
+                          <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={cd.length||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],length:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                       </div>
                       <div style={{marginBottom:8}}>
-                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
-                        <input className="inp" style={{marginBottom:0,fontSize:12}} value={cd.time||""}
+                        <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
+                        <input className="inp" style={{marginBottom:0,fontSize:15}} value={cd.time||""}
                           onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],time:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.airTemp||""}
+                          <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={cd.airTemp||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],airTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.waterTemp||""} onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],waterTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
+                          <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={cd.waterTemp||""} onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],waterTemp:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
-                          <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={cd.streamCFS||""}
+                          <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                          <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={cd.streamCFS||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],streamCFS:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                       </div>
                       <div style={{marginBottom:8}}>
-                        <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>GPS (lat, lng) — e.g. 39.7392, -104.9903</div>
+                        <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>GPS (lat, lng) — e.g. 39.7392, -104.9903</div>
                         <div style={{display:"flex",gap:6}}>
-                          <input className="inp" style={{marginBottom:0,fontSize:12,flex:1}} placeholder="39.7392, -104.9903" value={cd.gps||""}
+                          <input className="inp" style={{marginBottom:0,fontSize:15,flex:1}} placeholder="39.7392, -104.9903" value={cd.gps||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],gps:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                           <button onClick={async(e)=>{
                             e.stopPropagation();
@@ -2776,11 +2776,11 @@ function GuideBook({user, loc}){
                               }else{alert("No historical conditions found for this date/location.");}
                             }catch(err){alert("Conditions fetch failed: "+err.message);}
                             finally{e.currentTarget.textContent="📍 Fetch";e.currentTarget.disabled=false;}
-                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Crimson Pro',serif"}}>
+                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:15,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Crimson Pro',serif"}}>
                             📍 Fetch
                           </button>
                         </div>
-                        <div style={{fontSize:10,color:"var(--stone)",marginTop:4}}>Enter GPS then tap Fetch to auto-fill conditions, or tap Fetch to use current location</div>
+                        <div style={{fontSize:14,color:"var(--stone)",marginTop:4}}>Enter GPS then tap Fetch to auto-fill conditions, or tap Fetch to use current location</div>
                       </div>
                     </div>
                   )}
@@ -2790,10 +2790,10 @@ function GuideBook({user, loc}){
           </div>
         )}
         {migrationStatus&&(
-          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:12,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
+          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
         )}
         {migrationStatus&&(
-          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:12,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
+          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
         )}
         <div style={{marginTop:14,display:"flex",gap:8}}>
           <button className="gen" style={{flex:1}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
@@ -2843,7 +2843,7 @@ function GuideBook({user, loc}){
           <textarea
             className="inp"
             rows={12}
-            style={{resize:"vertical",fontSize:13,lineHeight:1.7}}
+            style={{resize:"vertical",fontSize:15,lineHeight:1.7}}
             value={report}
             onChange={e=>setReport(e.target.value)}
           />
@@ -2906,16 +2906,16 @@ function UpcomingTrips({user}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Location TBD"}</div>
-              <div style={{fontSize:12,color:"var(--gold)",marginTop:2,fontWeight:"bold"}}>{new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</div>
-              <div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{t.type}{t.styles?.length?" · "+t.styles.join(", "):""}</div>
+              <div style={{fontSize:15,color:"var(--gold)",marginTop:2,fontWeight:"bold"}}>{new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</div>
+              <div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{t.type}{t.styles?.length?" · "+t.styles.join(", "):""}</div>
             </div>
             <div style={{fontSize:22}}>🎣</div>
           </div>
-          {t.guide_notes&&<div style={{fontSize:12,color:"var(--sky)",marginTop:8,fontStyle:"italic",lineHeight:1.5}}>{t.guide_notes}</div>}
+          {t.guide_notes&&<div style={{fontSize:15,color:"var(--sky)",marginTop:8,fontStyle:"italic",lineHeight:1.5}}>{t.guide_notes}</div>}
           {t.report_text&&(
             <div style={{marginTop:8,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:8}}>
-              <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Guide Notes</div>
-              <div style={{fontSize:12,color:"var(--foam)",lineHeight:1.6,fontFamily:"'Crimson Pro',serif"}}>{t.report_text}</div>
+              <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Guide Notes</div>
+              <div style={{fontSize:15,color:"var(--foam)",lineHeight:1.6,fontFamily:"'Crimson Pro',serif"}}>{t.report_text}</div>
             </div>
           )}
         </div>
@@ -3142,7 +3142,7 @@ function TripPlanner({defaultLocation}){
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
         <label className="lbl">How long will you drive? <span style={{color:"var(--gold)"}}>{driveMinutes<60?driveMinutes+" min":driveMinutes===60?"1 hour":(driveMinutes/60).toFixed(1).replace(".0","")+" hours"}</span></label>
         <input type="range" min={30} max={180} step={15} value={driveMinutes} onChange={e=>setDriveMinutes(Number(e.target.value))} style={{width:"100%",accentColor:"var(--gold)",marginBottom:4}}/>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--stone)",marginBottom:12}}><span>30 min</span><span>1 hr</span><span>1.5 hr</span><span>2 hr</span><span>3 hr</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:14,color:"var(--stone)",marginBottom:12}}><span>30 min</span><span>1 hr</span><span>1.5 hr</span><span>2 hr</span><span>3 hr</span></div>
         {error&&<div className="err">{error}</div>}
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
@@ -3173,10 +3173,10 @@ function TripPlanner({defaultLocation}){
                 {s.distanceMiles&&<span>~{s.distanceMiles} mi away</span>}
                 {s.address&&<span>{s.address}</span>}
               </div>
-              {s.specialty&&<div style={{fontSize:12,color:"var(--sky)",marginTop:4,fontStyle:"italic"}}>{s.specialty}</div>}
+              {s.specialty&&<div style={{fontSize:15,color:"var(--sky)",marginTop:4,fontStyle:"italic"}}>{s.specialty}</div>}
               <div style={{display:"flex",gap:10,marginTop:6,flexWrap:"wrap"}}>
-                {s.website&&s.website!=="https://"&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>🌐 Visit Website</a>}
-                <a href={`https://www.google.com/maps/search/${encodeURIComponent((s.name||"")+" "+(s.address||""))}`} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--sky)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>📍 Maps</a>
+                {s.website&&s.website!=="https://"&&<a href={s.website} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--gold)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>🌐 Visit Website</a>}
+                <a href={`https://www.google.com/maps/search/${encodeURIComponent((s.name||"")+" "+(s.address||""))}`} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>📍 Maps</a>
               </div>
             </div>
           ))}
@@ -3192,7 +3192,7 @@ function TripPlanner({defaultLocation}){
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
               <span style={{fontSize:20,flexShrink:0}}>🏆</span>
               <div>
-                <div style={{fontSize:11,color:"#9cd47a",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Best Bet Today</div>
+                <div style={{fontSize:14,color:"#9cd47a",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Best Bet Today</div>
                 <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.6}}>{(report.recommendation||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
               </div>
             </div>
@@ -3203,8 +3203,8 @@ function TripPlanner({defaultLocation}){
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
                 {[["mostFish","🐟 Most Fish"],["bestScenery","🏔 Best Scenery"],["mostSolitude","🧘 Most Solitude"],["beginners","🎣 Beginners"]].map(([k,label])=>report.bestFor[k]?(
                   <div key={k} style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"8px 10px"}}>
-                    <div style={{fontSize:9,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{label}</div>
-                    <div style={{fontSize:12,color:"var(--foam)"}}>{report.bestFor[k]}</div>
+                    <div style={{fontSize:15,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{label}</div>
+                    <div style={{fontSize:15,color:"var(--foam)"}}>{report.bestFor[k]}</div>
                   </div>
                 ):null)}
               </div>
@@ -3214,8 +3214,8 @@ function TripPlanner({defaultLocation}){
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name+" Colorado")}`} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:10,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:10,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:10,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(200,168,75,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:12,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
-                {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:10,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:11,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name+" Colorado")}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(200,168,75,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
@@ -3228,7 +3228,7 @@ function TripPlanner({defaultLocation}){
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
           {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
           {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></> }
-          {report.shops?.length>0&&<><div className="divider"/><div className="slbl">🪝 Support Your Local Fly Shops</div><div style={{fontSize:11,color:"var(--stone)",fontStyle:"italic",marginBottom:8}}>Sourced from web reports — verify before visiting.</div>{report.shops.map((s,i)=><div key={i} style={{padding:"8px 0",borderBottom:i<report.shops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}><div style={{fontSize:13,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>{s.location&&<div style={{fontSize:11,color:"var(--stone)",marginTop:2}}>{s.location}</div>}{s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--gold)",textDecoration:"none",display:"block",marginTop:2}}>{s.website.replace(/^https?:\/\//,"")}</a>}{s.reportUrl&&s.reportUrl!==s.website&&<a href={s.reportUrl.startsWith("http")?s.reportUrl:"https://"+s.reportUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none",display:"block",marginTop:2}}>📋 View Report</a>}</div>)}</> }
+          {report.shops?.length>0&&<><div className="divider"/><div className="slbl">🪝 Support Your Local Fly Shops</div><div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginBottom:8}}>Sourced from web reports — verify before visiting.</div>{report.shops.map((s,i)=><div key={i} style={{padding:"8px 0",borderBottom:i<report.shops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}><div style={{fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>{s.location&&<div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{s.location}</div>}{s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--gold)",textDecoration:"none",display:"block",marginTop:2}}>{s.website.replace(/^https?:\/\//,"")}</a>}{s.reportUrl&&s.reportUrl!==s.website&&<a href={s.reportUrl.startsWith("http")?s.reportUrl:"https://"+s.reportUrl} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",display:"block",marginTop:2}}>📋 View Report</a>}</div>)}</> }
         </div>
       )}
     </div>
@@ -3250,16 +3250,16 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
       <div style={{display:"flex",gap:6}}>
         <input value={gaugeInput} onChange={e=>setGaugeInput(e.target.value)}
           placeholder="Search loaded streams or paste site #"
-          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:12}}/>
+          style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"6px 10px",color:"var(--foam)",fontSize:15}}/>
         {gaugeInput.match(/^[0-9]{5,}$/)&&<button onClick={onAdd} disabled={gaugeAdding}
-          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>
+          style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"6px 12px",fontSize:15,cursor:"pointer"}}>
           {gaugeAdding?"…":"Save"}
         </button>}
       </div>
       {results.length===0&&q.length>=2&&!q.match(/^[0-9]+$/)&&(
         <div style={{marginTop:8,background:"rgba(200,168,75,0.1)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:12,color:"var(--gold)",marginBottom:4,fontWeight:600}}>Stream not found in nearby gauges</div>
-          <div style={{fontSize:11,color:"var(--stone)",lineHeight:1.6}}>
+          <div style={{fontSize:15,color:"var(--gold)",marginBottom:4,fontWeight:600}}>Stream not found in nearby gauges</div>
+          <div style={{fontSize:14,color:"var(--stone)",lineHeight:1.6}}>
             To add any stream:<br/>
             1. Go to <a href="https://waterdata.usgs.gov/nwis/rt" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>waterdata.usgs.gov</a><br/>
             2. Search for your stream<br/>
@@ -3272,12 +3272,12 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
           <div>
-            <div style={{fontSize:12,color:"var(--foam)"}}>{r.name}</div>
-            <div style={{fontSize:11,color:"var(--stone)"}}>#{r.siteNo} · {r.distMi}mi away</div>
+            <div style={{fontSize:15,color:"var(--foam)"}}>{r.name}</div>
+            <div style={{fontSize:14,color:"var(--stone)"}}>#{r.siteNo} · {r.distMi}mi away</div>
           </div>
           {r.lat&&r.lng&&<a href={`https://maps.google.com/?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
             onClick={e=>e.stopPropagation()}
-            style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>📍 Map</a>}
+            style={{fontSize:14,color:"var(--sky)",textDecoration:"none"}}>📍 Map</a>}
         </div>
       ))}
     </div>
@@ -3301,29 +3301,29 @@ function PhotoJournal({catches,onPhotoClick}){
   return(
     <div>
       <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by river or species…" style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 12px",color:"var(--foam)",fontSize:13}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by river or species…" style={{flex:1,background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 12px",color:"var(--foam)",fontSize:15}}/>
         {search&&<button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:16}}>✕</button>}
       </div>
-      <div style={{fontSize:12,color:"var(--stone)",marginBottom:12}}>{withPhotos.length} photos · {Object.keys(groups).length} locations</div>
+      <div style={{fontSize:15,color:"var(--stone)",marginBottom:12}}>{withPhotos.length} photos · {Object.keys(groups).length} locations</div>
       {filtered.map(([loc,lc])=>(
         <div key={loc} style={{marginBottom:20}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
             <span>🏞 {loc}</span>
-            <span style={{fontSize:11,color:"var(--stone)",fontFamily:"sans-serif"}}>{lc.length} photo{lc.length>1?"s":""}</span>
+            <span style={{fontSize:14,color:"var(--stone)",fontFamily:"sans-serif"}}>{lc.length} photo{lc.length>1?"s":""}</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
             {lc.map((c2,i)=>(
               <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo)}>
                 <img src={c2.photo} alt={c2.species} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px"}}>
-                  <div style={{fontSize:10,color:"white",fontFamily:"'Crimson Pro',serif"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
+                  <div style={{fontSize:14,color:"white",fontFamily:"'Crimson Pro',serif"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
       ))}
-      {filtered.length===0&&<div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",textAlign:"center",padding:20}}>No results for "{search}"</div>}
+      {filtered.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",textAlign:"center",padding:20}}>No results for "{search}"</div>}
     </div>
   );
 }
@@ -3350,7 +3350,7 @@ function CatchPatterns({catches}){
       <div className="csub">{catches.length} catches analyzed</div>
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
         {[["monthly","By Month"],["species","By Species"],["flies","Top Flies"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setView(v)} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:view===v?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
+          <button key={v} onClick={()=>setView(v)} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:view===v?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
         ))}
       </div>
       {view==="monthly"&&(
@@ -3359,12 +3359,12 @@ function CatchPatterns({catches}){
             {monthly.map((n,i)=>(
               <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                 <div style={{width:"100%",background:n>0?"linear-gradient(180deg,var(--sky),var(--water))":"rgba(255,255,255,0.06)",borderRadius:"3px 3px 0 0",height:Math.max(n/maxMonthly*70,n>0?4:2)+"px",transition:"height .4s"}}/>
-                {n>0&&<span style={{fontSize:9,color:"var(--sky)"}}>{n}</span>}
+                {n>0&&<span style={{fontSize:15,color:"var(--sky)"}}>{n}</span>}
               </div>
             ))}
           </div>
-          <div style={{display:"flex",gap:3}}>{MONTHS.map((m,i)=><div key={i} style={{flex:1,fontSize:9,color:"var(--stone)",textAlign:"center"}}>{m}</div>)}</div>
-          <div style={{marginTop:12,fontSize:12,color:"var(--stone)"}}>Best month: <span style={{color:"var(--gold)"}}>{MONTHS[monthly.indexOf(Math.max(...monthly))]}</span> · {Math.max(...monthly)} catches</div>
+          <div style={{display:"flex",gap:3}}>{MONTHS.map((m,i)=><div key={i} style={{flex:1,fontSize:15,color:"var(--stone)",textAlign:"center"}}>{m}</div>)}</div>
+          <div style={{marginTop:12,fontSize:15,color:"var(--stone)"}}>Best month: <span style={{color:"var(--gold)"}}>{MONTHS[monthly.indexOf(Math.max(...monthly))]}</span> · {Math.max(...monthly)} catches</div>
         </div>
       )}
       {view==="species"&&(
@@ -3372,8 +3372,8 @@ function CatchPatterns({catches}){
           {topSpecies.map(([sp,n])=>(
             <div key={sp} style={{marginBottom:8}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{fontSize:12,color:"var(--foam)"}}>{sp}</span>
-                <span style={{fontSize:11,color:"var(--sky)"}}>{n} caught{lengthBySpecies[sp]?" · avg "+Math.round(lengthBySpecies[sp].sum/lengthBySpecies[sp].count)+'"':""}</span>
+                <span style={{fontSize:15,color:"var(--foam)"}}>{sp}</span>
+                <span style={{fontSize:14,color:"var(--sky)"}}>{n} caught{lengthBySpecies[sp]?" · avg "+Math.round(lengthBySpecies[sp].sum/lengthBySpecies[sp].count)+'"':""}</span>
               </div>
               <div style={{height:6,background:"rgba(0,0,0,0.3)",borderRadius:3,overflow:"hidden"}}>
                 <div style={{width:(n/maxSp*100)+"%",height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:3,transition:"width .5s"}}/>
@@ -3384,11 +3384,11 @@ function CatchPatterns({catches}){
       )}
       {view==="flies"&&(
         <div>
-          {topFlies.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>No fly data recorded yet.</div>}
+          {topFlies.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>No fly data recorded yet.</div>}
           {topFlies.map(([fly,n],i)=>(
             <div key={fly} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<topFlies.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-              <a href={"https://www.google.com/search?q="+encodeURIComponent(fly+" fly pattern")+"&tbm=isch"} target="_blank" rel="noreferrer" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>🪶 {fly}</a>
-              <span style={{fontSize:11,color:"var(--stone)"}}>{n}x</span>
+              <a href={"https://www.google.com/search?q="+encodeURIComponent(fly+" fly pattern")+"&tbm=isch"} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none"}}>🪶 {fly}</a>
+              <span style={{fontSize:14,color:"var(--stone)"}}>{n}x</span>
             </div>
           ))}
         </div>
@@ -3403,12 +3403,12 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
     <div className="card">
       <div className="ctitle" style={{cursor:"pointer",userSelect:"none"}} onClick={()=>setOpen(o=>!o)}>
         💧 Stream Gauges
-        <span style={{fontSize:12,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}}>{open?"▲ collapse":"▼ expand"}</span>
+        <span style={{fontSize:15,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}}>{open?"▲ collapse":"▼ expand"}</span>
         <button className="rfsh" onClick={e=>{e.stopPropagation();onRefresh();}}>↻</button>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <div className="csub" style={{margin:0}}>Live USGS · {gauges.length} gauges{lastUpd&&" · "+lastUpd}</div>
-        {gauges.length>0&&<button onClick={()=>setShowStarredOnly&&setShowStarredOnly(v=>!v)} style={{fontSize:11,background:showStarredOnly?"rgba(200,168,75,0.3)":"rgba(255,255,255,0.06)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"3px 10px",color:showStarredOnly?"var(--gold)":"var(--stone)",cursor:"pointer"}}>
+        {gauges.length>0&&<button onClick={()=>setShowStarredOnly&&setShowStarredOnly(v=>!v)} style={{fontSize:14,background:showStarredOnly?"rgba(200,168,75,0.3)":"rgba(255,255,255,0.06)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"3px 10px",color:showStarredOnly?"var(--gold)":"var(--stone)",cursor:"pointer"}}>
           {showStarredOnly?"⭐ Starred":"☆ All"}
         </button>}
       </div>
@@ -3418,11 +3418,11 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
       {!open&&!gaugeLoading&&gauges.length>0&&(
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
           {gauges.slice(0,5).map((g,i)=>(
-            <span key={i} style={{fontSize:11,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"3px 10px",color:"var(--stone)"}}>
+            <span key={i} style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"3px 10px",color:"var(--stone)"}}>
               {(g.name||"").split(" ").slice(0,3).join(" ")} · {Math.round(g.cfs||0)} CFS
             </span>
           ))}
-          {gauges.length>5&&<span style={{fontSize:11,color:"var(--stone)",padding:"3px 6px"}}>+{gauges.length-5} more</span>}
+          {gauges.length>5&&<span style={{fontSize:14,color:"var(--stone)",padding:"3px 6px"}}>+{gauges.length-5} more</span>}
         </div>
       )}
     </div>
@@ -3439,8 +3439,8 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   return(
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <span style={{fontSize:13,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
-        <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:11,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
+        <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
+        <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:14,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
       </div>
       {showAddGauge&&(
         <div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -3451,13 +3451,13 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
         <div key={i} style={{borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div>
-            <div style={{fontSize:13,color:"var(--foam)"}}>{g.name||g.site_no}</div>
-            <div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
+            <div style={{fontSize:15,color:"var(--foam)"}}>{g.name||g.site_no}</div>
+            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
             <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
-            <span style={{fontSize:10,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
+            <span style={{fontSize:14,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
           </div>
         </div>
         {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
@@ -4087,7 +4087,7 @@ function App({user}){
   return(
     <div className="app">
       <div className="bgbar"/>
-      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:12,color:"white",fontFamily:"'Crimson Pro',serif"}}>
+      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"'Crimson Pro',serif"}}>
         📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
       </div>}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
@@ -4097,13 +4097,13 @@ function App({user}){
         <div className="hdr">
           <div style={{position:"absolute",top:14,right:16,zIndex:10}}>
             <button onClick={()=>sb?sb.auth.signOut():null}
-              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               Sign Out
             </button>
           </div>
           <div className="title">Guide's <span>Choice</span></div>
           <div className="sub">Fly Fishing Journal</div>
-          {user&&<div style={{fontSize:11,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
+          {user&&<div style={{fontSize:14,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
         {tab==="conditions"&&<>
@@ -4129,7 +4129,7 @@ function App({user}){
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:12,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
               {intelTab==="weather"&&<>
@@ -4167,7 +4167,7 @@ function App({user}){
                     <div className="wx-item">
                       <div className="wx-val" style={{color:weather.pressureTrend?.color}}>{weather.pressureTrend?.icon} {weather.pressure}&quot;</div>
                       <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
-                      {pNote&&<div style={{fontSize:10,color:"var(--sky)",fontStyle:"italic",marginTop:4}}>{pNote}</div>}
+                      {pNote&&<div style={{fontSize:14,color:"var(--sky)",fontStyle:"italic",marginTop:4}}>{pNote}</div>}
                     </div>
                   </div>
                 </>);})()}
@@ -4195,13 +4195,13 @@ function App({user}){
               <div style={{marginBottom:12}}>
                 {showAddGauge?(
                   <div className="card">
-                    <div style={{fontSize:13,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
-                    <div style={{fontSize:12,color:"var(--stone)",marginBottom:8}}>Search by river name or paste a USGS site number.</div>
+                    <div style={{fontSize:15,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
+                    <div style={{fontSize:15,color:"var(--stone)",marginBottom:8}}>Search by river name or paste a USGS site number.</div>
                     <GaugeSearch loc={loc} onAdd={addSavedGauge} gaugeInput={gaugeInput} setGaugeInput={setGaugeInput} gaugeAdding={gaugeAdding}/>
-                    <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:11,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
+                    <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:14,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
                   </div>
                 ):(
-                  <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:12,cursor:"pointer"}}>
+                  <button onClick={()=>setShowAddGauge(true)} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:14,padding:"10px",color:"var(--stone)",fontSize:15,cursor:"pointer"}}>
                     ⭐ Pin a gauge (e.g. your local river)
                   </button>
                 )}
@@ -4209,8 +4209,8 @@ function App({user}){
               <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly} setShowStarredOnly={setShowStarredOnly}/>
               <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                 <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
-                  <a href={"https://www.openstreetmap.org/?mlat="+loc.lat+"&mlon="+loc.lng+"#map=10/"+loc.lat+"/"+loc.lng} target="_blank" rel="noreferrer" style={{fontSize:11,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
+                  <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
+                  <a href={"https://www.openstreetmap.org/?mlat="+loc.lat+"&mlon="+loc.lng+"#map=10/"+loc.lat+"/"+loc.lng} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                 </div>
                 {(()=>{
                   const gaugePins=gauges.filter(g=>g.lat&&g.lng).map(g=>{
@@ -4232,7 +4232,7 @@ ${shopPins}
                 })()}
                 {gauges.length>0&&<div style={{padding:"8px 14px 10px",display:"flex",flexWrap:"wrap",gap:8}}>
                   {gauges.slice(0,5).map((g,i)=>(
-                    <span key={i} style={{fontSize:11,color:"var(--stone)"}}>📍 {(g.name||"").split(" ").slice(0,4).join(" ")} · {Math.round(g.cfs||0)} CFS</span>
+                    <span key={i} style={{fontSize:14,color:"var(--stone)"}}>📍 {(g.name||"").split(" ").slice(0,4).join(" ")} · {Math.round(g.cfs||0)} CFS</span>
                   ))}
                 </div>}
               </div>
@@ -4242,14 +4242,14 @@ ${shopPins}
                 <div className="ctitle">🪝 Nearby Fly Shops</div>
                 <div className="csub">Dedicated fly shops near {loc.label}</div>
                 {condShopsLoading&&<div className="loading">Searching…</div>}
-                {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:12,color:"var(--stone)",fontStyle:"italic"}}>Loading nearby shops…</div>}
+                {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>Loading nearby shops…</div>}
                 {condShops.map((s,i)=>(
                   <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
                     <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
-                    {s.address&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
-                    {s.specialty&&<div style={{fontSize:12,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
-                    {s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:12,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
-                    {s.phone&&<div style={{fontSize:12,color:"var(--stone)",marginTop:2}}>{s.phone}</div>}
+                    {s.address&&<div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
+                    {s.specialty&&<div style={{fontSize:15,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
+                    {s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
+                    {s.phone&&<div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{s.phone}</div>}
                   </div>
                 ))}
               </div>
@@ -4263,18 +4263,18 @@ ${shopPins}
           {tab==="log"&&<>
             <div className="lhdr" style={{flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setCatchLogTab("list")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="list"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
-                <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="photos"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
+                <button onClick={()=>setCatchLogTab("list")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="list"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
+                <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="photos"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
-                <button className="btn" style={{padding:"6px 12px",fontSize:12}} onClick={()=>{
+                <button className="btn" style={{padding:"6px 12px",fontSize:15}} onClick={()=>{
                   const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
               </div>
-              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:12,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating catch data…":"🔄 Update Catch Data"}</button>
+              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating catch data…":"🔄 Update Catch Data"}</button>
               {catches.length>0&&(()=>{
                 const counts={};catches.forEach(c=>{if(c.species)counts[c.species]=(counts[c.species]||0)+1;});
                 const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
@@ -4282,11 +4282,11 @@ ${shopPins}
                 return(<div style={{width:"100%",marginTop:4}}>
                   {sorted.map(([sp,n])=>(
                     <div key={sp} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                      <span style={{fontSize:11,color:"var(--stone)",width:110,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sp}</span>
+                      <span style={{fontSize:14,color:"var(--stone)",width:110,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sp}</span>
                       <div style={{flex:1,height:7,background:"rgba(0,0,0,0.3)",borderRadius:4,overflow:"hidden"}}>
                         <div style={{width:`${(n/max)*100}%`,height:"100%",background:"linear-gradient(90deg,var(--sky),var(--water))",borderRadius:4,transition:"width .6s"}}/>
                       </div>
-                      <span style={{fontSize:11,color:"var(--sky)",width:16,textAlign:"right"}}>{n}</span>
+                      <span style={{fontSize:14,color:"var(--sky)",width:16,textAlign:"right"}}>{n}</span>
                     </div>
                   ))}
                 </div>);
@@ -4347,12 +4347,12 @@ ${shopPins}
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 6px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:12,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations · {wg.length} mapped</span>
+                    <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations · {wg.length} mapped</span>
                   </div>
                   <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin allow-popups"/>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
                     {wg.slice(0,10).map((c,i)=>(
-                      <span key={i} style={{fontSize:11,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
+                      <span key={i} style={{fontSize:14,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
                         📍 {c.species||"Catch"}{c.length?" "+c.length+'"':""} 
                       </span>
                     ))}
@@ -4368,14 +4368,14 @@ ${shopPins}
                 <div className="cb">
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <div className="csp">{c.species}</div>
-                    {c._pending&&<span style={{fontSize:9,background:"rgba(200,100,50,0.3)",border:"1px solid rgba(200,100,50,0.5)",borderRadius:10,padding:"1px 6px",color:"#ff9966"}}>⏳ Syncing</span>}
+                    {c._pending&&<span style={{fontSize:15,background:"rgba(200,100,50,0.3)",border:"1px solid rgba(200,100,50,0.5)",borderRadius:10,padding:"1px 6px",color:"#ff9966"}}>⏳ Syncing</span>}
                   </div>
                   <div className="cm">
                     {c.length&&<span className="cmi">📏 {c.length}"</span>}
                     <span className="cmi">🕐 {c.time}</span>
                   </div>
                   {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-                  {c.notes&&<p style={{fontSize:13,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
+                  {c.notes&&<p style={{fontSize:15,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
                   {c.gps&&(()=>{
   const m=c.gps.match(/([\d.]+)[°]?\s*([NS])[\s,]+([\d.]+)[°]?\s*([EW])/);
   if(!m) return null;
@@ -4388,82 +4388,82 @@ ${shopPins}
 })()}
                   {(c.streamGaugeName||c.streamCFS||c.airTemp||c.weatherDesc)&&(
                     <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
-                      {c.waterTemp&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
-                      {c.streamGaugeName&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
-                      {c.streamCFS&&<span style={{fontSize:10,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS {c.streamCondition?("· "+c.streamCondition):""}</span>}
-                      {c.airTemp&&<span style={{fontSize:10,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
-                      {c.weatherDesc&&<span style={{fontSize:10,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>{c.weatherDesc}</span>}
-                      {c.windSpeed&&<span style={{fontSize:10,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>💨 {c.windSpeed}mph {c.windDir||""}</span>}
+                      {c.waterTemp&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
+                      {c.streamGaugeName&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
+                      {c.streamCFS&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS {c.streamCondition?("· "+c.streamCondition):""}</span>}
+                      {c.airTemp&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
+                      {c.weatherDesc&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>{c.weatherDesc}</span>}
+                      {c.windSpeed&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>💨 {c.windSpeed}mph {c.windDir||""}</span>}
                     </div>
                   )}
 
                   <div style={{display:"flex",gap:8,marginTop:8}}>
                     <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
-                      style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                       ✏️ Edit
                     </button>
                     <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
-                      style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                       🗑 Delete
                     </button>
                   </div>
                   {editingCatchId===c.id&&(
                 <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
-                  <div style={{fontSize:10,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+                  <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Species</div>
-                      <select className="inp" style={{marginBottom:0,fontSize:12}} value={c.species||""}
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
+                      <select className="inp" style={{marginBottom:0,fontSize:15}} value={c.species||""}
                         onChange={e=>updateCatch(c.id,{species:e.target.value})}>
                         <option value="">Select…</option>
                         {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
                       </select>
                     </div>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
                         value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
                     </div>
                   </div>
                   <div style={{marginBottom:8}}>
-                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:12}}
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:15}}
                       value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
                   </div>
                   <div style={{marginBottom:8}}>
-                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>GPS</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:12}}
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>GPS</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:15}}
                       value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
                         value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
                     </div>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number"
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
                         value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
                     </div>
                   </div>
                   <div>
-                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Notes</div>
-                    <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:12}}
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes</div>
+                    <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:15}}
                       value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
                   </div>
                   <div style={{marginBottom:8}}>
-                    <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:12}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:15}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
                     </div>
                     <div>
-                      <div style={{fontSize:10,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:12}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
+                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
                     </div>
                   </div>
                 </div>
@@ -4482,11 +4482,11 @@ ${shopPins}
             <div style={{background:"var(--water)",borderRadius:16,padding:"28px 32px",textAlign:"center",maxWidth:300}}>
               <div style={{fontSize:32,marginBottom:12}}>📷</div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",marginBottom:8}}>Adding Catches</div>
-              <div style={{fontSize:13,color:"var(--stone)",marginBottom:16}}>{batchProgress.done} of {batchProgress.total} photos processed</div>
+              <div style={{fontSize:15,color:"var(--stone)",marginBottom:16}}>{batchProgress.done} of {batchProgress.total} photos processed</div>
               <div style={{background:"rgba(0,0,0,0.3)",borderRadius:8,height:8,overflow:"hidden"}}>
                 <div style={{height:"100%",background:"var(--gold)",borderRadius:8,width:`${(batchProgress.done/batchProgress.total)*100}%`,transition:"width 0.3s"}}/>
               </div>
-              {batchProgress.done===batchProgress.total&&<div style={{marginTop:12,fontSize:13,color:"#9cd47a"}}>✓ All done!</div>}
+              {batchProgress.done===batchProgress.total&&<div style={{marginTop:12,fontSize:15,color:"#9cd47a"}}>✓ All done!</div>}
             </div>
           </div>
         )}
@@ -4519,8 +4519,8 @@ ${shopPins}
             </div>
           )}
           <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
-          {form.sizeEstimating&&<div style={{fontSize:12,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(200,168,75,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
-          {form.idNote&&!form.sizeEstimating&&<div style={{fontSize:12,color:"var(--red)",marginBottom:8,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:8}}>⚠️ {form.idNote}</div>}
+          {form.sizeEstimating&&<div style={{fontSize:15,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(200,168,75,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
+          {form.idNote&&!form.sizeEstimating&&<div style={{fontSize:15,color:"var(--red)",marginBottom:8,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:8}}>⚠️ {form.idNote}</div>}
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
             {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
@@ -4540,13 +4540,13 @@ ${shopPins}
             value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
           {(form.streamGaugeName||form.streamCFS||form.airTemp||form.waterTemp)&&(
             <div style={{background:"rgba(44,95,110,0.15)",border:"1px solid rgba(44,95,110,0.3)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-              <div style={{fontSize:11,color:"var(--gold)",marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Auto-recorded Conditions</div>
+              <div style={{fontSize:14,color:"var(--gold)",marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Auto-recorded Conditions</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {form.streamGaugeName&&<span style={{fontSize:11,color:"var(--sky)"}}>📍 {form.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
-                {form.streamCFS&&<span style={{fontSize:11,color:"var(--foam)"}}>💧 {form.streamCFS} CFS {form.streamCondition?"· "+form.streamCondition:""}</span>}
-                {form.waterTemp&&<span style={{fontSize:11,color:"#7ec8c8"}}>🌡 Water: {form.waterTemp}°F</span>}
-                {form.airTemp&&<span style={{fontSize:11,color:"var(--stone)"}}>☀️ Air: {form.airTemp}°F</span>}
-                {form.weatherDesc&&<span style={{fontSize:11,color:"var(--stone)"}}>{form.weatherDesc}</span>}
+                {form.streamGaugeName&&<span style={{fontSize:14,color:"var(--sky)"}}>📍 {form.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
+                {form.streamCFS&&<span style={{fontSize:14,color:"var(--foam)"}}>💧 {form.streamCFS} CFS {form.streamCondition?"· "+form.streamCondition:""}</span>}
+                {form.waterTemp&&<span style={{fontSize:14,color:"#7ec8c8"}}>🌡 Water: {form.waterTemp}°F</span>}
+                {form.airTemp&&<span style={{fontSize:14,color:"var(--stone)"}}>☀️ Air: {form.airTemp}°F</span>}
+                {form.weatherDesc&&<span style={{fontSize:14,color:"var(--stone)"}}>{form.weatherDesc}</span>}
               </div>
             </div>
           )}
@@ -4628,26 +4628,26 @@ function SplashScreen({onDone}){
             </g>
           </svg>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--gold)",marginBottom:4,letterSpacing:1}}>Guide's <span style={{fontStyle:'italic'}}>Choice</span></div>
-          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
             <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
           </div>
           <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Get Started →</button>
-          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip intro</button>
+          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip intro</button>
         </>
       ):(
         <>
           <div style={{fontSize:64,marginBottom:16}}>{s.icon}</div>
-          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:12,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:"var(--foam)",marginBottom:16,textAlign:"center"}}>{s.title}</div>
           <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:16,padding:"20px 24px",maxWidth:320,textAlign:"center",marginBottom:24}}>
             <p style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--foam)",lineHeight:1.7,margin:0,marginBottom:12}}>{s.body}</p>
-            <div style={{fontSize:12,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
+            <div style={{fontSize:15,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
           </div>
           <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
-          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:13,color:"var(--stone)",fontFamily:"'Crimson Pro',serif"}}>Don't show again</span></label>}
-          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:13,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
+          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:15,color:"var(--stone)",fontFamily:"'Crimson Pro',serif"}}>Don't show again</span></label>}
+          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
         </>
       )}
     </div>
