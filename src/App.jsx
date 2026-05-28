@@ -4601,7 +4601,7 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""}/>}
+          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""} key="trip-planner"/>}
           {tab==="guide"&&<GuideBook user={user} loc={loc}/>}
         </div>
 
