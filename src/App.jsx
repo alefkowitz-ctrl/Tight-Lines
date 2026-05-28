@@ -3164,7 +3164,7 @@ function TripPlanner({defaultLocation}){
           // Step 1: Run two parallel searches for broader coverage
           addStep("Searching fly shop reports…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
-          const searchPrompt2="Search for current trout fishing reports on ALL major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" including streams to the WEST over mountain passes. For a 2+ hour drive from Front Range Colorado this includes Eagle River, Colorado River, Roaring Fork, Arkansas River. Note freestone vs tailwater, flows, crowd levels for "+ds+".";
+          const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
           const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
           const searchTxt=searchTxt1+" "+searchTxt2;
           void 0;
