@@ -3342,9 +3342,33 @@ function TripPlanner({defaultLocation}){
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const q=(gaugeInput||"").toLowerCase().trim();
   const loadedGauges=window._loadedGauges||[];
-  const results=q.length>=2&&!q.match(/^[0-9]+$/)
+  const [searchResults,setSearchResults]=React.useState([]);
+  const [searching,setSearching]=React.useState(false);
+  const localResults=q.length>=2&&!q.match(/^[0-9]+$/)
     ?loadedGauges.filter(g=>(g.name||"").toLowerCase().includes(q)).slice(0,6)
     :[];
+  const results=[...localResults,...searchResults.filter(r=>!localResults.find(l=>l.siteNo===r.siteNo))].slice(0,8);
+  React.useEffect(()=>{
+    if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);return;}
+    if(localResults.length>=4){setSearchResults([]);return;}
+    const timer=setTimeout(async()=>{
+      setSearching(true);
+      try{
+        const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${loc?.state||"co"}&parameterCd=00060&siteNameMatchOperator=start&siteName=${encodeURIComponent(q)}&siteType=ST`;
+        const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
+        const d=await r.json();
+        const ts=(d.value?.timeSeries||[]).slice(0,6).map(t=>({
+          name:t.sourceInfo?.siteName||"",
+          siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
+          lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
+          lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
+        })).filter(x=>x.siteNo&&x.name);
+        setSearchResults(ts);
+      }catch{}
+      setSearching(false);
+    },500);
+    return()=>clearTimeout(timer);
+  },[q]);
   return(
     <div>
       <div style={{display:"flex",gap:6}}>
