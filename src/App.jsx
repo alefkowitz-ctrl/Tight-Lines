@@ -3213,7 +3213,8 @@ function TripPlanner({defaultLocation}){
         }catch(ge){console.log("gauge error:",ge.message);}
       }
     }catch(e){
-      setError(e.message||"Something went wrong.");
+      setError(e.message||"Something went wrong. Please try again.");
+      console.log("Trip planner error:",e.message,e);
     }finally{setBusy(false);}
   }
 
