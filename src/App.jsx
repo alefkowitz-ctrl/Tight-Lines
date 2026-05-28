@@ -2599,61 +2599,60 @@ function GuideBook({user, loc}){
           if(btn){btn.textContent="⏳ "+files.length+" photos…";btn.disabled=true;}
           let accDetails=[...(selectedTrip.catchDetails||[])];
           let accPhotos=[...(selectedTrip.photos||[])];
+          const tripId=selectedTrip.id;
           for(let fi=0;fi<files.length;fi++){
-          const file=files[fi];
-          if(btn)btn.textContent="⏳ "+(fi+1)+"/"+files.length+"…";
-            const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
-            const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
-            let photoLat=null,photoLng=null,photoTime=null,photoGpsStr=null;
-            try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoLat=exif.lat??null;photoLng=exif.lng??null;photoGpsStr=exif.gps||null;console.log("guide EXIF:",exif.gps,exif.lat,exif.lng);}catch{}
-            const fetchLat=photoLat??locRef.current?.lat;
-            const fetchLng=photoLng??locRef.current?.lng;
-            const t=photoTime||new Date(selectedTrip.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-            const coords=photoGpsStr||(photoLat&&photoLng?fmtCoord(photoLat,photoLng):"");
-            // Upload to storage
-            const url=await uploadPhotoToStorage(dataUrl,"trips/"+selectedTrip.id);
-            console.log("photo upload - url:",url?.slice(0,50),"dataUrl:",dataUrl?.slice(0,30));
-            const photoToStore=url||dataUrl;
-            const newDetail={photo:photoToStore,time:t,gps:coords,species:"Unidentified",length:"",airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:true};
-            let newPhotos,newDetails,tripId;
-            setSelectedTrip(prev=>{
-              newPhotos=[...(prev.photos||[]),photoToStore];
-              newDetails=[...(prev.catchDetails||[]),newDetail];
-              tripId=prev.id;
-              const upd={...prev,photos:newPhotos,catchDetails:newDetails};
-              setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===prev.id?upd:t2)})));
-              return upd;
-            });
-            if(sb&&tripId){await sb.from("trips").update({catch_details:newDetails}).eq("id",tripId);if(url)await sb.from("trip_photos").insert({trip_id:tripId,photo:url,sort_order:newPhotos.length-1});}
-            // Fish ID
+            const file=files[fi];
+            if(btn)btn.textContent="⏳ "+(fi+1)+"/"+files.length+"…";
             try{
+              // Read file
+              const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+              // Parse EXIF from original buffer
+              let photoTime=null,photoLat=null,photoLng=null,photoGpsStr=null;
+              try{const abuf=await file.arrayBuffer();const exif=parseExif(abuf);photoTime=exif.time;photoLat=exif.lat??null;photoLng=exif.lng??null;photoGpsStr=exif.gps||null;}catch{}
+              const fetchLat=photoLat??locRef.current?.lat;
+              const fetchLng=photoLng??locRef.current?.lng;
+              const t=photoTime||new Date(selectedTrip.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+              const coords=photoGpsStr||(photoLat&&photoLng?fmtCoord(photoLat,photoLng):"");
+              // Resize for fish ID
               const img2=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
-              const cv=document.createElement("canvas");const scale=Math.min(1,1024/Math.max(img2.width,img2.height));cv.width=Math.round(img2.width*scale);cv.height=Math.round(img2.height*scale);cv.getContext("2d").drawImage(img2,0,0,cv.width,cv.height);
-              const b64=cv.toDataURL("image/jpeg",0.82).split(",")[1];
-              const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:"Identify this fish. Choose from: "+SPECIES.join(", ")+". Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null if unknown."}]}]})});
-              const rd=await res.json();
-              const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-              if(parsed.species){
-                const idx2=accDetails.length-1;
-                if(idx2>=0){accDetails[idx2]={...accDetails[idx2],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):"",analyzing:false};}
-                const tripId2=selectedTrip.id;
-                setSelectedTrip(prev=>({...prev,catchDetails:accDetails}));
-                setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId2?{...t2,catchDetails:accDetails}:t2)})));
-                if(sb)sb.from("trips").update({catch_details:accDetails}).eq("id",tripId2);
-              }
-            }catch{}
-            // Conditions
-            if(fetchLat&&fetchLng){
+              const cv=document.createElement("canvas");const scale=Math.min(1,800/Math.max(img2.width,img2.height));cv.width=Math.round(img2.width*scale);cv.height=Math.round(img2.height*scale);cv.getContext("2d").drawImage(img2,0,0,cv.width,cv.height);
+              const b64=cv.toDataURL("image/jpeg",0.7).split(",")[1];
+              // Fish ID
+              let species="Unidentified",length="";
               try{
-                const d2=new Date(t.replace(" at "," "));
-                const today=new Date().toISOString().split("T")[0];
-                const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:null;
-                let conds=null;
-                if(dateStr&&dateStr<today){conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");}
-                else{const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);conds={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg,streamCFS:"",streamCondition:"",streamGaugeName:""};const ts2=(usgs.value?.timeSeries)??[];if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){conds.streamCFS=String(Math.round(p2[0].cfs));conds.streamCondition=p2[0].label;conds.streamGaugeName=p2[0].name;}}}
-                if(conds){const idx3=accDetails.length-1;if(idx3>=0){accDetails[idx3]={...accDetails[idx3],...conds,analyzing:false};}const tripId3=selectedTrip.id;setSelectedTrip(prev=>({...prev,catchDetails:accDetails}));setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId3?{...t2,catchDetails:accDetails}:t2)})));if(sb)sb.from("trips").update({catch_details:accDetails}).eq("id",tripId3);}
-              }catch{}
-            }
+                const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
+                const rd=await res.json();
+                const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
+                if(parsed.species&&parsed.species!=="Unidentified"){species=parsed.species;if(parsed.length!=null)length=String(Math.round(parsed.length));}
+              }catch(fishErr){console.log("fish ID failed:",fishErr.message);}
+              // Conditions
+              let detail={photo:dataUrl,time:t,gps:coords,species,length,airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:"",analyzing:false};
+              if(fetchLat&&fetchLng){
+                try{
+                  const d2=new Date(t.replace(" at "," "));
+                  const today=new Date().toISOString().split("T")[0];
+                  const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:null;
+                  if(dateStr&&dateStr<today){
+                    const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");
+                    if(conds)detail={...detail,airTemp:conds.airTemp||"",weatherDesc:conds.weatherDesc||"",windSpeed:conds.windSpeed||"",windDir:conds.windDir||"",pressure:conds.pressure||"",streamCFS:conds.streamCFS||"",streamCondition:conds.streamCondition||"",streamGaugeName:conds.streamGaugeName||""};
+                  } else {
+                    const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
+                    const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
+                    detail={...detail,airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
+                    const ts2=(usgs.value?.timeSeries)??[];
+                    if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs,null).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){detail.streamCFS=String(Math.round(p2[0].cfs));detail.streamCondition=p2[0].label;detail.streamGaugeName=p2[0].name;}}
+                  }
+                }catch(condErr){console.log("conditions failed:",condErr.message);}
+              }
+              // Upload photo to storage
+              const url=await uploadPhotoToStorage(dataUrl,"trips/"+tripId);
+              if(url)detail.photo=url;
+              accDetails=[...accDetails,detail];
+              accPhotos=[...accPhotos,url||dataUrl];
+              setSelectedTrip(prev=>({...prev,photos:accPhotos,catchDetails:accDetails}));
+              setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t2=>t2.id===tripId?{...t2,photos:accPhotos,catchDetails:accDetails}:t2)})));
+              if(sb){await sb.from("trips").update({catch_details:accDetails}).eq("id",tripId);if(url)await sb.from("trip_photos").insert({trip_id:tripId,photo:url,sort_order:accPhotos.length-1});}
+            }catch(err){console.log("photo upload failed:",err.message);}
           }
           if(btn){btn.textContent="📷 Add Catch Photos";btn.disabled=false;}
         }}/>
