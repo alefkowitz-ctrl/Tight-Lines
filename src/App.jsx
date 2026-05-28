@@ -3284,7 +3284,7 @@ function TripPlanner({defaultLocation}){
         </div>
       )}
 
-      {report&&!busy&&(
+      {report&&(
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no current reports found":"Synthesized from current fly shop reports"}</div>
