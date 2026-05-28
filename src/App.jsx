@@ -3251,7 +3251,7 @@ function TripPlanner({defaultLocation}){
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
 
-      {steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}</div>}
+      {steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}<div style={{fontSize:12,color:"var(--stone)",marginTop:8}}>report: {report?"SET ("+report.overview?.slice(0,20)+"...)":"null"} | busy: {String(busy)}</div></div>}
 
       {wxData?.daily&&!busy&&(
         <div className="card">
