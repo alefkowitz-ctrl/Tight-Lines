@@ -2786,7 +2786,7 @@ function GuideBook({user, loc}){
                         const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
                         setSelectedTrip(upd);
                         setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                        if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)console.log("delete error:",error.message);else console.log("deleted ok, remaining:",newDetails.length);});}
+                        console.log("del sb:",!!sb,"id:",selectedTrip?.id);if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)console.log("delete error:",error.message);else console.log("deleted ok, remaining:",newDetails.length);});}
                       }}}
                         style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
