@@ -133,30 +133,42 @@ select.inp{-webkit-appearance:none;}
 .api-input{width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 12px;color:var(--foam);font-family:monospace;font-size:13px;outline:none;margin-bottom:8px;}
 .api-save{background:var(--gold);color:var(--deep);border:none;border-radius:8px;padding:8px 16px;font-family:'Crimson Pro',serif;font-size:14px;font-weight:600;cursor:pointer;width:100%;}
 @media (max-width: 600px) {
-  body { font-size: 17px; }
-  .card { padding: 16px; }
-  .ctitle { font-size: 20px; }
+  body { font-size: 18px; }
+  .card { padding: 16px; border-radius: 16px; }
+  .ctitle { font-size: 20px; margin-bottom: 14px; }
+  .csub { font-size: 14px; }
   .csp { font-size: 24px; }
   .cmi { font-size: 16px; }
   .cfly { font-size: 15px; padding: 5px 14px; }
-  .gname { font-size: 16px; }
+  .cgps { font-size: 14px; }
+  .gname { font-size: 16px; line-height: 1.4; }
   .gval { font-size: 15px; }
-  .lbl { font-size: 14px; }
-  .inp { font-size: 17px; padding: 14px; }
-  .btn { font-size: 16px; padding: 12px; }
-  .nb { font-size: 14px; padding: 12px 4px; }
-  .nb .ic { font-size: 24px; }
-  .wx-temp { font-size: 64px; }
+  .gbadge { font-size: 13px; padding: 4px 10px; }
+  .lbl { font-size: 14px; letter-spacing: 1px; margin-bottom: 6px; }
+  .lttl { font-size: 17px; }
+  .inp { font-size: 18px; padding: 14px; }
+  .btn { font-size: 16px; padding: 13px; }
+  .nb { font-size: 13px; padding: 12px 2px; }
+  .nb .ic { font-size: 26px; }
+  .wx-temp { font-size: 68px; }
+  .wx-desc { font-size: 17px; }
   .wx-val { font-size: 20px; }
   .wx-lbl { font-size: 13px; }
-  .c-img { height: 240px; }
-  .hr { font-size: 17px; padding: 12px 0; }
-  .csub { font-size: 14px; }
-  .cgps { font-size: 14px; }
+  .c-img { height: 260px; }
+  .c-ph { height: 100px; font-size: 36px; }
+  .cb { padding: 16px; }
+  .hr { font-size: 17px; padding: 13px 0; }
   .slide-title { font-size: 22px; }
-  .lttl { font-size: 17px; }
-  .rbody { font-size: 16px; }
+  .back { font-size: 16px; padding: 10px 14px; }
+  .rbody { font-size: 16px; line-height: 1.7; }
   .rriver { font-size: 20px; }
   .rtech { font-size: 15px; }
-  .slbl { font-size: 14px; }
+  .slbl { font-size: 15px; letter-spacing: 2px; }
+  .loading { font-size: 16px; }
+  .err { font-size: 15px; }
+  .info-box { font-size: 16px; line-height: 1.9; }
+  .empty p { font-size: 17px; }
+  .empty .ei { font-size: 56px; }
+  .hint { font-size: 14px; }
+  .search-input { font-size: 18px; }
 }
