@@ -475,38 +475,25 @@ async function fetchUSGSTemp(siteNo){
 }
 
 async function fetchUSGSLive(lat,lng,radiusDeg=2){
-  // Fetch in concentric rings so nearest gauges are always included
-  // USGS returns gauges in arbitrary order and caps results, so nearby gauges
-  // get lost when the full 50mi bbox returns too many results
-  var allTs=[];
-  var seen={};
-  function dedup(ts){
-    return ts.filter(function(t){
-      var sno=(t.sourceInfo&&t.sourceInfo.siteCode&&t.sourceInfo.siteCode[0]&&t.sourceInfo.siteCode[0].value)||Math.random();
-      if(seen[sno]) return false;
-      seen[sno]=true;return true;
-    });
-  }
-  // Use radiusDeg from caller (default 2 = ~138mi)
-  var rings=[Math.min(radiusDeg*0.4, 0.5), Math.min(radiusDeg*0.7, 1.0), radiusDeg];
-  for(var ri=0;ri<rings.length;ri++){
-    var p=rings[ri];
+  var rings=[Math.min(radiusDeg*0.4,0.5),Math.min(radiusDeg*0.7,1.0),radiusDeg];
+  // Run all rings in parallel, use largest result set
+  const results=await Promise.allSettled(rings.map(async p=>{
     var minLng=Math.round((lng-p)*10000)/10000;
     var maxLng=Math.round((lng+p)*10000)/10000;
     var minLat=Math.round((lat-p)*10000)/10000;
     var maxLat=Math.round((lat+p)*10000)/10000;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
-    try{
-      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
-      if(r.ok){
-        var d=await r.json();
-        var newTs=dedup((d.value&&d.value.timeSeries)||[]);
-        allTs=allTs.concat(newTs);
-      }
-    }catch(e){console.log("USGS ring",ri,"error:",e.message);}
+    var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
+    if(!r.ok) throw new Error("USGS "+r.status);
+    return r.json();
+  }));
+  // Return first successful result with data
+  for(const r of results){
+    if(r.status==="fulfilled"&&r.value?.value?.timeSeries?.length>0) return r.value;
   }
-    return{value:{timeSeries:allTs}};
+  return {value:{timeSeries:[]}};
 }
+
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const hr=parseInt(hourStr)||12;
