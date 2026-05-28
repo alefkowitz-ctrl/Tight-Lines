@@ -281,9 +281,10 @@ async function geocode(q){
     if(r.ok) results=await r.json();
   }catch{
     const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=us&addressdetails=1&extratags=1`})});
-    results=await r.json();
+    const rd=await r.json();results=Array.isArray(rd)?rd:[];
   }
   // Sort: exact name matches and water features first, counties last
+  if(!Array.isArray(results)) return [];
   return results.sort((a,b)=>{
     const aIsWater=["river","stream","waterway","creek"].some(t=>(a.type||a.class||"").includes(t));
     const bIsWater=["river","stream","waterway","creek"].some(t=>(b.type||b.class||"").includes(t));
