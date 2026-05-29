@@ -3961,12 +3961,15 @@ function App({user}){
     setLoc(newLoc);
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
-    setWxLoading(true);setWxError(null);setCondReport(null);
+    setWxLoading(true);setWxError(null);setCondReport(null);setGaugeLoading(true);setGaugeError(null);
     // Check localStorage for cached weather to show instantly
     try{const cachedWx=localStorage.getItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2));if(cachedWx){const{data,ts}=JSON.parse(cachedWx);if(Date.now()-ts<30*60*1000){const c2=data.current;const pressureInHg=(c2.surface_pressure*0.02953).toFixed(2);const trend=pressureTrend(parseFloat(pressureInHg),null);setWeather({temp:Math.round(c2.temperature_2m),humidity:c2.relative_humidity_2m,wind:Math.round(c2.wind_speed_10m),windDir:windDir(c2.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c2.uv_index??0),desc:`${WX_EMOJI[c2.weather_code]||""} ${WX_DESC[c2.weather_code]||""}`.trim()});setWxForecast(data);setWxLoading(false);}}}catch{}
-    // Fly shops load on demand (button) to keep initial load fast
+    // Run weather and gauges in parallel
+    const [wxResult, usgsResult] = await Promise.allSettled([fetchWeather(lat,lng), fetchUSGSLive(lat,lng)]);
+    // Process weather
     try{
-      const d=await fetchWeather(lat,lng);
+      const d=wxResult.status==="fulfilled"?wxResult.value:null;
+      if(!d) throw new Error("Weather failed");
       const c=d.current;
       const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
       const prevPressure=wxForecast?.current?.surface_pressure?(wxForecast.current.surface_pressure*0.02953):null;
@@ -3985,9 +3988,9 @@ function App({user}){
       setWxForecast(d);try{localStorage.setItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2),JSON.stringify({data:d,ts:Date.now()}));}catch{}
     }catch{setWxError("Weather unavailable.");}
     finally{setWxLoading(false);}
-    setGaugeLoading(true);setGaugeError(null);
+    // Process gauges (already fetched in parallel above)
     try{
-      const d=await fetchUSGSLive(lat,lng);
+      const d=usgsResult.status==="fulfilled"?usgsResult.value:{value:{timeSeries:[]}};
       const ts=d.value?.timeSeries??[];
       if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
       // Keywords that indicate non-fishable sites
