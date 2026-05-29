@@ -4043,6 +4043,7 @@ function App({user}){
     // AI report loads on demand to keep initial load fast
     // Pre-fetch fly shops in background
     if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
+    setHatchAutoRun(true);
   }
 
   async function handlePhoto(e){
