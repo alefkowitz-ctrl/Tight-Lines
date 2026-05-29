@@ -711,11 +711,11 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
     const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
     const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
     const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
-    const prompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". Search ONLY local fly shop reports and hatch charts specific to this exact location. Do not include hatches from other regions. Verify each hatch is known to occur in this specific watershed. Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
+    const searchPrompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". What insects are hatching right now at this specific location?";
     try{
-      void 0;
-      const txt=await askClaude(prompt,true,1000);
-      void 0;
+      const searchTxt=await askClaude(searchPrompt,true,1000);
+      const synthPrompt="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+loc.label+". Month: "+month+". "+tempNote+"Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
+      const txt=await askClaude(synthPrompt,false,800);
       let parsed=extractJSON(txt);
       if(!parsed){try{const s=txt.indexOf("{"),e2=txt.lastIndexOf("}");if(s!==-1&&e2>s)parsed=JSON.parse(txt.slice(s,e2+1));}catch{}}
       if(parsed&&parsed.hatches&&parsed.hatches.length>0){
