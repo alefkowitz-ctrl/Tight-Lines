@@ -2140,7 +2140,7 @@ function GuideBook({user, loc}){
   if(view==="list") return(
     <div>
       <div style={{display:"flex",background:"rgba(0,0,0,0.25)",borderRadius:12,padding:3,gap:2,marginBottom:14}}>
-        {[{id:"clients",icon:"👥",label:"Clients"},{id:"seasonlog",icon:"📅",label:"Season Log"},{id:"stats",icon:"📊",label:"Stats"},{id:"gauges",icon:"⭐",label:"My Gauges"}].map(s=>(
+        {[{id:"clients",icon:"👥",label:"Clients"},{id:"gauges",icon:"⭐",label:"My Gauges"}].map(s=>(
           <button key={s.id} onClick={()=>setGuideSection(s.id)}
             style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
               background:guideSection===s.id?"var(--water)":"transparent",
