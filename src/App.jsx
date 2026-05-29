@@ -696,9 +696,11 @@ function RegsLink({label}){
 
 
 
-function HatchMatcher({loc, waterTemp, gauges, autoRun}){
+function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefetchedLoading}){
   const [result,setResult]=React.useState(null);
   const [loading,setLoading]=React.useState(false);
+  React.useEffect(()=>{if(prefetchedResult&&!result)setResult(prefetchedResult);},[prefetchedResult]);
+  React.useEffect(()=>{if(prefetchedLoading)setLoading(true);},[prefetchedLoading]);
   const [open,setOpen]=React.useState(false);
   React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
@@ -3824,6 +3826,8 @@ function App({user}){
   const [condReport,setCondReport]=useState(null);
   const [intelTab,setIntelTab]=useState("weather");
   const [hatchAutoRun,setHatchAutoRun]=useState(false);
+  const [hatchResult,setHatchResult]=useState(null);
+  const [hatchLoading,setHatchLoading]=useState(false);
   const [condReportLoading,setCondReportLoading]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [syncQueue,setSyncQueue]=useState(()=>{try{return JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');}catch{return[];}});
@@ -4046,6 +4050,22 @@ function App({user}){
     // Pre-fetch fly shops in background
     if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
     setHatchAutoRun(true);
+    // Fetch hatches in background
+    const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
+    try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
+    setHatchLoading(true);
+    const month2=new Date().toLocaleString("en-US",{month:"long"});
+    const searchP="Search for current hatch reports near "+newLoc.label+" for "+month2+". What insects are hatching right now?";
+    askClaude(searchP,true,1000).then(searchTxt=>{
+      const synthP="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+newLoc.label+". Month: "+month2+". Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[],timing,notes}]}";
+      return askClaude(synthP,false,800);
+    }).then(txt=>{
+      const parsed=extractJSON(txt);
+      if(parsed&&parsed.hatches&&parsed.hatches.length>0){
+        setHatchResult(parsed.hatches);
+        try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
+      }
+    }).catch(()=>{}).finally(()=>setHatchLoading(false));
   }
 
   async function handlePhoto(e){
@@ -4363,7 +4383,7 @@ ${shopPins}
               </div>
               </>}
               {intelTab==="report"&&<>
-              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun}/>
+              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun} prefetchedResult={hatchResult} prefetchedLoading={hatchLoading}/>
               </>}
             </>}
           </>}
