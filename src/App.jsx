@@ -698,7 +698,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
   const [result,setResult]=React.useState(null);
   const [loading,setLoading]=React.useState(false);
   const [open,setOpen]=React.useState(false);
-  React.useEffect(()=>{if(autoRun&&loc&&!result&&!loading)runMatcher();},[autoRun,loc]);
+  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading)runMatcher();},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
     if(!loc) return;
     const hKey="tl_hatch_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
