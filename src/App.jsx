@@ -271,7 +271,9 @@ async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
   if(d.error)throw new Error(d.error.message||"API error");
-  return(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
+  // Handle tool use responses - extract all text blocks including after tool results
+  const texts=(d.content||[]).map(b=>b.type==="text"?b.text:b.type==="tool_result"?(Array.isArray(b.content)?b.content.map(x=>x.text||"").join(""):b.content||""):"").filter(Boolean);
+  return texts.join(" ");
 }
 async function geocode(q){
   // Search with extra detail for natural features and small places
