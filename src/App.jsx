@@ -698,7 +698,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
   const [result,setResult]=React.useState(null);
   const [loading,setLoading]=React.useState(false);
   const [open,setOpen]=React.useState(false);
-  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading)runMatcher();},[autoRun,loc?.lat,loc?.lng]);
+  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
     if(!loc) return;
     const hKey="tl_hatch_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
@@ -747,7 +747,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
           h.notes&&React.createElement('div',{style:{fontSize:15,color:"var(--sky)",fontStyle:"italic"}},h.notes)
         )
       ),
-      open&&!loading&&!result&&React.createElement('div',{style:{fontSize:15,color:"var(--stone)",fontStyle:"italic"}},"Tap refresh to match hatches for current conditions.")
+      open&&!loading&&(!result||result.length===0)&&React.createElement('div',{style:{fontSize:15,color:"var(--stone)",fontStyle:"italic"}},"Tap ↻ to match hatches for current conditions.")
     )
   );
 }
