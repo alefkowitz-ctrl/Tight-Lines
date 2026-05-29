@@ -1307,13 +1307,15 @@ ${reportText?`
 
   // Open in new window and trigger print to PDF
   const win = window.open("","_blank","width=900,height=700");
-  win.document.write(html);
+  // Add close button to PDF window
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#c8a84b;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#e8dfc8;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  win.document.write(html.replace("</body>","</body>"));
+  win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
   win.onload = () => {
     setTimeout(()=>{
       win.focus();
-      win.print();
-    }, 800);
+    }, 300);
   };
 }
 
@@ -2656,7 +2658,7 @@ function GuideBook({user, loc}){
           }
           if(btn){btn.textContent="📷 Add Catch Photos";btn.disabled=false;}
         }}/>
-        <button id="tripDetailAddBtn" className="pbtn" style={{width:"100%"}} onClick={()=>document.getElementById("tripDetailPhotoInput").click()}>
+        <button id="tripDetailAddBtn" className="pbtn" style={{width:"100%",transition:"opacity 0.2s"}} onClick={()=>document.getElementById("tripDetailPhotoInput").click()}>
           <span className="pi">📷</span>Add Catch Photos
         </button>
       </div>
