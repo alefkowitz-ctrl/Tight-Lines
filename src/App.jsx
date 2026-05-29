@@ -714,12 +714,15 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun}){
       void 0;
       const txt=await askClaude(prompt,true,1000);
       void 0;
-      const parsed=extractJSON(txt);
-      if(parsed && parsed.hatches){
-      setResult(parsed.hatches);
-      try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
-    }
-    }catch(e){void 0;}
+      let parsed=extractJSON(txt);
+      if(!parsed){try{const s=txt.indexOf("{"),e2=txt.lastIndexOf("}");if(s!==-1&&e2>s)parsed=JSON.parse(txt.slice(s,e2+1));}catch{}}
+      if(parsed&&parsed.hatches&&parsed.hatches.length>0){
+        setResult(parsed.hatches);
+        try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
+      } else {
+        setResult([]);
+      }
+    }catch(e){setResult([]);}
     setLoading(false);
   }
   return(
