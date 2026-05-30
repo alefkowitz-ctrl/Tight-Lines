@@ -4055,11 +4055,8 @@ function App({user}){
     try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
     setHatchLoading(true);
     const month2=new Date().toLocaleString("en-US",{month:"long"});
-    const searchP="Search for current hatch reports near "+newLoc.label+" for "+month2+". What insects are hatching right now?";
-    askClaude(searchP,true,1000).then(searchTxt=>{
-      const synthP="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+newLoc.label+". Month: "+month2+". Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[],timing,notes}]}";
-      return askClaude(synthP,false,800);
-    }).then(txt=>{
+    const searchP="Search local fly shop reports for current hatches near "+newLoc.label+" for "+month2+". Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
+    askClaude(searchP,true,800).then(txt=>{
       const parsed=extractJSON(txt);
       if(parsed&&parsed.hatches&&parsed.hatches.length>0){
         setHatchResult(parsed.hatches);
