@@ -4380,7 +4380,8 @@ ${shopPins}
               </div>
               </>}
               {intelTab==="report"&&<>
-              <HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun} prefetchedResult={hatchResult} prefetchedLoading={hatchLoading}/>
+              {hatchLoading&&!hatchResult&&<div className="card"><div className="ctitle">🪲 Hatch Matcher</div><div className="loading">Matching hatches…</div></div>}
+              {(!hatchLoading||hatchResult)&&<HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun} prefetchedResult={hatchResult} prefetchedLoading={hatchLoading}/>}
               </>}
             </>}
           </>}
