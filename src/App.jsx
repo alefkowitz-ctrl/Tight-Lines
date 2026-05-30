@@ -699,7 +699,7 @@ function RegsLink({label}){
 function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefetchedLoading}){
   const [result,setResult]=React.useState(prefetchedResult||null);
   const [loading,setLoading]=React.useState(prefetchedLoading||false);
-  const [open,setOpen]=React.useState(false);
+  const [open,setOpen]=React.useState(!!prefetchedResult);
   React.useEffect(()=>{if(prefetchedResult&&!result){setResult(prefetchedResult);setOpen(true);}},[prefetchedResult]);
   React.useEffect(()=>{if(prefetchedLoading)setLoading(true);},[prefetchedLoading]);
   React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
