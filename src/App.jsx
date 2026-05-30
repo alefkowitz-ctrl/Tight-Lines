@@ -3099,25 +3099,26 @@ const FLY_FACTS=[
   "The hatch timing depends on water temperature, not calendar date.",
   "Cutthroat trout are named for the red slash marks under their jaw.",
 ];
-function TripPlannerLoading({steps}){
+function TripPlannerLoading({steps,onCancel}){
   const [factIdx,setFactIdx]=React.useState(Math.floor(Math.random()*FLY_FACTS.length));
   const [fade,setFade]=React.useState(true);
   React.useEffect(()=>{
     const t=setInterval(()=>{
       setFade(false);
-      setTimeout(()=>{setFactIdx(i=>(i+1)%FLY_FACTS.length);setFade(true);},400);
-    },4000);
+      setTimeout(()=>{setFactIdx(i=>(i+1)%FLY_FACTS.length);setFade(true);},500);
+    },10000);
     return()=>clearInterval(t);
   },[]);
   return(
-    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(13,31,38,0.96)",zIndex:9000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
-      <div style={{fontSize:48,marginBottom:16}}>🪶</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--gold)",marginBottom:8,textAlign:"center"}}>Hang tight, let it drift.</div>
-      <div style={{fontSize:15,color:"var(--stone)",marginBottom:32,textAlign:"center",fontStyle:"italic"}}>The AI overlords are doing their thing…</div>
-      <div style={{background:"rgba(0,0,0,0.3)",borderRadius:16,padding:"20px 24px",maxWidth:320,marginBottom:32,minHeight:80,display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.7,textAlign:"center",transition:"opacity 0.4s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:9000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>✕ Cancel</button>
+      <div style={{fontSize:56,marginBottom:20}}>🪶</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
+      <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>The AI overlords are out there<br/>checking fly shop reports for you…</div>
+      <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
       </div>
-      <div style={{width:"100%",maxWidth:320}}>
+      <div style={{width:"100%",maxWidth:340}}>
         {steps.map((s,i)=><div key={i} className={"step "+s.state}><div className="dot"/>{s.text}</div>)}
       </div>
     </div>
@@ -3277,7 +3278,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
 
-      {busy&&<TripPlannerLoading steps={steps}/>}
+      {busy&&<TripPlannerLoading steps={steps} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
       {!busy&&steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}</div>}
 
       {wxData?.daily&&!busy&&(
