@@ -3660,6 +3660,8 @@ function App({user}){
   // Auto-detect user location on every load (cached loc shows immediately, then refreshes)
   useEffect(()=>{
     if(!navigator.geolocation) return;
+    setLocating(true);
+    setLocating(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
       const{latitude:lat,longitude:lng}=pos.coords;
       try{
@@ -3669,9 +3671,9 @@ function App({user}){
         const city=a.city||a.town||a.village||a.hamlet||a.suburb||a.county||"";
         const state=a.state_code||a.state||"";
         const label=city&&state?`${city}, ${state}`:city||(state||`${lat.toFixed(2)}, ${lng.toFixed(2)}`);
-        loadConditions({lat,lng,label});
-      }catch{loadConditions({lat,lng,label:`${lat.toFixed(2)}, ${lng.toFixed(2)}`});}
-    },()=>{},{timeout:8000});
+        loadConditions({lat,lng,label});setLocating(false);
+      }catch{loadConditions({lat,lng,label:`${lat.toFixed(2)}, ${lng.toFixed(2)}`});setLocating(false);}
+    },()=>{setLocating(false);},{timeout:8000});
   },[]);
   const [wxError,setWxError]=useState(null);
   const [wxForecast,setWxForecast]=useState(null);
@@ -3875,6 +3877,7 @@ function App({user}){
   const condShopsCacheRef=React.useRef({});
   const [condReport,setCondReport]=useState(null);
   const [intelTab,setIntelTab]=useState("weather");
+  const [locating,setLocating]=useState(true);
   const [hatchAutoRun,setHatchAutoRun]=useState(false);
   const [hatchResult,setHatchResult]=useState(null);
   const [hatchLoading,setHatchLoading]=useState(false);
@@ -4300,7 +4303,8 @@ function App({user}){
 
         <div className="content">
           {tab==="conditions"&&<>
-            {!loc&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em> · <em>"Au Sable River, MI"</em></div>}
+            {!loc&&locating&&<div className="info-box" style={{textAlign:"center"}}><div className="loading">📍 Detecting your location…</div></div>}
+            {!loc&&!locating&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em> · <em>"Au Sable River, MI"</em></div>}
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
