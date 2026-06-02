@@ -169,8 +169,7 @@ function AuthScreen(){
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:40}}>
           <div style={{fontSize:48,marginBottom:12}}>🎣</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--foam)"}}>Guide's <span style={{color:"var(--gold)",fontStyle:"italic"}}>Choice</span></div>
-          <div style={{fontSize:15,color:"var(--sky)",letterSpacing:2.5,textTransform:"uppercase",marginTop:4}}>Fly Fishing Journal</div>
+          <img src="/logo-stacked.png" alt="Guide's Choice" style={{height:90,objectFit:"contain",marginBottom:8}}/>
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
@@ -4279,8 +4278,7 @@ function App({user}){
               Sign Out
             </button>
           </div>
-          <div className="title">Guide's <span>Choice</span></div>
-          <div className="sub">Fly Fishing Journal</div>
+          <img src="/logo-horizontal.png" alt="Guide's Choice" style={{height:32,objectFit:"contain"}}/>
           {user&&<div style={{fontSize:14,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
@@ -4807,7 +4805,7 @@ function SplashScreen({onDone}){
               <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"var(--gold)",marginBottom:4,letterSpacing:1}}>Guide's <span style={{fontStyle:'italic'}}>Choice</span></div>
+          <img src="/logo-stacked.png" alt="Guide's Choice" style={{height:90,objectFit:"contain",marginBottom:8}}/>
           <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
