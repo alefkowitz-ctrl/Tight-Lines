@@ -2,6 +2,40 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
+// Brand Logo: icon mark + live-text wordmark, built for dark backgrounds.
+function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true }) {
+  const px = (n) => Math.round(n * scale);
+  const stacked = layout === "stacked";
+  const emblem = mark ? (
+    <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
+      style={{ height: px(stacked ? 96 : 46), width: px(stacked ? 96 : 46), objectFit: "contain", display: "block" }} />
+  ) : null;
+  const title = (
+    <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 600, fontSize: px(stacked ? 34 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
+      {"GUIDE'S CHOICE"}
+    </div>
+  );
+  const tag = tagline ? (
+    <div style={{ fontFamily: "'Crimson Pro',serif", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(4), whiteSpace: "nowrap" }}>
+      Find the Pattern
+    </div>
+  ) : null;
+  if (stacked) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+        {emblem && <div style={{ marginBottom: px(12) }}>{emblem}</div>}
+        {title}{tag}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: px(12) }}>
+      {emblem}
+      <div style={{ textAlign: "left" }}>{title}{tag}</div>
+    </div>
+  );
+}
+
 
 // ── EXIF Parser ───────────────────────────────────────────────────────────────
 function parseExif(buffer){
@@ -168,8 +202,7 @@ function AuthScreen(){
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:40}}>
-          <div style={{fontSize:48,marginBottom:12}}>🎣</div>
-          <img src="/logo-stacked.png" alt="Guide's Choice" style={{height:90,objectFit:"contain",marginBottom:8}}/>
+          <Logo layout="stacked" scale={1} />
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
@@ -4278,7 +4311,7 @@ function App({user}){
               Sign Out
             </button>
           </div>
-          <img src="/logo-horizontal.png" alt="Guide's Choice" style={{height:32,objectFit:"contain"}}/>
+          <Logo layout="horizontal" scale={0.95} />
           {user&&<div style={{fontSize:14,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
@@ -4805,7 +4838,7 @@ function SplashScreen({onDone}){
               <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
-          <img src="/logo-stacked.png" alt="Guide's Choice" style={{height:90,objectFit:"contain",marginBottom:8}}/>
+          <div style={{marginBottom:8}}><Logo layout="stacked" mark={false} scale={1} /></div>
           <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
