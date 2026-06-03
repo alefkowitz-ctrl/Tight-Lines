@@ -298,7 +298,7 @@ function extractJSON(text){
 function getKey(){return true;}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
-  const body={model:useSearch?"claude-sonnet-4-5-20251001":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
+  const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
   const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
@@ -4062,7 +4062,7 @@ function App({user}){
     setCondShops([]);
     try{
       const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        model:'claude-sonnet-4-5-20251001',max_tokens:2000,
+        model:'claude-sonnet-4-6',max_tokens:2000,
         tools:[{type:'web_search_20250305',name:'web_search'}],
         system:'Return ONLY a raw JSON array, no markdown, no explanation.',
         messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
