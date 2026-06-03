@@ -520,7 +520,7 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2){
     var maxLat=Math.round((lat+p)*10000)/10000;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
     try{
-      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060");
+      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST");
       if(r.ok){var j=await r.json();if(j&&j.value&&j.value.timeSeries&&j.value.timeSeries.length>0) return j;}
     }catch{}
   }
@@ -3084,7 +3084,7 @@ function UpcomingTrips({user}){
 
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 // ── Stream Gauge Chart — looks up USGS gauge by stream name ──────────────────
-function StreamGaugeChart({streamName, localGauges}){
+function StreamGaugeChart({streamName, localGauges, lat, lng}){
   const [siteNo, setSiteNo] = useState(null);
   const [siteName, setSiteName] = useState("");
   const [cfs, setCfs] = useState(null);
@@ -3104,7 +3104,9 @@ function StreamGaugeChart({streamName, localGauges}){
 
     // Otherwise search USGS by stream name
     const query=streamName.split("(")[0].split(",")[0].trim();
-    fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=-107,38,-104,41&parameterCd=00060&siteStatus=active&siteType=ST`)
+    if(!lat||!lng) return;
+    const _p=1.0,_mnLng=Math.round((lng-_p)*10000)/10000,_mxLng=Math.round((lng+_p)*10000)/10000,_mnLat=Math.round((lat-_p)*10000)/10000,_mxLat=Math.round((lat+_p)*10000)/10000;
+    fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${_mnLng},${_mnLat},${_mxLng},${_mxLat}&parameterCd=00060&siteType=ST`)
       .then(r=>r.json())
       .then(d=>{
         const ts=d.value?.timeSeries||[];
@@ -3229,7 +3231,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         const NON_FISHABLE2=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
         const fishableGauges=pgScaled.filter(g=>{
           const n=g.name.toLowerCase();
-          const waterWords=["creek","river"," run"," fork","branch","stream","gulch","canyon"," rio ","platte","arkansas","colorado r","poudre","thompson","vrain","boulder","clear creek"];
+          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
           const hasWater=waterWords.some(w=>n.includes(w));
           const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
           return hasWater&&!hasNonFish;
@@ -3394,12 +3396,12 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name+" Colorado")}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(200,168,75,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(200,168,75,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-                <StreamGaugeChart streamName={r.name} localGauges={gauges}/>
+                <StreamGaugeChart streamName={r.name} localGauges={gauges} lat={r.lat||loc?.lat} lng={r.lng||loc?.lng}/>
               </div>
               );
             })}
@@ -4114,7 +4116,7 @@ function App({user}){
         var streamPart=n;
         for(var si=0;si<splitWords.length;si++){var si2=n.indexOf(splitWords[si]);if(si2>5){streamPart=n.substring(0,si2);break;}}
         // Must contain a water body word
-        const waterWords=["creek","river"," run"," fork","branch","stream","slough","gulch","canyon"," rio "," cr"," ck"," fk","south boulder","clear creek","platte","arkansas","colorado r"];
+        const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
         const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
         // Only check non-fishable keywords against stream name, not location suffix
         const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
