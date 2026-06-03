@@ -750,7 +750,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
   const [open,setOpen]=React.useState(!!prefetchedResult);
   React.useEffect(()=>{if(prefetchedResult&&!result){setResult(prefetchedResult);setOpen(true);}},[prefetchedResult]);
   React.useEffect(()=>{if(prefetchedLoading)setLoading(true);},[prefetchedLoading]);
-  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
+  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),400);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
     if(!loc) return;
     const hKey="tl_hatch_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
@@ -758,14 +758,12 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
     setLoading(true);setOpen(true);setResult(null);
     const month=new Date().toLocaleString("en-US",{month:"long"});
     const nearestTemp=waterTemp||(gauges||[]).find(g=>g.waterTempF)?.waterTempF;
-    const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
-    const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
-    const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
-    const searchPrompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". What insects are hatching right now at this specific location?";
+    const tempNote=nearestTemp?"Current water temperature: "+nearestTemp+"\u00b0F (this governs which insects are active). ":"";
+    const flowNote=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
+    // Fast entomology prediction from EXACT local conditions — no web search (~3s)
+    const prompt="You are an expert aquatic entomologist and trout guide. Location: "+loc.label+". Month: "+month+". "+tempNote+(flowNote?"Nearby stream flows: "+flowNote+". ":"")+"Using aquatic entomology and these EXACT local conditions, predict the insects realistically hatching right now on these specific waters. Only include hatches consistent with this water temperature, season, and region \u2014 do NOT list insects that would be inactive at this temperature or time of year. Return ONLY valid JSON, no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}. likelihood is High, Moderate, or Low. Order by likelihood highest first. Limit to the 5 most relevant.";
     try{
-      const searchTxt=await askClaude(searchPrompt,true,1000);
-      const synthPrompt="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+loc.label+". Month: "+month+". "+tempNote+"Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
-      const txt=await askClaude(synthPrompt,false,800);
+      const txt=await askClaude(prompt,false,900);
       let parsed=extractJSON(txt);
       if(!parsed){try{const s=txt.indexOf("{"),e2=txt.lastIndexOf("}");if(s!==-1&&e2>s)parsed=JSON.parse(txt.slice(s,e2+1));}catch{}}
       if(parsed&&parsed.hatches&&parsed.hatches.length>0){
@@ -3728,7 +3726,7 @@ function App({user}){
   useEffect(()=>{
     const savedRaw=localStorage.getItem("tl_loc");
     if(!savedRaw) return;
-    try{const s=JSON.parse(savedRaw);if(s?.lat&&s?.lng)loadConditions(s);}catch{}
+    try{const s=JSON.parse(savedRaw);if(s?.lat&&s?.lng)loadConditions(s,true);}catch{}
   },[]);
   const [wxError,setWxError]=useState(null);
   const [wxForecast,setWxForecast]=useState(null);
@@ -4060,20 +4058,38 @@ function App({user}){
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     setCondShopsLoading(true);
     setCondShops([]);
-    try{
-      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    // FAST: real fly/tackle shops from OpenStreetMap near the location (~1-2s)
+    let osmCount=0;
+    if(lat&&lng){
+      try{
+        const q="[out:json][timeout:8];(node[\"shop\"=\"fishing\"](around:80000,"+lat+","+lng+");way[\"shop\"=\"fishing\"](around:80000,"+lat+","+lng+"););out center 15;";
+        const or=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)});
+        if(or.ok){
+          const od=await or.json();
+          const shops=(od.elements||[]).map(el=>{
+            const t=el.tags||{};
+            const elat=el.lat||(el.center&&el.center.lat),elng=el.lon||(el.center&&el.center.lon);
+            const dist=(elat&&elng)?Math.round(Math.sqrt(Math.pow(elat-lat,2)+Math.pow(elng-lng,2))*69):0;
+            return{name:t.name||"",address:[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" "),city:t["addr:city"]||"",state:t["addr:state"]||"",phone:t.phone||t["contact:phone"]||"",website:t.website||t["contact:website"]||("https://www.google.com/maps/search/?api=1&query="+elat+","+elng),distanceMiles:dist};
+          }).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,10);
+          if(shops.length){osmCount=shops.length;condShopsCacheRef.current[label]=shops;setCondShops(shops);setCondShopsLoading(false);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}
+        }
+      }catch{}
+    }
+    // If OSM was sparse (<4), show Maps link instantly and enrich with AI web search in the background
+    if(osmCount<4){
+      if(osmCount===0){setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to find shops near '+label,distanceMiles:0}]);setCondShopsLoading(false);}
+      fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         model:'claude-sonnet-4-6',max_tokens:2000,
         tools:[{type:'web_search_20250305',name:'web_search'}],
         system:'Return ONLY a raw JSON array, no markdown, no explanation.',
         messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
-      })});
-      const d=await res.json();
-      const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
-      const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}setCondShops(shops);setCondShopsLoading(false);return;}}
-    }catch(err){void 0;}
-    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
-    setCondShopsLoading(false);
+      })}).then(r=>r.json()).then(d=>{
+        const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
+        const s=txt.indexOf('['),e=txt.lastIndexOf(']');
+        if(s!==-1&&e>s){const pp=JSON.parse(txt.slice(s,e+1));if(pp.length>0){const shops=pp.slice(0,8);condShopsCacheRef.current[label]=shops;setCondShops(shops);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}}
+      }).catch(()=>{}).finally(()=>setCondShopsLoading(false));
+    }
   }
 
   async function loadConditions(newLoc, preWarm=false){
@@ -4083,65 +4099,48 @@ function App({user}){
     setWxLoading(true);setWxError(null);setCondReport(null);setGaugeLoading(true);setGaugeError(null);
     // Check localStorage for cached weather to show instantly
     try{const cachedWx=localStorage.getItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2));if(cachedWx){const{data,ts}=JSON.parse(cachedWx);if(Date.now()-ts<30*60*1000){const c2=data.current;const pressureInHg=(c2.surface_pressure*0.02953).toFixed(2);const trend=pressureTrend(parseFloat(pressureInHg),null);setWeather({temp:Math.round(c2.temperature_2m),humidity:c2.relative_humidity_2m,wind:Math.round(c2.wind_speed_10m),windDir:windDir(c2.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c2.uv_index??0),desc:`${WX_EMOJI[c2.weather_code]||""} ${WX_DESC[c2.weather_code]||""}`.trim()});setWxForecast(data);setWxLoading(false);}}}catch{}
-    // Run weather and gauges in parallel
-    const [wxResult, usgsResult] = await Promise.allSettled([fetchWeather(lat,lng), fetchUSGSLive(lat,lng)]);
-    // Process weather
-    try{
-      const d=wxResult.status==="fulfilled"?wxResult.value:null;
-      if(!d) throw new Error("Weather failed");
-      const c=d.current;
-      const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
-      const prevPressure=wxForecast?.current?.surface_pressure?(wxForecast.current.surface_pressure*0.02953):null;
-      const trend=pressureTrend(parseFloat(pressureInHg), prevPressure);
-      setWeather({
-        temp:Math.round(c.temperature_2m),
-        humidity:c.relative_humidity_2m,
-        wind:Math.round(c.wind_speed_10m),
-        windDir:windDir(c.wind_direction_10m),
-        pressure:pressureInHg,
-        pressureTrend:trend,
-        pressureNote:fishingPressureNote(pressureInHg),
-        uv:Math.round(c.uv_index??0),
-        desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()
-      });
-      setWxForecast(d);try{localStorage.setItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2),JSON.stringify({data:d,ts:Date.now()}));}catch{}
-    }catch{setWxError("Weather unavailable.");}
-    finally{setWxLoading(false);}
-    // Process gauges (already fetched in parallel above)
-    try{
-      const d=usgsResult.status==="fulfilled"?usgsResult.value:{value:{timeSeries:[]}};
-      const ts=d.value?.timeSeries??[];
-      if(!ts.length){setGaugeError("No gauges found. Debug: "+(window._usgsDebug||"no debug info"));return;}
-      // Keywords that indicate non-fishable sites
-      const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","nuclear","superfund","buffer zone"," rfp","landfill"," plant","facility","treatment"];
-      const isFishable=name=>{
-        const n=name.toLowerCase();
-        // Extract stream name only — before near/at/below/above/nr/abv
-        const splitWords=["near ","at ","below ","above "," nr "," abv "," ab "," bl "];
-        var streamPart=n;
-        for(var si=0;si<splitWords.length;si++){var si2=n.indexOf(splitWords[si]);if(si2>5){streamPart=n.substring(0,si2);break;}}
-        // Must contain a water body word
-        const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
-        const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
-        // Only check non-fishable keywords against stream name, not location suffix
-        const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
-        return hasWaterword&&!hasNonFishable;
-      };
-      const rawParsed=ts.map(t=>{
-        const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
-        const{label,cls}=cfsLabel(cfs);
-        const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
-        const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
-        const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
-        const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-        const name=t.sourceInfo?.siteName??"Unknown";
-        const distMi=Math.round(dist*69); // ~69 miles per degree
-        return{name,cfs,label,cls,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
-      }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000&&s.distMi<=50)
-        .sort((a,b)=>b.cfs-a.cfs)
-        .slice(0,25);
-      // Fetch per-site historical max in parallel, fallback to relative scaling
-              // Skip stat API (returns 400 for most sites) — use relative scaling
+    // GAUGE CACHE — show instantly if fresh (<30 min), refresh silently in background
+    const gaugeKey="tl_gauges_"+lat.toFixed(2)+"_"+lng.toFixed(2);
+    let gaugeFromCache=false;
+    try{const cg=localStorage.getItem(gaugeKey);if(cg){const{data:cgData,ts:cgTs}=JSON.parse(cg);if(Date.now()-cgTs<30*60*1000&&Array.isArray(cgData)&&cgData.length>0){setGauges(cgData);window._loadedGauges=cgData;setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));setGaugeLoading(false);gaugeFromCache=true;}}}catch{}
+    // WEATHER — fires independently, paints immediately without waiting on USGS
+    fetchWeather(lat,lng).then(d=>{
+      try{
+        const c=d.current;
+        const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
+        const prevPressure=wxForecast?.current?.surface_pressure?(wxForecast.current.surface_pressure*0.02953):null;
+        const trend=pressureTrend(parseFloat(pressureInHg), prevPressure);
+        setWeather({temp:Math.round(c.temperature_2m),humidity:c.relative_humidity_2m,wind:Math.round(c.wind_speed_10m),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c.uv_index??0),desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()});
+        setWxForecast(d);try{localStorage.setItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2),JSON.stringify({data:d,ts:Date.now()}));}catch{}
+      }catch{setWxError("Weather unavailable.");}finally{setWxLoading(false);}
+    }).catch(()=>{setWxError("Weather unavailable.");setWxLoading(false);});
+    // GAUGES — shared helper: parse USGS response, set state, cache, patch temps
+    const applyGaugeData=async(usgsD,silent)=>{
+      try{
+        const ts=usgsD.value?.timeSeries??[];
+        if(!ts.length){if(!silent)setGaugeError("No gauges found.");return;}
+        const NON_FISHABLE=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","gage","index","well","spring","seep","nuclear","superfund","buffer zone"," rfp","landfill"," plant","facility","treatment"];
+        const isFishable=name=>{
+          const n=name.toLowerCase();
+          const splitWords=["near ","at ","below ","above "," nr "," abv "," ab "," bl "];
+          var streamPart=n;for(var si=0;si<splitWords.length;si++){var si2=n.indexOf(splitWords[si]);if(si2>5){streamPart=n.substring(0,si2);break;}}
+          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
+          const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
+          const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
+          return hasWaterword&&!hasNonFishable;
+        };
+        const rawParsed=ts.map(t=>{
+          const raw=t.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;
+          const{label,cls}=cfsLabel(cfs);
+          const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
+          const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+          const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+          const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+          const name=t.sourceInfo?.siteName??"Unknown";
+          const distMi=Math.round(dist*69);
+          return{name,cfs,label,cls,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
+        }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000&&s.distMi<=50)
+          .sort((a,b)=>b.cfs-a.cfs).slice(0,25);
         const maxCFS=Math.max(...rawParsed.map(x=>x.cfs||0),1);
         const parsed=rawParsed.map(g=>{
           const pct=g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS)*95),100):0;
@@ -4150,33 +4149,31 @@ function App({user}){
         });
         setGauges(parsed);window._loadedGauges=parsed;
         setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+        try{localStorage.setItem(gaugeKey,JSON.stringify({data:parsed,ts:Date.now()}));}catch{}
         fetchUSGSTempBatch(parsed.map(g=>g.siteNo)).then(tempMap=>{
           const withTemp=parsed.map(g=>({...g,waterTempF:(tempMap[g.siteNo]!=null?tempMap[g.siteNo]:null)}));
           setGauges(withTemp);window._loadedGauges=withTemp;
         }).catch(()=>{});
-    }catch{setGaugeError("Could not load stream data.");}
-    finally{setGaugeLoading(false);}
-    // AI report loads on demand to keep initial load fast
-    // Pre-fetch fly shops in background
+      }catch{if(!silent)setGaugeError("Could not load stream data.");}
+      finally{if(!silent)setGaugeLoading(false);}
+    };
+    if(!gaugeFromCache){
+      try{
+        const usgsD=await Promise.race([fetchUSGSLive(lat,lng),new Promise(r=>setTimeout(()=>r(null),4500))]);
+        if(usgsD===null){setGaugeError("Streams loading slowly \u2014 tap \u21bb to refresh");setGaugeLoading(false);}
+        else await applyGaugeData(usgsD,false);
+      }catch{setGaugeError("Could not load stream data.");setGaugeLoading(false);}
+    } else {
+      fetchUSGSLive(lat,lng).then(usgsD=>applyGaugeData(usgsD,true)).catch(()=>{});
+    }
+    // AI features fire only on real user loads — never on startup pre-warm
     if(!preWarm){
       if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
       setHatchAutoRun(true);
+      // Hatch: populate from cache for instant display; HatchMatcher runs the fast matcher on the Bugs tab
+      const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
+      try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000)setHatchResult(data);}}catch{}
     }
-    // Fetch hatches in background
-    const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
-    try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
-    // Two-step: search with Sonnet+web, then synthesize with Haiku
-    setHatchLoading(true);
-    const month2=new Date().toLocaleString("en-US",{month:"long"});
-    askClaude("Find current fly fishing hatch reports near "+newLoc.label+" for "+month2+". What insects are actively hatching right now?",true,800).then(searchTxt=>{
-      return askClaude("Based on this hatch report: "+searchTxt.slice(0,2000)+". Return ONLY JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}",false,600);
-    }).then(txt=>{
-      const parsed=extractJSON(txt);
-      if(parsed&&parsed.hatches&&parsed.hatches.length>0){
-        setHatchResult(parsed.hatches);
-        try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
-      }
-    }).catch(()=>{}).finally(()=>setHatchLoading(false));
   }
 
   async function handlePhoto(e){
@@ -4368,7 +4365,7 @@ function App({user}){
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["report","🐛 Bugs"],["shops","🪝 Shops"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);if(id==="shops"&&loc)fetchCondShops(loc.label,loc.lat,loc.lng);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
               {intelTab==="weather"&&<>
