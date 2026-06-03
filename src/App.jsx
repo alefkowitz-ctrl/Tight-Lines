@@ -4076,7 +4076,7 @@ function App({user}){
     setCondShopsLoading(false);
   }
 
-  async function loadConditions(newLoc){
+  async function loadConditions(newLoc, preWarm=false){
     setLoc(newLoc);
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
@@ -4158,8 +4158,10 @@ function App({user}){
     finally{setGaugeLoading(false);}
     // AI report loads on demand to keep initial load fast
     // Pre-fetch fly shops in background
-    if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
-    setHatchAutoRun(true);
+    if(!preWarm){
+      if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
+      setHatchAutoRun(true);
+    }
     // Fetch hatches in background
     const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
     try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
