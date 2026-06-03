@@ -4053,7 +4053,7 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
-    const cacheKey="tl_shops_v2_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    const cacheKey="tl_shops_v3_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
     try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     setCondShopsLoading(true);
@@ -4072,22 +4072,26 @@ function App({user}){
             const dist=(elat&&elng)?Math.round(Math.sqrt(Math.pow(elat-lat,2)+Math.pow(elng-lng,2))*69):0;
             return{name:t.name||"",address:[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" "),city:t["addr:city"]||"",state:t["addr:state"]||"",phone:t.phone||t["contact:phone"]||"",website:t.website||t["contact:website"]||("https://www.google.com/maps/search/?api=1&query="+elat+","+elng),distanceMiles:dist,lat:elat,lng:elng};
           }).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,10);
-          if(shops.length){osmCount=shops.length;condShopsCacheRef.current[label]=shops;setCondShops(shops);setCondShopsLoading(false);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}
+          if(shops.length){osmCount=shops.length;setCondShops(shops);setCondShopsLoading(false);}
         }
       }catch{}
     }
-    // Always enrich with an accurate web search for the CLOSEST shops; replaces the OSM placeholder when it returns
-    if(osmCount===0){setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Finding closest shops near '+label,distanceMiles:0}]);}
-    fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      model:'claude-sonnet-4-6',max_tokens:2000,
-      tools:[{type:'web_search_20250305',name:'web_search'}],
-      system:'Return ONLY a raw JSON array, no markdown, no explanation.',
-      messages:[{role:'user',content:'List the dedicated fly fishing shops CLOSEST to '+label+' (near coordinates '+lat+','+lng+'), ordered from nearest to farthest, within about 30 miles. Only real, currently operating fly shops \u2014 not general sporting-goods or big-box stores. For each include name, full street address, city, state, phone, website, and approximate driving distance in miles from '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 6-8 shops, nearest first. Raw JSON only.'}]
-    })}).then(r=>r.json()).then(d=>{
-      const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
-      const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const pp=JSON.parse(txt.slice(s,e+1));if(pp.length>0){const shops=pp.slice(0,8).sort((a,b)=>(a.distanceMiles||999)-(b.distanceMiles||999));condShopsCacheRef.current[label]=shops;setCondShops(shops);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}}
-    }).catch(()=>{}).finally(()=>setCondShopsLoading(false));
+    // ACCURATE: two-step web search (search prose, then synthesize JSON) \u2014 the pattern that works for hatches.
+    if(osmCount===0){setCondShops([{name:'Finding closest shops\u2026',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Searching near '+label,distanceMiles:0}]);}
+    (async()=>{
+      try{
+        const searchTxt=await askClaude("Find the dedicated fly fishing shops CLOSEST to "+label+" (near coordinates "+lat+","+lng+"), within about 30 miles. List real, currently operating fly shops nearest first \u2014 not general sporting-goods or big-box stores. For each give name, full street address, city, state, phone, and website.",true,1600);
+        const txt=await askClaude("From these search results about fly shops near "+label+": "+searchTxt.slice(0,2600)+" \u2014 Return ONLY a JSON array of the closest dedicated fly shops, ordered nearest first, no markdown, no commentary: [{\"name\":\"\",\"address\":\"\",\"city\":\"\",\"state\":\"\",\"phone\":\"\",\"website\":\"\",\"distanceMiles\":0}]. 6-8 shops.",false,1300);
+        const si=txt.indexOf("["),ei=txt.lastIndexOf("]");
+        let arr=null; if(si!==-1&&ei>si){try{arr=JSON.parse(txt.slice(si,ei+1));}catch{}}
+        if(arr&&arr.length){
+          const shops=arr.slice(0,8).sort((a,b)=>(a.distanceMiles||999)-(b.distanceMiles||999));
+          condShopsCacheRef.current[label]=shops;setCondShops(shops);
+          try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
+        }
+      }catch{}
+      finally{setCondShopsLoading(false);}
+    })();
   }
 
   async function loadConditions(newLoc, preWarm=false){
