@@ -750,20 +750,22 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
   const [open,setOpen]=React.useState(!!prefetchedResult);
   React.useEffect(()=>{if(prefetchedResult&&!result){setResult(prefetchedResult);setOpen(true);}},[prefetchedResult]);
   React.useEffect(()=>{if(prefetchedLoading)setLoading(true);},[prefetchedLoading]);
-  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),400);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
+  React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
     if(!loc) return;
-    const hKey="tl_hatch_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
+    const hKey="tl_hatch_ws1_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
     try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setResult(data);setOpen(true);return;}}}catch{}
     setLoading(true);setOpen(true);setResult(null);
     const month=new Date().toLocaleString("en-US",{month:"long"});
     const nearestTemp=waterTemp||(gauges||[]).find(g=>g.waterTempF)?.waterTempF;
-    const tempNote=nearestTemp?"Current water temperature: "+nearestTemp+"\u00b0F (this governs which insects are active). ":"";
-    const flowNote=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
-    // Fast entomology prediction from EXACT local conditions — no web search (~3s)
-    const prompt="You are an expert aquatic entomologist and trout guide. Location: "+loc.label+". Month: "+month+". "+tempNote+(flowNote?"Nearby stream flows: "+flowNote+". ":"")+"Using aquatic entomology and these EXACT local conditions, predict the insects realistically hatching right now on these specific waters. Only include hatches consistent with this water temperature, season, and region \u2014 do NOT list insects that would be inactive at this temperature or time of year. Return ONLY valid JSON, no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}. likelihood is High, Moderate, or Low. Order by likelihood highest first. Limit to the 5 most relevant.";
+    const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
+    const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
+    const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
+    const searchPrompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". What insects are hatching right now at this specific location?";
     try{
-      const txt=await askClaude(prompt,false,900);
+      const searchTxt=await askClaude(searchPrompt,true,1000);
+      const synthPrompt="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+loc.label+". Month: "+month+". "+tempNote+"Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
+      const txt=await askClaude(synthPrompt,false,800);
       let parsed=extractJSON(txt);
       if(!parsed){try{const s=txt.indexOf("{"),e2=txt.lastIndexOf("}");if(s!==-1&&e2>s)parsed=JSON.parse(txt.slice(s,e2+1));}catch{}}
       if(parsed&&parsed.hatches&&parsed.hatches.length>0){
@@ -4053,41 +4055,25 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
-    const cacheKey="tl_shops_v2_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    const cacheKey="tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
     try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     setCondShopsLoading(true);
     setCondShops([]);
-    // FAST: real fly/tackle shops from OpenStreetMap near the location (~1-2s)
-    let osmCount=0;
-    if(lat&&lng){
-      try{
-        const q="[out:json][timeout:8];(node[\"shop\"=\"fishing\"](around:48000,"+lat+","+lng+");way[\"shop\"=\"fishing\"](around:48000,"+lat+","+lng+"););out center 15;";
-        const or=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)});
-        if(or.ok){
-          const od=await or.json();
-          const shops=(od.elements||[]).map(el=>{
-            const t=el.tags||{};
-            const elat=el.lat||(el.center&&el.center.lat),elng=el.lon||(el.center&&el.center.lon);
-            const dist=(elat&&elng)?Math.round(Math.sqrt(Math.pow(elat-lat,2)+Math.pow(elng-lng,2))*69):0;
-            return{name:t.name||"",address:[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" "),city:t["addr:city"]||"",state:t["addr:state"]||"",phone:t.phone||t["contact:phone"]||"",website:t.website||t["contact:website"]||("https://www.google.com/maps/search/?api=1&query="+elat+","+elng),distanceMiles:dist,lat:elat,lng:elng};
-          }).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,10);
-          if(shops.length){osmCount=shops.length;condShopsCacheRef.current[label]=shops;setCondShops(shops);setCondShopsLoading(false);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}
-        }
-      }catch{}
-    }
-    // Always enrich with an accurate web search for the CLOSEST shops; replaces the OSM placeholder when it returns
-    if(osmCount===0){setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Finding closest shops near '+label,distanceMiles:0}]);}
-    fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      model:'claude-sonnet-4-6',max_tokens:2000,
-      tools:[{type:'web_search_20250305',name:'web_search'}],
-      system:'Return ONLY a raw JSON array, no markdown, no explanation.',
-      messages:[{role:'user',content:'List the dedicated fly fishing shops CLOSEST to '+label+' (near coordinates '+lat+','+lng+'), ordered from nearest to farthest, within about 30 miles. Only real, currently operating fly shops \u2014 not general sporting-goods or big-box stores. For each include name, full street address, city, state, phone, website, and approximate driving distance in miles from '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 6-8 shops, nearest first. Raw JSON only.'}]
-    })}).then(r=>r.json()).then(d=>{
+    try{
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        model:'claude-sonnet-4-6',max_tokens:2000,
+        tools:[{type:'web_search_20250305',name:'web_search'}],
+        system:'Return ONLY a raw JSON array, no markdown, no explanation.',
+        messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
+      })});
+      const d=await res.json();
       const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
       const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const pp=JSON.parse(txt.slice(s,e+1));if(pp.length>0){const shops=pp.slice(0,8).sort((a,b)=>(a.distanceMiles||999)-(b.distanceMiles||999));condShopsCacheRef.current[label]=shops;setCondShops(shops);try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}}}
-    }).catch(()=>{}).finally(()=>setCondShopsLoading(false));
+      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}setCondShops(shops);setCondShopsLoading(false);return;}}
+    }catch(err){void 0;}
+    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
+    setCondShopsLoading(false);
   }
 
   async function loadConditions(newLoc, preWarm=false){
@@ -4164,14 +4150,27 @@ function App({user}){
     } else {
       fetchUSGSLive(lat,lng).then(usgsD=>applyGaugeData(usgsD,true)).catch(()=>{});
     }
-    // AI features fire only on real user loads — never on startup pre-warm
+    // AI report loads on demand to keep initial load fast
+    // Pre-fetch fly shops in background
     if(!preWarm){
       if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
       setHatchAutoRun(true);
-      // Hatch: populate from cache for instant display; HatchMatcher runs the fast matcher on the Bugs tab
-      const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
-      try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000)setHatchResult(data);}}catch{}
     }
+    // Fetch hatches in background
+    const hKey="tl_hatch_ws1_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
+    try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
+    // Two-step: search with Sonnet+web, then synthesize with Haiku
+    setHatchLoading(true);
+    const month2=new Date().toLocaleString("en-US",{month:"long"});
+    askClaude("Find current fly fishing hatch reports near "+newLoc.label+" for "+month2+". What insects are actively hatching right now?",true,800).then(searchTxt=>{
+      return askClaude("Based on this hatch report: "+searchTxt.slice(0,2000)+". Return ONLY JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}",false,600);
+    }).then(txt=>{
+      const parsed=extractJSON(txt);
+      if(parsed&&parsed.hatches&&parsed.hatches.length>0){
+        setHatchResult(parsed.hatches);
+        try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
+      }
+    }).catch(()=>{}).finally(()=>setHatchLoading(false));
   }
 
   async function handlePhoto(e){
@@ -4363,7 +4362,7 @@ function App({user}){
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["report","🐛 Bugs"],["shops","🪝 Shops"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);if(id==="shops"&&loc)fetchCondShops(loc.label,loc.lat,loc.lng);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
               {intelTab==="weather"&&<>
@@ -4481,7 +4480,6 @@ ${shopPins}
                   <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
                     <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
                     {s.address&&<div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
-                    {s.distanceMiles?<div style={{fontSize:13,color:"var(--sky)",marginTop:2}}>~{s.distanceMiles} mi away</div>:null}
                     {s.specialty&&<div style={{fontSize:15,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
                     {s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
                     {s.phone&&<div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{s.phone}</div>}
