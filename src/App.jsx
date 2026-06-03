@@ -298,7 +298,7 @@ function extractJSON(text){
 function getKey(){return true;}
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
-  const body={model:"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
+  const body={model:useSearch?"claude-sonnet-4-5-20251001":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
   const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
@@ -3725,6 +3725,11 @@ function App({user}){
       }catch{loadConditions({lat,lng,label:`${lat.toFixed(2)}, ${lng.toFixed(2)}`});setLocating(false);}
     },()=>{setLocating(false);},{timeout:8000});
   },[]);
+  useEffect(()=>{
+    const savedRaw=localStorage.getItem("tl_loc");
+    if(!savedRaw) return;
+    try{const s=JSON.parse(savedRaw);if(s?.lat&&s?.lng)loadConditions(s);}catch{}
+  },[]);
   const [wxError,setWxError]=useState(null);
   const [wxForecast,setWxForecast]=useState(null);
   const [gauges,setGauges]=useState([]);
@@ -4057,7 +4062,7 @@ function App({user}){
     setCondShops([]);
     try{
       const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        model:'claude-haiku-4-5-20251001',max_tokens:2000,
+        model:'claude-sonnet-4-5-20251001',max_tokens:2000,
         tools:[{type:'web_search_20250305',name:'web_search'}],
         system:'Return ONLY a raw JSON array, no markdown, no explanation.',
         messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
@@ -4158,10 +4163,12 @@ function App({user}){
     // Fetch hatches in background
     const hKey="tl_hatch_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
     try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
+    // Two-step: search with Sonnet+web, then synthesize with Haiku
     setHatchLoading(true);
     const month2=new Date().toLocaleString("en-US",{month:"long"});
-    const searchP="Search local fly shop reports for current hatches near "+newLoc.label+" for "+month2+". Return ONLY valid JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
-    askClaude(searchP,true,800).then(txt=>{
+    askClaude("Find current fly fishing hatch reports near "+newLoc.label+" for "+month2+". What insects are actively hatching right now?",true,800).then(searchTxt=>{
+      return askClaude("Based on this hatch report: "+searchTxt.slice(0,2000)+". Return ONLY JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}",false,600);
+    }).then(txt=>{
       const parsed=extractJSON(txt);
       if(parsed&&parsed.hatches&&parsed.hatches.length>0){
         setHatchResult(parsed.hatches);
@@ -4358,7 +4365,7 @@ function App({user}){
             {!loc&&!locating&&<div className="info-box">🔍 <strong>Type a location above</strong> to load live weather and stream conditions.<br/><br/>Try: <em>"Madison River, MT"</em> · <em>"Deschutes River, OR"</em> · <em>"Au Sable River, MI"</em></div>}
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
-                {[["weather","🌤 Weather"],["streams","💧 Streams"],["shops","🪝 Shops"],["report","🐛 Bugs"]].map(([id,label])=>(
+                {[["weather","🌤 Weather"],["streams","💧 Streams"],["report","🐛 Bugs"],["shops","🪝 Shops"]].map(([id,label])=>(
                   <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
