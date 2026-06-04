@@ -48,36 +48,15 @@ export default async function handler(req, res) {
     });
     let data = await response.json();
 
-    // Agentic loop: web_search tool returns tool_use blocks
-    // The search RESULTS come back as tool_result_block inside the tool_use content
-    // We just need to keep calling until stop_reason === "end_turn"
+    // web_search is a SERVER-side tool: results arrive in the same response.
+    // Long searches pause with stop_reason "pause_turn" — continue them until done.
     let iterations = 0;
-    while (data.stop_reason === "tool_use" && iterations < 5) {
+    while (data && data.stop_reason === "pause_turn" && iterations < 5) {
       iterations++;
-      const toolUseBlocks = (data.content || []).filter(b => b.type === "tool_use");
-      if (!toolUseBlocks.length) break;
-
-      // For web_search_20250305, the search results are already embedded 
-      // in the tool_use block's content. Pass them back as tool_results.
-      const toolResults = toolUseBlocks.map(b => {
-        // web_search results come back in b.content as an array of result blocks
-        const resultContent = Array.isArray(b.content) 
-          ? b.content 
-          : (b.content ? [{ type: "text", text: String(b.content) }] : [{ type: "text", text: "No results" }]);
-        
-        return {
-          type: "tool_result",
-          tool_use_id: b.id,
-          content: resultContent
-        };
-      });
-
       const messages = [
         ...(body.messages || []),
-        { role: "assistant", content: data.content },
-        { role: "user", content: toolResults }
+        { role: "assistant", content: data.content }
       ];
-
       response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers,
