@@ -3288,7 +3288,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Searching fly shop reports…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
-          const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1000),askClaude(searchPrompt2,true,1000)]);
+          const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,3500),askClaude(searchPrompt2,true,3500)]);
           const searchTxt=searchTxt1+" "+searchTxt2;
           void 0;
 
@@ -4109,7 +4109,7 @@ function App({user}){
     setCondShops([]);
     try{
       // Step 1: web search returns prose (the pattern proven in this app)
-      const searchTxt=await askClaude("Find dedicated fly fishing shops within 40 miles of "+label+". List each real, currently operating shop with its name, street address, town, state, phone, website, and approximate distance in miles. Closest first.",true,1000);
+      const searchTxt=await askClaude("Find dedicated fly fishing shops within 40 miles of "+label+". List each real, currently operating shop with its name, street address, town, state, phone, website, and approximate distance in miles. Closest first.",true,4000);
       // Step 2: convert prose to JSON, no search involved
       const txt=await askClaude("From this research about fly shops near "+label+": "+String(searchTxt).slice(0,2500)+" --- Return ONLY a JSON array, no markdown, no commentary: [{\"name\":\"\",\"address\":\"\",\"city\":\"\",\"state\":\"\",\"phone\":\"\",\"website\":\"\",\"distanceMiles\":0}]. Up to 8 shops, nearest first.",false,800);
       const p=parseShopArray(txt);
