@@ -3309,8 +3309,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
-          }
-        }catch(e2){void 0;}
+          } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
+        }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
@@ -3373,6 +3373,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
 
+      {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
       {busy&&<TripPlannerLoading steps={steps} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
       {!busy&&steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}</div>}
 
@@ -4100,28 +4101,45 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
-    const cacheKey="tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    const cacheKey="tl_shops_p1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
     try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     if(window._shopsInflight===label)return;
     window._shopsInflight=label;
     setCondShopsLoading(true);
     setCondShops([]);
-    try{
-      // Step 1: web search returns prose (the pattern proven in this app)
-      const searchTxt=await askClaude("Find dedicated fly fishing shops within 40 miles of "+label+". List each real, currently operating shop with its name, street address, town, state, phone, website, and approximate distance in miles. Closest first.",true,4000);
-      // Step 2: convert prose to JSON, no search involved
-      const txt=await askClaude("From this research about fly shops near "+label+": "+String(searchTxt).slice(0,2500)+" --- Return ONLY a JSON array, no markdown, no commentary: [{\"name\":\"\",\"address\":\"\",\"city\":\"\",\"state\":\"\",\"phone\":\"\",\"website\":\"\",\"distanceMiles\":0}]. Up to 8 shops, nearest first.",false,800);
-      const p=parseShopArray(txt);
-      if(p&&p.length){
-        const shops=p.slice(0,8).sort((a,b)=>(a.distanceMiles||999)-(b.distanceMiles||999));
-        condShopsCacheRef.current[label]=shops;
-        try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
-        setCondShops(shops);setCondShopsLoading(false);return;
-      }
-    }catch(err){void 0;}
-    finally{window._shopsInflight=null;}
-    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
+    let diag="";
+    // 1) Google Places: accurate, fast, deterministic. Failures report their reason.
+    if(lat&&lng){
+      try{
+        const pr=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({places:true,lat,lng})});
+        const pd=await pr.json();
+        if(pd.shops&&pd.shops.length){
+          const shops=pd.shops.slice(0,10);
+          condShopsCacheRef.current[label]=shops;
+          try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
+          setCondShops(shops);setCondShopsLoading(false);window._shopsInflight=null;return;
+        }
+        if(pd.placesError)diag=String(pd.placesError).slice(0,160);
+      }catch(e){diag=e.message;}
+    }
+    // 2) OpenStreetMap fallback: the code that produced this morning's lists. Not cached, so Places takes over once healthy.
+    if(lat&&lng){
+      try{
+        const q='[out:json][timeout:8];(node["shop"="fishing"](around:48000,'+lat+','+lng+');way["shop"="fishing"](around:48000,'+lat+','+lng+'););out center 12;';
+        const or=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)});
+        if(or.ok){
+          const od=await or.json();
+          const shops=(od.elements||[]).map(el=>{const t=el.tags||{};const elat=el.lat||(el.center&&el.center.lat),elng=el.lon||(el.center&&el.center.lon);const dist=(elat&&elng)?Math.round(Math.sqrt(Math.pow(elat-lat,2)+Math.pow(elng-lng,2))*69):0;return{name:t.name||"",address:[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" "),city:t["addr:city"]||"",state:t["addr:state"]||"",phone:t.phone||t["contact:phone"]||"",website:t.website||t["contact:website"]||("https://www.google.com/maps/search/?api=1&query="+elat+","+elng),distanceMiles:dist};}).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,10);
+          if(shops.length){
+            if(diag)shops.push({name:"(Shop search diagnostic)",address:"",city:"",state:"",phone:"",website:"",specialty:diag,distanceMiles:0});
+            setCondShops(shops);setCondShopsLoading(false);window._shopsInflight=null;return;
+          }
+        }
+      }catch(e){}
+    }
+    window._shopsInflight=null;
+    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:diag||('Tap to search near '+label),distanceMiles:0}]);
     setCondShopsLoading(false);
   }
 
@@ -4192,7 +4210,7 @@ function App({user}){
     };
     if(!gaugeFromCache){
       try{
-        const usgsD=await Promise.race([fetchUSGSLive(lat,lng),new Promise(r=>setTimeout(()=>r(null),4500))]);
+        const usgsD=await Promise.race([fetchUSGSLive(lat,lng),new Promise(r=>setTimeout(()=>r(null),9000))]);
         if(usgsD===null){setGaugeError("Streams loading slowly \u2014 tap \u21bb to refresh");setGaugeLoading(false);}
         else await applyGaugeData(usgsD,false);
       }catch{setGaugeError("Could not load stream data.");setGaugeLoading(false);}
