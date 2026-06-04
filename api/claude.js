@@ -2,6 +2,37 @@ export const maxDuration = 60;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Google Places — closest fly shops (GOOGLE_PLACES_API_KEY from Vercel env). Errors are returned, never hidden.
+  if (req.body?.places) {
+    try {
+      const { lat, lng } = req.body;
+      const key = process.env.GOOGLE_PLACES_API_KEY;
+      if (!key) return res.status(200).json({ shops: [], placesError: "GOOGLE_PLACES_API_KEY not set" });
+      const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.rating,places.nationalPhoneNumber,places.websiteUri"
+        },
+        body: JSON.stringify({
+          textQuery: "fly fishing shop",
+          locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 48000.0 } },
+          rankPreference: "DISTANCE",
+          maxResultCount: 10
+        })
+      });
+      const d = await r.json();
+      if (d.error) return res.status(200).json({ shops: [], placesError: (d.error.message || JSON.stringify(d.error)).slice(0, 200) });
+      const shops = (d.places || []).map(p => {
+        const plat = p.location && p.location.latitude, plng = p.location && p.location.longitude;
+        const dist = (plat && plng) ? Math.round(Math.sqrt(Math.pow(plat - lat, 2) + Math.pow(plng - lng, 2)) * 69) : 0;
+        return { name: (p.displayName && p.displayName.text) || "", address: p.formattedAddress || "", city: "", state: "", phone: p.nationalPhoneNumber || "", website: p.websiteUri || "", rating: p.rating || null, distanceMiles: dist };
+      }).filter(s => s.name).sort((a, b) => (a.distanceMiles || 999) - (b.distanceMiles || 999));
+      return res.status(200).json({ shops });
+    } catch (e) { return res.status(200).json({ shops: [], placesError: e.message }); }
+  }
   
   // Isochrone proxy
   if (req.body?.isochrone) {
