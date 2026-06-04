@@ -3288,15 +3288,19 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Searching fly shop reports…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
-          const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,3500),askClaude(searchPrompt2,true,3500)]);
+          const searchRace=await Promise.race([
+            Promise.all([askClaude(searchPrompt1,true,3500),askClaude(searchPrompt2,true,3500)]),
+            new Promise(r=>setTimeout(()=>r(null),25000))
+          ]);
+          const [searchTxt1,searchTxt2]=searchRace||["",""];
           const searchTxt=searchTxt1+" "+searchTxt2;
           void 0;
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Fly shop reports: "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 8 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 8 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Shops: ONLY include shops found verbatim in the fly shop reports. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
-          const reportTxt=await askClaude(synthPrompt,false,3500);
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Fly shop reports: "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 6 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Shops: ONLY include shops found verbatim in the fly shop reports. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
+          const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
           const clean=reportTxt.replace(/```json|```/g,"").trim();
@@ -4101,7 +4105,7 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
-    const cacheKey="tl_shops_p1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    const cacheKey="tl_shops_p2_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
     try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
     if(window._shopsInflight===label)return;
@@ -4115,7 +4119,13 @@ function App({user}){
         const pr=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({places:true,lat,lng})});
         const pd=await pr.json();
         if(pd.shops&&pd.shops.length){
-          const shops=pd.shops.slice(0,10);
+          let shops=pd.shops.slice(0,10);
+          // Curate to true retail fly shops; on any failure the full list shows (never blank)
+          try{
+            const ft=await askClaude("You are a fly fishing industry expert. From this JSON list of fly-fishing businesses near "+label+", return ONLY the true RETAIL fly shops where an angler can walk in and buy flies and tackle. EXCLUDE manufacturers, brand headquarters, wholesalers, and rafting/boating equipment stores (for example, Umpqua Feather Merchants is a manufacturer, not a retail shop). Keep each kept item's fields exactly as given, same order. Return ONLY a JSON array, no markdown: "+JSON.stringify(shops),false,1400);
+            const fp=parseShopArray(ft);
+            if(fp&&fp.length>=2)shops=fp.slice(0,8);
+          }catch(e){}
           condShopsCacheRef.current[label]=shops;
           try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
           setCondShops(shops);setCondShopsLoading(false);window._shopsInflight=null;return;
