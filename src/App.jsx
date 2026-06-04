@@ -297,6 +297,21 @@ function extractJSON(text){
 // ── API calls ─────────────────────────────────────────────────────────────────
 function getKey(){return true;}
 
+function parseShopArray(txt){
+  if(!txt)return null;
+  let t=String(txt).replace(/```json|```/g," ");
+  let s=t.indexOf("[");
+  while(s!==-1){
+    const e=t.lastIndexOf("]");
+    if(e>s){
+      const cand=t.slice(s,e+1);
+      try{const p=JSON.parse(cand);if(Array.isArray(p)&&p.length&&typeof p[0]==="object")return p;}catch{}
+    }
+    s=t.indexOf("[",s+1);
+  }
+  return null;
+}
+
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:1}];
@@ -4093,19 +4108,20 @@ function App({user}){
     setCondShopsLoading(true);
     setCondShops([]);
     try{
-      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        model:'claude-sonnet-4-6',max_tokens:2000,
-        tools:[{type:'web_search_20250305',name:'web_search',max_uses:1}],
-        system:'Return ONLY a raw JSON array, no markdown, no explanation.',
-        messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
-      })});
-      const d=await res.json();
-      const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
-      const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}window._shopsInflight=null;setCondShops(shops);setCondShopsLoading(false);return;}}
+      // Step 1: web search returns prose (the pattern proven in this app)
+      const searchTxt=await askClaude("Find dedicated fly fishing shops within 40 miles of "+label+". List each real, currently operating shop with its name, street address, town, state, phone, website, and approximate distance in miles. Closest first.",true,1000);
+      // Step 2: convert prose to JSON, no search involved
+      const txt=await askClaude("From this research about fly shops near "+label+": "+String(searchTxt).slice(0,2500)+" --- Return ONLY a JSON array, no markdown, no commentary: [{\"name\":\"\",\"address\":\"\",\"city\":\"\",\"state\":\"\",\"phone\":\"\",\"website\":\"\",\"distanceMiles\":0}]. Up to 8 shops, nearest first.",false,800);
+      const p=parseShopArray(txt);
+      if(p&&p.length){
+        const shops=p.slice(0,8).sort((a,b)=>(a.distanceMiles||999)-(b.distanceMiles||999));
+        condShopsCacheRef.current[label]=shops;
+        try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
+        setCondShops(shops);setCondShopsLoading(false);return;
+      }
     }catch(err){void 0;}
+    finally{window._shopsInflight=null;}
     setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
-    window._shopsInflight=null;
     setCondShopsLoading(false);
   }
 
