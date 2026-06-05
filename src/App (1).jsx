@@ -297,9 +297,24 @@ function extractJSON(text){
 // ── API calls ─────────────────────────────────────────────────────────────────
 function getKey(){return true;}
 
+function parseShopArray(txt){
+  if(!txt)return null;
+  let t=String(txt).replace(/```json|```/g," ");
+  let s=t.indexOf("[");
+  while(s!==-1){
+    const e=t.lastIndexOf("]");
+    if(e>s){
+      const cand=t.slice(s,e+1);
+      try{const p=JSON.parse(cand);if(Array.isArray(p)&&p.length&&typeof p[0]==="object")return p;}catch{}
+    }
+    s=t.indexOf("[",s+1);
+  }
+  return null;
+}
+
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
-  if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
+  if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:1}];
   const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
   if(d.error)throw new Error(d.error.message||"API error");
@@ -744,47 +759,81 @@ function RegsLink({label}){
 
 
 
+// Hatch predictions: shows all seasonally/regionally appropriate hatches with temp-range context.
+// Temp data is informational — notes tell users when each hatch peaks, not a filter gate.
+function predictHatches(opts){
+  const month=opts.month,t=opts.waterTempF!=null?opts.waterTempF:null;
+  const lng=opts.lng!=null?opts.lng:-100,west=lng<=-100,bigWater=(opts.maxCfs||0)>400;
+  const src=opts.tempGaugeName?" ("+opts.tempGaugeName+")":"";
+  const R=[
+    {name:"Midges",months:[1,2,3,4,5,6,7,8,9,10,11,12],lo:33,hi:70,flies:["Zebra Midge #18-22","Griffith's Gnat #18-22","RS2 #20-22"],timing:"Midday in cold months, mornings and evenings in summer",base:0.55,note:"Year-round staple; often the only game in cold water"},
+    {name:"Blue-Winged Olive (Baetis)",months:[3,4,5,9,10,11],lo:40,hi:58,flies:["Pheasant Tail #16-20","BWO Comparadun #16-20","RS2 #18-20"],timing:"Afternoons; best on overcast days",base:0.7,note:"Cloudy, drizzly days bring the heaviest emergences"},
+    {name:"Skwala Stonefly",months:[2,3,4],lo:40,hi:50,west:true,flies:["Pat's Rubber Legs #8-10","Skwala Dry #10"],timing:"Warmest part of the day",base:0.5,note:"Early-season western stonefly on freestone rivers"},
+    {name:"Mother's Day Caddis",months:[4,5],lo:48,hi:56,west:true,flies:["Elk Hair Caddis #14-16","Sparkle Pupa #14-16"],timing:"Afternoons",base:0.6,note:"Can blanket western rivers when temps hit the low 50s"},
+    {name:"Salmonfly",months:[5,6,7],lo:50,hi:58,west:true,big:true,flies:["Chubby Chernobyl #6-8","Pat's Rubber Legs #4-8"],timing:"Midday; the hatch moves upstream day by day",base:0.6,note:"Big western freestones only; trout key on them hard"},
+    {name:"Golden Stonefly",months:[6,7],lo:52,hi:62,west:true,flies:["Yellow Stimulator #8-10","Golden Stone Nymph #8-10"],timing:"Mornings and evenings",base:0.55,note:"Follows the salmonfly hatch on many western rivers"},
+    {name:"Pale Morning Dun",months:[6,7,8],lo:54,hi:66,west:true,flies:["PMD Comparadun #16-18","Split Case PMD #16-18"],timing:"Late morning into early afternoon",base:0.7,note:"The premier summer mayfly across the West"},
+    {name:"October Caddis",months:[9,10],lo:45,hi:55,west:true,flies:["Orange Stimulator #8-10","October Caddis Pupa #8-10"],timing:"Afternoons",base:0.5,note:"Big orange caddis of western fall"},
+    {name:"Quill Gordon",months:[3,4],lo:45,hi:52,east:true,flies:["Quill Gordon #12-14","Pheasant Tail #14"],timing:"Early afternoon on the first warm days",base:0.5,note:"The earliest major eastern mayfly"},
+    {name:"Hendrickson",months:[4,5],lo:50,hi:56,east:true,flies:["Hendrickson #12-14","Red Quill #12-14","Pheasant Tail #14"],timing:"Early to mid afternoon",base:0.7,note:"The classic eastern spring hatch"},
+    {name:"March Brown",months:[5,6],lo:50,hi:58,east:true,flies:["March Brown #10-12","Hare's Ear Nymph #12"],timing:"Sporadic through the afternoon",base:0.5,note:"Large eastern mayfly, never blanket but reliable"},
+    {name:"Sulphur",months:[5,6,7],lo:55,hi:65,east:true,flies:["Sulphur Comparadun #16-18","Sulphur Spinner #16-18"],timing:"Evenings; spinner falls at dusk",base:0.7,note:"The East's premier early-summer mayfly"},
+    {name:"Light Cahill",months:[6,7],lo:58,hi:66,east:true,flies:["Light Cahill #14-16","Cahill Spinner #14-16"],timing:"Evenings",base:0.55,note:"Reliable eastern summer evening mayfly"},
+    {name:"Hexagenia (Hex)",months:[6,7],lo:60,hi:70,east:true,flies:["Hex Dun #4-6","Hex Nymph #6"],timing:"At dusk and after dark",base:0.55,note:"The giant Midwest night hatch \u2014 Michigan and Wisconsin famous"},
+    {name:"Slate Drake (Isonychia)",months:[5,6,9,10],lo:52,hi:64,east:true,flies:["Isonychia #10-12","Mahogany Dun #12"],timing:"Afternoons and evenings",base:0.5,note:"Eastern swimmer mayfly, both early summer and fall"},
+    {name:"Caddis (evening)",months:[5,6,7,8,9],lo:52,hi:68,flies:["Elk Hair Caddis #14-18","X-Caddis #14-16","Soft Hackle #14-16"],timing:"Last two hours before dark",base:0.7,note:"Reliable summer evening activity on most trout water"},
+    {name:"Green Drake",months:[6,7],lo:54,hi:62,flies:["Green Drake #10-12","Hare's Ear Nymph #10-12"],timing:"Afternoons, often during unsettled weather",base:0.5,note:"Short but famous; trout abandon caution for them"},
+    {name:"Yellow Sally",months:[6,7,8],lo:55,hi:65,flies:["Yellow Sally #14-16","Yellow Stimulator #14"],timing:"Afternoons and evenings",base:0.5,note:"Small summer stonefly, easy to overlook"},
+    {name:"Trico",months:[7,8,9],lo:58,hi:70,flies:["Trico Spinner #20-24","Trico Dun #20-22"],timing:"Early mornings; spinner fall around 8-10am",base:0.55,note:"Tiny flies, picky fish, great dry-fly fishing"},
+    {name:"Terrestrials (hoppers, ants, beetles)",months:[7,8,9],lo:58,hi:74,flies:["Hopper #8-12","Ant #14-18","Beetle #14-16"],timing:"Warm, breezy afternoons near grassy banks",base:0.6,note:"Not a hatch but a major summer food source"},
+    {name:"Mahogany Dun",months:[9,10],lo:45,hi:55,flies:["Mahogany Dun #16-18","Pheasant Tail #16-18"],timing:"Afternoons",base:0.5,note:"Dependable fall mayfly as BWOs taper"}
+  ];
+  const out=[];
+  for(const r of R){
+    if(!r.months.includes(month))continue;
+    if(r.west===true&&!west)continue;
+    if(r.east===true&&west)continue;
+    if(r.big&&!bigWater)continue;
+    let tempCtx="";
+    if(t!==null){
+      if(t<r.lo-4) tempCtx=" Water at "+Math.round(t)+"\u00b0F is still cold for this hatch \u2014 watch as temps approach "+r.lo+"\u00b0F.";
+      else if(t<r.lo) tempCtx=" Water approaching the hatch window ("+Math.round(t)+"\u00b0F, peaks at "+r.lo+"\u2013"+r.hi+"\u00b0F) \u2014 could see early activity.";
+      else if(t<=r.hi) tempCtx=" \u2713 Water at "+Math.round(t)+"\u00b0F is in prime range \u2014 should be active.";
+      else tempCtx=" Water has warmed past peak for this hatch ("+Math.round(t)+"\u00b0F, peaks at "+r.lo+"\u2013"+r.hi+"\u00b0F).";
+    }
+    const gaugeNote=t!==null&&opts.tempGaugeName?" Temp from "+opts.tempGaugeName+".":"";
+    out.push({name:r.name,likelihood:r.base>=0.65?"High":"Moderate",waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:"Hatches when water reaches "+r.lo+"\u2013"+r.hi+"\u00b0F."+tempCtx+gaugeNote+" "+r.note,_s:r.base});
+  }
+  out.sort((a,b)=>b._s-a._s);
+  const top=out.slice(0,6).map(function(h){const o={...h};delete o._s;return o;});
+  if(t!==null&&t>=70) top.push({name:"Warm Water Caution",likelihood:"High",waterTempRange:"Above 70\u00b0F",flies:["Fish early morning or evening only"],timing:"Avoid midday fishing",notes:"Water at "+Math.round(t)+"\u00b0F"+src+" is approaching stress levels for trout (critical above 68\u00b0F). Release fish quickly and consider skipping midday."});
+  return top;
+}
+
 function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefetchedLoading}){
   const [result,setResult]=React.useState(prefetchedResult||null);
   const [loading,setLoading]=React.useState(prefetchedLoading||false);
   const [open,setOpen]=React.useState(!!prefetchedResult);
-  React.useEffect(()=>{if(prefetchedResult&&!result){setResult(prefetchedResult);setOpen(true);}},[prefetchedResult]);
-  React.useEffect(()=>{if(prefetchedLoading)setLoading(true);},[prefetchedLoading]);
+  React.useEffect(()=>{if(prefetchedResult&&!result){setResult(prefetchedResult);setOpen(true);setLoading(false);}},[prefetchedResult]);
+  React.useEffect(()=>{setLoading(!!prefetchedLoading);},[prefetchedLoading]);
   React.useEffect(()=>{if(autoRun&&loc?.lat&&loc?.lng&&!result&&!loading){const t=setTimeout(()=>runMatcher(),1500);return()=>clearTimeout(t);}},[autoRun,loc?.lat,loc?.lng]);
   async function runMatcher(){
     if(!loc) return;
-    const hKey="tl_hatch_ws1_"+loc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
-    try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setResult(data);setOpen(true);return;}}}catch{}
-    setLoading(true);setOpen(true);setResult(null);
-    const month=new Date().toLocaleString("en-US",{month:"long"});
-    const nearestTemp=waterTemp||(gauges||[]).find(g=>g.waterTempF)?.waterTempF;
-    const tempNote=nearestTemp?"Current water temp: "+nearestTemp+"F. ":"";
-    const elevation=(gauges||[]).find(g=>g.lat)?.lat>40?"High elevation (above 7000ft). ":"";
-    const cfs=(gauges||[]).slice(0,3).map(g=>g.name.split(" ").slice(0,3).join(" ")+": "+Math.round(g.cfs||0)+" CFS").join(", ");
-    const searchPrompt="Search for current hatch reports and fishing conditions near "+loc.label+" for "+month+". "+tempNote+elevation+"Nearby flows: "+cfs+". What insects are hatching right now at this specific location?";
-    try{
-      const searchTxt=await askClaude(searchPrompt,true,1000);
-      const synthPrompt="Based on these local hatch reports: "+searchTxt.slice(0,1500)+". Location: "+loc.label+". Month: "+month+". "+tempNote+"Return ONLY valid JSON with no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}";
-      const txt=await askClaude(synthPrompt,false,800);
-      let parsed=extractJSON(txt);
-      if(!parsed){try{const s=txt.indexOf("{"),e2=txt.lastIndexOf("}");if(s!==-1&&e2>s)parsed=JSON.parse(txt.slice(s,e2+1));}catch{}}
-      if(parsed&&parsed.hatches&&parsed.hatches.length>0){
-        setResult(parsed.hatches);
-        try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
-      } else {
-        setResult([]);
-      }
-    }catch(e){setResult([]);}
-    setLoading(false);
+    const gl=(gauges&&gauges.length?gauges:window._loadedGauges)||[];
+    const nearTG=gl.filter(g=>g.waterTempF&&(g.dist==null||g.dist<=20)).find(g=>g.waterTempF)||null;
+    const localTemp=waterTemp||nearTG?.waterTempF||null;
+    const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
+    setResult(predictHatches({month:new Date().getMonth()+1,waterTempF:localTemp,lng:(loc&&loc.lng!=null)?loc.lng:null,maxCfs,tempGaugeName:nearTG?.name||null}));
+    setOpen(true);setLoading(false);
   }
   return(
     React.createElement('div',{className:"card"},
       React.createElement('div',{className:"ctitle",style:{cursor:"pointer",userSelect:"none"},onClick:()=>open?setOpen(false):runMatcher()},
-        "🪲 Hatch Matcher",
-        React.createElement('span',{style:{fontSize:15,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}},open?"▲ collapse":"▼ match hatches"),
+        "🪲 Predicted Hatches",
+        React.createElement('span',{style:{fontSize:15,color:"var(--stone)",marginLeft:8,fontFamily:"sans-serif"}},open?"▲ collapse":"▼ show prediction"),
         loc&&React.createElement('button',{className:"rfsh",onClick:e=>{e.stopPropagation();runMatcher();}},"↻")
       ),
-      React.createElement('div',{className:"csub"},"AI-matched hatches based on water temp, flows & season"),
+      React.createElement('div',{className:"csub"},"Prediction from live water temp, flows & season — not a real-time hatch report"),
       loading&&React.createElement('div',{className:"loading"},"Matching hatches…"),
       open&&!loading&&result&&result.map((h,i)=>
         React.createElement('div',{key:i,style:{padding:"10px 0",borderBottom:i<result.length-1?"1px solid rgba(255,255,255,0.06)":"none"}},
@@ -3243,14 +3292,18 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Searching fly shop reports…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
-          const [searchTxt1,searchTxt2]=await Promise.all([askClaude(searchPrompt1,true,1500),askClaude(searchPrompt2,true,1500)]);
+          const searchRace=await Promise.race([
+            Promise.all([askClaude(searchPrompt1,true,3500),askClaude(searchPrompt2,true,3500)]),
+            new Promise(r=>setTimeout(()=>r(null),25000))
+          ]);
+          const [searchTxt1,searchTxt2]=searchRace||["",""];
           const searchTxt=searchTxt1+" "+searchTxt2;
           void 0;
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Fly shop reports: "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank all quality trout fisheries within 2hrs of this location from best to worst for today. Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Shops: ONLY include shops found verbatim in the fly shop reports. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Fly shop reports: "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 6 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Shops: ONLY include shops found verbatim in the fly shop reports. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
@@ -3264,8 +3317,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
-          }
-        }catch(e2){void 0;}
+          } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
+        }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
@@ -3328,6 +3381,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
       </div>
 
+      {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
       {busy&&<TripPlannerLoading steps={steps} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
       {!busy&&steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}</div>}
 
@@ -4055,24 +4109,51 @@ function App({user}){
 
     async function fetchCondShops(label, lat, lng){
     if(!label) return;
-    const cacheKey="tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
+    const cacheKey="tl_shops_p2_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase();
     try{const cached=localStorage.getItem(cacheKey);if(cached){const{data,ts}=JSON.parse(cached);if(Date.now()-ts<7*24*60*60*1000){condShopsCacheRef.current[label]=data;setCondShops(data);return;}}}catch{}
     if(condShopsCacheRef.current[label]){setCondShops(condShopsCacheRef.current[label]);return;}
+    if(window._shopsInflight===label)return;
+    window._shopsInflight=label;
     setCondShopsLoading(true);
     setCondShops([]);
-    try{
-      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        model:'claude-sonnet-4-6',max_tokens:2000,
-        tools:[{type:'web_search_20250305',name:'web_search'}],
-        system:'Return ONLY a raw JSON array, no markdown, no explanation.',
-        messages:[{role:'user',content:'Find dedicated fly fishing shops within 60 miles of '+label+'. Return ONLY a JSON array: [{"name":"","address":"","city":"","state":"","phone":"","website":"","distanceMiles":0}]. 4-8 shops. Raw JSON only.'}]
-      })});
-      const d=await res.json();
-      const txt=(d.content||[]).map(b=>b.text||'').join('').trim();
-      const s=txt.indexOf('['),e=txt.lastIndexOf(']');
-      if(s!==-1&&e>s){const p=JSON.parse(txt.slice(s,e+1));if(p.length>0){const shops=p.slice(0,8);condShopsCacheRef.current[label]=shops;try{localStorage.setItem("tl_shops_ws1_"+label.replace(/[^a-z0-9]/gi,"_").toLowerCase(),JSON.stringify({data:shops,ts:Date.now()}));}catch{}setCondShops(shops);setCondShopsLoading(false);return;}}
-    }catch(err){void 0;}
-    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:'Tap to search near '+label,distanceMiles:0}]);
+    let diag="";
+    // 1) Google Places: accurate, fast, deterministic. Failures report their reason.
+    if(lat&&lng){
+      try{
+        const pr=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({places:true,lat,lng})});
+        const pd=await pr.json();
+        if(pd.shops&&pd.shops.length){
+          let shops=pd.shops.slice(0,10);
+          // Curate to true retail fly shops; on any failure the full list shows (never blank)
+          try{
+            const ft=await askClaude("You are a fly fishing industry expert. From this JSON list of fly-fishing businesses near "+label+", return ONLY the true RETAIL fly shops where an angler can walk in and buy flies and tackle. EXCLUDE manufacturers, brand headquarters, wholesalers, and rafting/boating equipment stores (for example, Umpqua Feather Merchants is a manufacturer, not a retail shop). Keep each kept item's fields exactly as given, same order. Return ONLY a JSON array, no markdown: "+JSON.stringify(shops),false,1400);
+            const fp=parseShopArray(ft);
+            if(fp&&fp.length>=2)shops=fp.slice(0,8);
+          }catch(e){}
+          condShopsCacheRef.current[label]=shops;
+          try{localStorage.setItem(cacheKey,JSON.stringify({data:shops,ts:Date.now()}));}catch{}
+          setCondShops(shops);setCondShopsLoading(false);window._shopsInflight=null;return;
+        }
+        if(pd.placesError)diag=String(pd.placesError).slice(0,160);
+      }catch(e){diag=e.message;}
+    }
+    // 2) OpenStreetMap fallback: the code that produced this morning's lists. Not cached, so Places takes over once healthy.
+    if(lat&&lng){
+      try{
+        const q='[out:json][timeout:8];(node["shop"="fishing"](around:48000,'+lat+','+lng+');way["shop"="fishing"](around:48000,'+lat+','+lng+'););out center 12;';
+        const or=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)});
+        if(or.ok){
+          const od=await or.json();
+          const shops=(od.elements||[]).map(el=>{const t=el.tags||{};const elat=el.lat||(el.center&&el.center.lat),elng=el.lon||(el.center&&el.center.lon);const dist=(elat&&elng)?Math.round(Math.sqrt(Math.pow(elat-lat,2)+Math.pow(elng-lng,2))*69):0;return{name:t.name||"",address:[t["addr:housenumber"],t["addr:street"]].filter(Boolean).join(" "),city:t["addr:city"]||"",state:t["addr:state"]||"",phone:t.phone||t["contact:phone"]||"",website:t.website||t["contact:website"]||("https://www.google.com/maps/search/?api=1&query="+elat+","+elng),distanceMiles:dist};}).filter(s=>s.name).sort((a,b)=>a.distanceMiles-b.distanceMiles).slice(0,10);
+          if(shops.length){
+            if(diag)shops.push({name:"(Shop search diagnostic)",address:"",city:"",state:"",phone:"",website:"",specialty:diag,distanceMiles:0});
+            setCondShops(shops);setCondShopsLoading(false);window._shopsInflight=null;return;
+          }
+        }
+      }catch(e){}
+    }
+    window._shopsInflight=null;
+    setCondShops([{name:'Search Google Maps',address:'',city:'',state:'',phone:'',website:'https://www.google.com/maps/search/fly+fishing+shop+near+'+encodeURIComponent(label),specialty:diag||('Tap to search near '+label),distanceMiles:0}]);
     setCondShopsLoading(false);
   }
 
@@ -4131,50 +4212,38 @@ function App({user}){
           const{label,cls}=cfsLabel(g.cfs,null);
           return{...g,pct,histMax:null,waterTempF:null,label,cls};
         });
-        setGauges(parsed);window._loadedGauges=parsed;
+        setGauges(parsed);window._loadedGauges=parsed;if(window._recomputeHatches)window._recomputeHatches();
         setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
         try{localStorage.setItem(gaugeKey,JSON.stringify({data:parsed,ts:Date.now()}));}catch{}
         fetchUSGSTempBatch(parsed.map(g=>g.siteNo)).then(tempMap=>{
           const withTemp=parsed.map(g=>({...g,waterTempF:(tempMap[g.siteNo]!=null?tempMap[g.siteNo]:null)}));
-          setGauges(withTemp);window._loadedGauges=withTemp;
+          setGauges(withTemp);window._loadedGauges=withTemp;if(window._recomputeHatches)window._recomputeHatches();
         }).catch(()=>{});
       }catch{if(!silent)setGaugeError("Could not load stream data.");}
       finally{if(!silent)setGaugeLoading(false);}
     };
     if(!gaugeFromCache){
       try{
-        const usgsD=await Promise.race([fetchUSGSLive(lat,lng),new Promise(r=>setTimeout(()=>r(null),4500))]);
+        const usgsD=await Promise.race([fetchUSGSLive(lat,lng),new Promise(r=>setTimeout(()=>r(null),9000))]);
         if(usgsD===null){setGaugeError("Streams loading slowly \u2014 tap \u21bb to refresh");setGaugeLoading(false);}
         else await applyGaugeData(usgsD,false);
       }catch{setGaugeError("Could not load stream data.");setGaugeLoading(false);}
     } else {
       fetchUSGSLive(lat,lng).then(usgsD=>applyGaugeData(usgsD,true)).catch(()=>{});
     }
-    // AI features fire only on real loads, never at startup pre-warm
-    if(!preWarm){
+    // Hatches: deterministic prediction from live local conditions (instant, recomputes when water temps land)
+    {
       if(newLoc.label) fetchCondShops(newLoc.label, newLoc.lat, newLoc.lng);
       setHatchAutoRun(true);
-      const hKey="tl_hatch_ws1_"+newLoc.label.replace(/[^a-z0-9]/gi,"_")+"_"+new Date().getMonth();
-      try{const h=localStorage.getItem(hKey);if(h){const{data,ts}=JSON.parse(h);if(Date.now()-ts<24*60*60*1000){setHatchResult(data);return;}}}catch{}
-      setHatchLoading(true);
-      const month2=new Date().toLocaleString("en-US",{month:"long"});
-      let hatchFinal=false;
-      // INSTANT (~3s): entomology prediction shows immediately
-      askClaude("You are an expert aquatic entomologist and trout guide. Location: "+newLoc.label+". Month: "+month2+". Predict the insects most likely hatching right now on trout waters near this location. Return ONLY valid JSON, no markdown: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}. 4-5 hatches, likelihood High/Moderate/Low, highest first.",false,700).then(txt=>{
-        const quick=extractJSON(txt);
-        if(!hatchFinal&&quick&&quick.hatches&&quick.hatches.length>0){setHatchResult(quick.hatches);setHatchLoading(false);}
-      }).catch(()=>{});
-      // ACCURATE: live hatch reports replace the instant prediction when ready (cached 24h)
-      askClaude("Find current fly fishing hatch reports near "+newLoc.label+" for "+month2+". What insects are actively hatching right now?",true,800).then(searchTxt=>{
-        return askClaude("Based on this hatch report: "+searchTxt.slice(0,2000)+". Return ONLY JSON: {hatches:[{name,likelihood,waterTempRange,flies:[\"Pattern #size\"],timing,notes}]}",false,600);
-      }).then(txt=>{
-        const parsed=extractJSON(txt);
-        if(parsed&&parsed.hatches&&parsed.hatches.length>0){
-          hatchFinal=true;
-          setHatchResult(parsed.hatches);
-          try{localStorage.setItem(hKey,JSON.stringify({data:parsed.hatches,ts:Date.now()}));}catch{}
-        }
-      }).catch(()=>{}).finally(()=>setHatchLoading(false));
+      window._recomputeHatches=()=>{
+        const gl=window._loadedGauges||[];
+        const nearTG=gl.filter(g=>g.waterTempF&&(g.dist==null||g.dist<=20)).find(g=>g.waterTempF)||null;
+        const wTemp=nearTG?.waterTempF||null;
+        const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
+        setHatchResult(predictHatches({month:new Date().getMonth()+1,waterTempF:wTemp,lng:newLoc.lng!=null?newLoc.lng:null,maxCfs,tempGaugeName:nearTG?.name||null}));
+        setHatchLoading(false);
+      };
+      window._recomputeHatches();
     }
   }
 
@@ -4493,7 +4562,7 @@ ${shopPins}
               </div>
               </>}
               {intelTab==="report"&&<>
-              {hatchLoading&&!hatchResult&&<div className="card"><div className="ctitle">🪲 Hatch Matcher</div><div className="loading">Matching hatches…</div></div>}
+              {hatchLoading&&!hatchResult&&<div className="card"><div className="ctitle">🪲 Predicted Hatches</div><div className="loading">Matching hatches…</div></div>}
               {(!hatchLoading||hatchResult)&&<HatchMatcher loc={loc} waterTemp={null} gauges={gauges} autoRun={hatchAutoRun} prefetchedResult={hatchResult} prefetchedLoading={hatchLoading}/>}
               </>}
             </>}
