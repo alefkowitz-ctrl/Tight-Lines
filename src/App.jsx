@@ -768,9 +768,9 @@ function predictHatches(opts){
   const R=[
     {name:"Midges",months:[1,2,3,4,5,6,7,8,9,10,11,12],lo:33,hi:70,flies:["Zebra Midge #18-22","Griffith's Gnat #18-22","RS2 #20-22"],timing:"Midday in cold months, mornings and evenings in summer",base:0.55,note:"Year-round staple; often the only game in cold water"},
     {name:"Blue-Winged Olive (Baetis)",months:[3,4,5,9,10,11],lo:40,hi:58,flies:["Pheasant Tail #16-20","BWO Comparadun #16-20","RS2 #18-20"],timing:"Afternoons; best on overcast days",base:0.7,note:"Cloudy, drizzly days bring the heaviest emergences"},
-    {name:"Skwala Stonefly",months:[2,3,4],lo:40,hi:50,west:true,flies:["Pat's Rubber Legs #8-10","Skwala Dry #10"],timing:"Warmest part of the day",base:0.5,note:"Early-season western stonefly on freestone rivers"},
+    {name:"Skwala Stonefly",months:[2,3,4],lo:40,hi:50,west:true,where:"select western freestones (Bitterroot, Yakima, Clark Fork)",flies:["Pat's Rubber Legs #8-10","Skwala Dry #10"],timing:"Warmest part of the day",base:0.5,note:"Early-season western stonefly"},
     {name:"Mother's Day Caddis",months:[4,5],lo:48,hi:56,west:true,flies:["Elk Hair Caddis #14-16","Sparkle Pupa #14-16"],timing:"Afternoons",base:0.6,note:"Can blanket western rivers when temps hit the low 50s"},
-    {name:"Salmonfly",months:[5,6,7],lo:50,hi:58,west:true,big:true,flies:["Chubby Chernobyl #6-8","Pat's Rubber Legs #4-8"],timing:"Midday; the hatch moves upstream day by day",base:0.6,note:"Big western freestones only; trout key on them hard"},
+    {name:"Salmonfly",months:[5,6,7],lo:50,hi:58,west:true,big:true,where:"large, fast freestone rivers (Colorado, Gunnison, Arkansas, Madison, Big Hole, Deschutes) \u2014 not small creeks or most tailwaters",flies:["Chubby Chernobyl #6-8","Pat's Rubber Legs #4-8"],timing:"Midday; the hatch moves upstream day by day",base:0.6,note:"Trout key on them hard where they occur"},
     {name:"Golden Stonefly",months:[6,7],lo:52,hi:62,west:true,flies:["Yellow Stimulator #8-10","Golden Stone Nymph #8-10"],timing:"Mornings and evenings",base:0.55,note:"Follows the salmonfly hatch on many western rivers"},
     {name:"Pale Morning Dun",months:[6,7,8],lo:54,hi:66,west:true,flies:["PMD Comparadun #16-18","Split Case PMD #16-18"],timing:"Late morning into early afternoon",base:0.7,note:"The premier summer mayfly across the West"},
     {name:"October Caddis",months:[9,10],lo:45,hi:55,west:true,flies:["Orange Stimulator #8-10","October Caddis Pupa #8-10"],timing:"Afternoons",base:0.5,note:"Big orange caddis of western fall"},
@@ -779,10 +779,10 @@ function predictHatches(opts){
     {name:"March Brown",months:[5,6],lo:50,hi:58,east:true,flies:["March Brown #10-12","Hare's Ear Nymph #12"],timing:"Sporadic through the afternoon",base:0.5,note:"Large eastern mayfly, never blanket but reliable"},
     {name:"Sulphur",months:[5,6,7],lo:55,hi:65,east:true,flies:["Sulphur Comparadun #16-18","Sulphur Spinner #16-18"],timing:"Evenings; spinner falls at dusk",base:0.7,note:"The East's premier early-summer mayfly"},
     {name:"Light Cahill",months:[6,7],lo:58,hi:66,east:true,flies:["Light Cahill #14-16","Cahill Spinner #14-16"],timing:"Evenings",base:0.55,note:"Reliable eastern summer evening mayfly"},
-    {name:"Hexagenia (Hex)",months:[6,7],lo:60,hi:70,east:true,flies:["Hex Dun #4-6","Hex Nymph #6"],timing:"At dusk and after dark",base:0.55,note:"The giant Midwest night hatch \u2014 Michigan and Wisconsin famous"},
+    {name:"Hexagenia (Hex)",months:[6,7],lo:60,hi:70,east:true,where:"silty-bottomed rivers and stillwaters \u2014 famous on Michigan's Au Sable and Wisconsin waters, absent from rocky freestone streams",flies:["Hex Dun #4-6","Hex Nymph #6"],timing:"At dusk and after dark",base:0.55,note:"The giant Midwest night hatch"},
     {name:"Slate Drake (Isonychia)",months:[5,6,9,10],lo:52,hi:64,east:true,flies:["Isonychia #10-12","Mahogany Dun #12"],timing:"Afternoons and evenings",base:0.5,note:"Eastern swimmer mayfly, both early summer and fall"},
     {name:"Caddis (evening)",months:[5,6,7,8,9],lo:52,hi:68,flies:["Elk Hair Caddis #14-18","X-Caddis #14-16","Soft Hackle #14-16"],timing:"Last two hours before dark",base:0.7,note:"Reliable summer evening activity on most trout water"},
-    {name:"Green Drake",months:[6,7],lo:54,hi:62,flies:["Green Drake #10-12","Hare's Ear Nymph #10-12"],timing:"Afternoons, often during unsettled weather",base:0.5,note:"Short but famous; trout abandon caution for them"},
+    {name:"Green Drake",months:[6,7],lo:54,hi:62,where:"specific famous rivers (Henry's Fork, Frying Pan, Roaring Fork, Penns Creek) \u2014 sporadic or absent elsewhere",flies:["Green Drake #10-12","Hare's Ear Nymph #10-12"],timing:"Afternoons, often during unsettled weather",base:0.5,note:"Short but famous; trout abandon caution for them"},
     {name:"Yellow Sally",months:[6,7,8],lo:55,hi:65,flies:["Yellow Sally #14-16","Yellow Stimulator #14"],timing:"Afternoons and evenings",base:0.5,note:"Small summer stonefly, easy to overlook"},
     {name:"Trico",months:[7,8,9],lo:58,hi:70,flies:["Trico Spinner #20-24","Trico Dun #20-22"],timing:"Early mornings; spinner fall around 8-10am",base:0.55,note:"Tiny flies, picky fish, great dry-fly fishing"},
     {name:"Terrestrials (hoppers, ants, beetles)",months:[7,8,9],lo:58,hi:74,flies:["Hopper #8-12","Ant #14-18","Beetle #14-16"],timing:"Warm, breezy afternoons near grassy banks",base:0.6,note:"Not a hatch but a major summer food source"},
@@ -803,7 +803,9 @@ function predictHatches(opts){
     }
     const gaugeNote=t!==null&&opts.tempGaugeName?" Temp reading from "+opts.tempGaugeName+".":"";
     const timingNote=". Best fished "+r.timing.charAt(0).toLowerCase()+r.timing.slice(1)+".";
-    out.push({name:r.name,likelihood:r.base>=0.65?"High":"Moderate",waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:r.note+timingNote+" Typically active when water reaches "+r.lo+"\u2013"+r.hi+"\u00b0F."+tempCtx+gaugeNote,_s:r.base});
+    const whereNote=r.where?". Found only on "+r.where+" \u2014 check whether your water holds this hatch":"";
+    const lk=r.where?"Moderate":(r.base>=0.65?"High":"Moderate");
+    out.push({name:r.name,likelihood:lk,waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:r.note+whereNote+timingNote+" Typically active when water reaches "+r.lo+"\u2013"+r.hi+"\u00b0F."+tempCtx+gaugeNote,_s:r.base});
   }
   out.sort((a,b)=>b._s-a._s);
   const top=out.slice(0,6).map(function(h){const o={...h};delete o._s;return o;});
