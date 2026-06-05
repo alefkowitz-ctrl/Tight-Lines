@@ -3216,12 +3216,9 @@ function TripPlannerLoading({steps,onCancel}){
       <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>✕ Cancel</button>
       <div style={{fontSize:56,marginBottom:20}}>🪶</div>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
-      <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>The AI overlords are out there<br/>checking fly shop reports for you…</div>
+      <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near you<br/>and finding where they're moving…</div>
       <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
-      </div>
-      <div style={{width:"100%",maxWidth:340}}>
-        {steps.map((s,i)=><div key={i} className={"step "+s.state}><div className="dot"/>{s.text}</div>)}
       </div>
     </div>
   );
@@ -3288,11 +3285,11 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
           return hasWater&&!hasNonFish;
         }).slice(0,25);
-        addStep("Finding fly shops & fishing report…","active");
+        addStep("Analyzing area conditions…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         try{
           // Step 1: Run two parallel searches for broader coverage
-          addStep("Searching fly shop reports…","active");
+          addStep("Reading current water conditions…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
           const searchRace=await Promise.race([
@@ -3306,7 +3303,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Fly shop reports: "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 6 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Shops: ONLY include shops found verbatim in the fly shop reports. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[],"shops":[{"name":"","website":"","reportUrl":""}]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 6 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
@@ -3319,7 +3316,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[],shops:rpt.shops||[]});
+            setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]});
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
         addStep("Report complete ✓");
@@ -3386,7 +3383,6 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
       {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
       {busy&&<TripPlannerLoading steps={steps} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
-      {!busy&&steps.length>0&&<div className="card">{steps.map((s,i)=><div key={i} className={`step ${s.state}`}><div className="dot"/>{s.text}</div>)}</div>}
 
       {wxData?.daily&&!busy&&(
         <div className="card">
@@ -3425,7 +3421,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       {report&&(
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
-          <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no current reports found":"Synthesized from current fly shop reports"}</div>
+          <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no current reports found":"Synthesized from live USGS flows, weather & current conditions"}</div>
           <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{(report.overview||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
           {report.recommendation&&(
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
@@ -3467,7 +3463,6 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
           {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
           {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></> }
-          {report.shops?.length>0&&<><div className="divider"/><div className="slbl">🪝 Sources</div><div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginBottom:8}}>Fly shop reports used to generate this report.</div>{report.shops.map((s,i)=><div key={i} style={{padding:"8px 0",borderBottom:i<report.shops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}><div style={{fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>{s.location&&<div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{s.location}</div>}{s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--gold)",textDecoration:"none",display:"block",marginTop:2}}>{s.website.replace(/^https?:\/\//,"")}</a>}</div>)}</> }
         </div>
       )}
     </div>
@@ -4895,7 +4890,7 @@ function SplashScreen({onDone}){
       title:"Find the Best Water",
       subtitle:"Plan Tab",
       body:"Enter your location and how long you'll drive. Get every fishable stream ranked best to worst with crowd levels, access points, and fly recommendations.",
-      tip:"Sourced from real fly shop reports updated daily.",
+      tip:"Ranked using live USGS flows, weather, and current conditions.",
     },
     {
       icon:"📷",
