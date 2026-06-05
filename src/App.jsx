@@ -759,13 +759,12 @@ function RegsLink({label}){
 
 
 
-// Deterministic hatch prediction from real conditions (month, water temp, location, flows). Instant, free, region-aware.
+// Hatch predictions: shows all seasonally/regionally appropriate hatches with temp-range context.
+// Temp data is informational — notes tell users when each hatch peaks, not a filter gate.
 function predictHatches(opts){
-  const month=opts.month;
-  const t=opts.waterTempF!=null?opts.waterTempF:null;
-  const lng=opts.lng!=null?opts.lng:-100;
-  const west=lng<=-100;
-  const bigWater=(opts.maxCfs||0)>400;
+  const month=opts.month,t=opts.waterTempF!=null?opts.waterTempF:null;
+  const lng=opts.lng!=null?opts.lng:-100,west=lng<=-100,bigWater=(opts.maxCfs||0)>400;
+  const src=opts.tempGaugeName?" ("+opts.tempGaugeName+")":"";
   const R=[
     {name:"Midges",months:[1,2,3,4,5,6,7,8,9,10,11,12],lo:33,hi:70,flies:["Zebra Midge #18-22","Griffith's Gnat #18-22","RS2 #20-22"],timing:"Midday in cold months, mornings and evenings in summer",base:0.55,note:"Year-round staple; often the only game in cold water"},
     {name:"Blue-Winged Olive (Baetis)",months:[3,4,5,9,10,11],lo:40,hi:58,flies:["Pheasant Tail #16-20","BWO Comparadun #16-20","RS2 #18-20"],timing:"Afternoons; best on overcast days",base:0.7,note:"Cloudy, drizzly days bring the heaviest emergences"},
@@ -795,16 +794,21 @@ function predictHatches(opts){
     if(r.west===true&&!west)continue;
     if(r.east===true&&west)continue;
     if(r.big&&!bigWater)continue;
-    let score=r.base;
-    if(t!=null){
-      if(t<r.lo-4||t>r.hi+4)continue;
-      if(t>=r.lo&&t<=r.hi){const mid=(r.lo+r.hi)/2,half=(r.hi-r.lo)/2;score+=0.3*(1-Math.abs(t-mid)/half);}
-      else score-=0.2;
-    } else score-=0.1;
-    out.push({name:r.name,likelihood:score>=0.75?"High":score>=0.5?"Moderate":"Low",waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:(t!=null?("Water at "+Math.round(t)+"\u00b0F. "):"Based on season. ")+r.note,_s:score});
+    let tempCtx="";
+    if(t!==null){
+      if(t<r.lo-4) tempCtx=" Water at "+Math.round(t)+"\u00b0F is still cold for this hatch \u2014 watch as temps approach "+r.lo+"\u00b0F.";
+      else if(t<r.lo) tempCtx=" Water approaching the hatch window ("+Math.round(t)+"\u00b0F, peaks at "+r.lo+"\u2013"+r.hi+"\u00b0F) \u2014 could see early activity.";
+      else if(t<=r.hi) tempCtx=" \u2713 Water at "+Math.round(t)+"\u00b0F is in prime range \u2014 should be active.";
+      else tempCtx=" Water has warmed past peak for this hatch ("+Math.round(t)+"\u00b0F, peaks at "+r.lo+"\u2013"+r.hi+"\u00b0F).";
+    }
+    const gaugeNote=t!==null&&opts.tempGaugeName?" Temp reading from "+opts.tempGaugeName+".":"";
+    const timingNote=". Best fished "+r.timing.charAt(0).toLowerCase()+r.timing.slice(1)+".";
+    out.push({name:r.name,likelihood:r.base>=0.65?"High":"Moderate",waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:r.note+timingNote+" Typically active when water reaches "+r.lo+"\u2013"+r.hi+"\u00b0F."+tempCtx+gaugeNote,_s:r.base});
   }
   out.sort((a,b)=>b._s-a._s);
-  return out.slice(0,5).map(function(h){const o={...h};delete o._s;return o;});
+  const top=out.slice(0,6).map(function(h){const o={...h};delete o._s;return o;});
+  if(t!==null&&t>=70) top.push({name:"Warm Water Caution",likelihood:"High",waterTempRange:"Above 70\u00b0F",flies:["Fish early morning or evening only"],timing:"Avoid midday fishing",notes:"Water at "+Math.round(t)+"\u00b0F"+src+" is approaching stress levels for trout (critical above 68\u00b0F). Release fish quickly and consider skipping midday."});
+  return top;
 }
 
 function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefetchedLoading}){
@@ -817,9 +821,10 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
   async function runMatcher(){
     if(!loc) return;
     const gl=(gauges&&gauges.length?gauges:window._loadedGauges)||[];
-    const localTemp=waterTemp||gl.find(g=>g.waterTempF)?.waterTempF||null;
+    const nearTG=gl.filter(g=>g.waterTempF&&(g.dist==null||g.dist<=20)).find(g=>g.waterTempF)||null;
+    const localTemp=waterTemp||nearTG?.waterTempF||null;
     const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
-    setResult(predictHatches({month:new Date().getMonth()+1,waterTempF:localTemp,lng:(loc&&loc.lng!=null)?loc.lng:null,maxCfs}));
+    setResult(predictHatches({month:new Date().getMonth()+1,waterTempF:localTemp,lng:(loc&&loc.lng!=null)?loc.lng:null,maxCfs,tempGaugeName:nearTG?.name||null}));
     setOpen(true);setLoading(false);
   }
   return(
@@ -4233,9 +4238,10 @@ function App({user}){
       setHatchAutoRun(true);
       window._recomputeHatches=()=>{
         const gl=window._loadedGauges||[];
-        const wTemp=gl.find(g=>g.waterTempF)?.waterTempF||null;
+        const nearTG=gl.filter(g=>g.waterTempF&&(g.dist==null||g.dist<=20)).find(g=>g.waterTempF)||null;
+        const wTemp=nearTG?.waterTempF||null;
         const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
-        setHatchResult(predictHatches({month:new Date().getMonth()+1,waterTempF:wTemp,lng:newLoc.lng!=null?newLoc.lng:null,maxCfs}));
+        setHatchResult(predictHatches({month:new Date().getMonth()+1,waterTempF:wTemp,lng:newLoc.lng!=null?newLoc.lng:null,maxCfs,tempGaugeName:nearTG?.name||null}));
         setHatchLoading(false);
       };
       window._recomputeHatches();
