@@ -1791,11 +1791,14 @@ function GuideBook({user, loc}){
   // Clear any stale cache from previous sessions to force fresh Supabase load
   useEffect(()=>{
     if(user?.id){
-      // Show cache while loading
+      // Show cache instantly while fresh data loads in the background
       try{
         const cached=localStorage.getItem("tl_guests_"+user.id);
-        if(cached){ setGuests(JSON.parse(cached)); }
-      }catch{}
+        if(cached){
+          const parsed=JSON.parse(cached);
+          if(Array.isArray(parsed)&&parsed.length){setGuests(parsed);setGuestsLoading(false);}
+        }
+      }catch(he){void 0;}
     }
   },[user?.id]);
   const [view, setView] = useState("list"); // list | guest | addGuest | editGuest | addTrip | editTrip | tripDetail
@@ -1821,8 +1824,12 @@ function GuideBook({user, loc}){
         return;
       }
 
-      // Logged in via Supabase - load from cloud (works on any device)
-      const {data:gData, error:gErr}=await sb.from("guests").select("*").eq("user_id",user.id).order("name",{ascending:true});
+      // Logged in via Supabase - load from cloud (guests + trips fetched in PARALLEL)
+      const [gRes,tRes]=await Promise.all([
+        sb.from("guests").select("*").eq("user_id",user.id).order("name",{ascending:true}),
+        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,catch_details").eq("user_id",user.id).order("date",{ascending:false})
+      ]);
+      const {data:gData, error:gErr}=gRes;
       if(gErr){
         console.error("Failed to load guests:", gErr.message);
         // Fall back to localStorage if Supabase fails
@@ -1833,7 +1840,7 @@ function GuideBook({user, loc}){
         return;
       }
       if(!gData){ setGuestsLoading(false); return; }
-      const {data:tData, error:tErr}=await sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,catch_details").eq("user_id",user.id).order("date",{ascending:false});
+      const {data:tData, error:tErr}=tRes;
       if(tErr) console.error("Trip load error:",tErr.message);
       const trips=tData||[];
       const guestsWithTrips=gData.map(g=>({
@@ -1852,12 +1859,12 @@ function GuideBook({user, loc}){
       }));
       setGuests(guestsWithTrips);
       setGuestsLoading(false);
-      // Update cache with fresh Supabase data (strip photos to save space)
+      // Update cache with fresh Supabase data (strip ALL photos incl. catch detail photos — base64 blows the localStorage quota and silently kills the cache)
       try{
         const cacheKey="tl_guests_"+user.id;
-        const safe=guestsWithTrips.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[]}))}));
+        const safe=guestsWithTrips.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[],catchDetails:(t.catchDetails||[]).map(d=>({...d,photo:null}))}))}));
         localStorage.setItem(cacheKey, JSON.stringify(safe));
-      }catch{}
+      }catch(ce){void 0;}
     }
     load();
   },[user]);
@@ -4445,7 +4452,6 @@ function App({user}){
             </button>
           </div>
           <Logo layout="horizontal" scale={0.95} />
-          {user&&<div style={{fontSize:14,color:"var(--sky)",marginTop:4,fontStyle:"italic",letterSpacing:1}}>{user.email}</div>}
         </div>
 
         {tab==="conditions"&&<>
