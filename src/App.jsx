@@ -2861,12 +2861,12 @@ function GuideBook({user, loc}){
                     )}
                     {cd.gps&&<div className="cgps">📍 <GpsLocation gps={cd.gps}/></div>}
                     <div style={{display:"flex",gap:8,marginTop:8}}>
-                      {(!cd.species||cd.species==="Unknown"||!cd.length)&&<button onClick={async e=>{
+                      {(!cd.species||cd.species==="Unknown"||cd.species==="Unidentified"||!cd.length)&&<button onClick={async e=>{
                         e.stopPropagation();
                         const btn=e.currentTarget;btn.textContent="🔍 Identifying…";btn.disabled=true;
                         try{
                           let base64=null;
-                          if(p?.startsWith("data:")){base64=p.split(",")[1];}
+                          if(p?.startsWith("data:")){base64=await resizeForID(p,800,0.7);}
                           else if(p?.startsWith("http")){
                             const imgRes=await fetch(p);const blob=await imgRes.blob();
                             const dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(blob);});
@@ -2878,15 +2878,26 @@ function GuideBook({user, loc}){
                             base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
                           }
                           if(!base64){btn.textContent="🔍 Identify";btn.disabled=false;return;}
-                          const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Cutthroat have red slash under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
-                          const rd=await res.json();
-                          const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-                          if(parsed.species){
+                          const r=await identifyFish(base64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Cutthroat have red slash under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+                          if(r&&r.species){
                             const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});
-                            d[i]={...d[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):d[i].length};
+                            d[i]={...d[i],species:r.species,length:r.length||d[i].length};
                             const upd={...selectedTrip,catchDetails:d};
-                            setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                            if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);
+                            setSelectedTrip(upd);
+                            setGuests(gs=>{
+                              const next=gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)}));
+                              try{
+                                const safe=next.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[],catchDetails:(t.catchDetails||[]).map(d2=>({...d2,photo:null}))}))}));
+                                localStorage.setItem("tl_guests_"+user.id,JSON.stringify(safe));
+                              }catch(ce){void 0;}
+                              return next;
+                            });
+                            if(sb){
+                              const{error:upErr}=await sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);
+                              if(upErr){btn.textContent="⚠ Save failed — retry";btn.disabled=false;return;}
+                            }
+                          } else {
+                            btn.textContent="Could not identify — retry";btn.disabled=false;return;
                           }
                         }catch(err){void 0;}
                         btn.textContent="🔍 Identify";btn.disabled=false;
