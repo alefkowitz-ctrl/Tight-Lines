@@ -267,7 +267,7 @@ const HATCHES = {
 const WX_EMOJI={0:"☀️",1:"🌤",2:"⛅",3:"☁️",45:"🌫",48:"🌫",51:"🌦",53:"🌦",55:"🌧",61:"🌧",63:"🌧",65:"🌧",71:"🌨",73:"🌨",75:"❄️",80:"🌦",81:"🌧",95:"⛈",96:"⛈",99:"⛈"};
 const WX_DESC={0:"Clear",1:"Mainly Clear",2:"Partly Cloudy",3:"Overcast",45:"Fog",48:"Freezing Fog",51:"Light Drizzle",53:"Drizzle",55:"Heavy Drizzle",61:"Light Rain",63:"Rain",65:"Heavy Rain",71:"Light Snow",73:"Snow",75:"Heavy Snow",80:"Showers",81:"Heavy Showers",95:"Thunderstorm",96:"Hail",99:"Severe Storm"};
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Cutbow","Tiger Trout","Golden Trout","Lake Trout","Bull Trout","Steelhead","Arctic Grayling","Mountain Whitefish","Largemouth Bass","Smallmouth Bass","Other"];
 
 function cfsLabel(cfs, pct){
   if(!cfs||isNaN(cfs))return{label:"No Data",cls:"fair"};
@@ -2084,7 +2084,6 @@ function GuideBook({user, loc}){
     const files=Array.from(e.target.files);
     e.target.value="";
     if(!files.length)return;
-    const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
     // Resolve device location at most once per upload (only needed when a photo lacks EXIF GPS)
     let devLocPromise=null;
     const getDeviceLoc=()=>{
@@ -2124,8 +2123,10 @@ function GuideBook({user, loc}){
       const idPromise=(async()=>{
         try{
           const b64=await resizeForID(it.dataUrl,800,0.7);
-          return await identifyFish(b64,`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`);
-        }catch(ie){return null;}
+          const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+          if(r&&r.species&&r.species!=="Unidentified")return r;
+          return{species:"Unidentified",length:""};
+        }catch(ie){return{species:"Unidentified",length:""};}
       })();
       const condPromise=(async()=>{
         try{
@@ -2778,7 +2779,7 @@ function GuideBook({user, loc}){
               <button onClick={async(e)=>{
                 const btn=e.currentTarget;
                 btn.textContent="⏳ Analyzing…";btn.disabled=true;
-                const SPECIES_LIST=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"];
+                const SPECIES_LIST=SPECIES;
                 const details=[...(selectedTrip.catchDetails||[])];
                 while(details.length<selectedTrip.photos.length) details.push({});
                 const reset=()=>{try{btn.textContent="✦ Identify Fish";btn.disabled=false;}catch{}};
@@ -2916,7 +2917,7 @@ function GuideBook({user, loc}){
                           <select className="inp" style={{marginBottom:0,fontSize:15}} value={cd.species||""}
                             onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],species:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}>
                             <option value="">Select…</option>
-                            {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                            {SPECIES.map(s=><option key={s}>{s}</option>)}
                           </select>
                         </div>
                         <div>
@@ -3219,7 +3220,9 @@ async function identifyFish(b64,promptText){
       const m=txt.match(/\{[\s\S]*?\}/);
       if(!m)throw new Error("no JSON in response");
       const parsed=JSON.parse(m[0]);
-      return{species:parsed.species||"",length:parsed.length!=null?String(Math.round(parsed.length)):""};
+      let sp=typeof parsed.species==="string"?parsed.species.trim():"";
+      if(/^(unknown|unidentified|null|none|n\/a|not sure|unclear)$/i.test(sp))sp="";
+      return{species:sp,length:parsed.length!=null&&!isNaN(parsed.length)?String(Math.round(parsed.length)):""};
     }catch(err){
       if(attempt===0){await new Promise(r=>setTimeout(r,1500));}
       else{return null;}
@@ -4885,7 +4888,7 @@ ${shopPins}
                       <select className="inp" style={{marginBottom:0,fontSize:15}} value={c.species||""}
                         onChange={e=>updateCatch(c.id,{species:e.target.value})}>
                         <option value="">Select…</option>
-                        {["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Lake Trout","Bull Trout","Steelhead","Largemouth Bass","Smallmouth Bass","Other"].map(s=><option key={s}>{s}</option>)}
+                        {SPECIES.map(s=><option key={s}>{s}</option>)}
                       </select>
                     </div>
                     <div>
