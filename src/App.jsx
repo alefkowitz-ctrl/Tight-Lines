@@ -3241,6 +3241,18 @@ function resizeForID(dataUrl,max=800,quality=0.7){
 function TripPlannerLoading({steps,onCancel}){
   const [factIdx,setFactIdx]=React.useState(Math.floor(Math.random()*FLY_FACTS.length));
   const [fade,setFade]=React.useState(true);
+  const [prog,setProg]=React.useState(3);
+  const stepsRef=React.useRef(0);
+  React.useEffect(()=>{stepsRef.current=(steps||[]).length;},[steps]);
+  React.useEffect(()=>{
+    const t=setInterval(()=>{
+      setProg(p=>{
+        const target=Math.min(8+stepsRef.current*7,88);
+        return Math.min(p+Math.max(target-p,0)*0.03+0.05,90);
+      });
+    },400);
+    return()=>clearInterval(t);
+  },[]);
   React.useEffect(()=>{
     const t=setInterval(()=>{
       setFade(false);
@@ -3256,6 +3268,15 @@ function TripPlannerLoading({steps,onCancel}){
       <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near you<br/>and finding where they're moving…</div>
       <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
+      </div>
+      <div style={{width:"100%",maxWidth:340}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <span style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Generating your report…</span>
+          <span style={{fontSize:14,color:"var(--gold)",fontVariantNumeric:"tabular-nums"}}>{Math.round(prog)}%</span>
+        </div>
+        <div style={{height:6,background:"rgba(255,255,255,0.1)",borderRadius:3,overflow:"hidden"}}>
+          <div style={{height:"100%",width:prog+"%",background:"linear-gradient(90deg,var(--gold),#e3c873)",borderRadius:3,transition:"width 0.4s ease"}}/>
+        </div>
       </div>
     </div>
   );
@@ -3278,6 +3299,23 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
   useEffect(()=>{if(defaultLocation)setLoc(l=>({...l,label:defaultLocation}));},[defaultLocation]);
 
+  // Restore last generated report so tab switches / reloads don't lose it (12h freshness, trip date not past)
+  useEffect(()=>{
+    try{
+      const raw=localStorage.getItem("tl_tripreport_v1");
+      if(!raw)return;
+      const s=JSON.parse(raw);
+      if(!s||s.v!==1||!s.report)return;
+      const today=new Date().toISOString().split("T")[0];
+      if(Date.now()-(s.ts||0)>12*60*60*1000||(s.date||"")<today){try{localStorage.removeItem("tl_tripreport_v1");}catch(re){void 0;}return;}
+      setReport(s.report);
+      if(s.wxData)setWxData(s.wxData);
+      if(Array.isArray(s.gauges)&&s.gauges.length)setGauges(s.gauges);
+      if(s.loc&&s.loc.label)setLoc(s.loc);
+      if(s.date)setDate(s.date);
+    }catch(e){void 0;}
+  },[]);
+
   function addStep(text,state="done"){
     setSteps(prev=>{
       const n=[...prev];
@@ -3290,6 +3328,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
     if(!loc.label.trim()){setError("Please enter a destination.");return;}
     setBusy(true);setError(null);setSteps([]);
     setWxData(null);setFlowPts([]);setGauges([]);setShops([]);setReport(null);
+    let builtReport=null,finalGauges=null;
     try{
       addStep("Finding location…","active");
       let lat=loc.lat,lng=loc.lng;
@@ -3353,7 +3392,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            setReport({dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]});
+            builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
         addStep("Report complete ✓");
@@ -3383,7 +3423,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             return inside;
           }).sort((a,b)=>a.dist-b.dist).slice(0,20);
           const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
-          setGauges(pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0})));
+          finalGauges=pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
+          setGauges(finalGauges);
           const histD=await fetchUSGSHistory(lat,lng);
           const histTS=histD.value?.timeSeries??[];
           if(histTS.length){
@@ -3393,6 +3434,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           }
           addStep(`${pg.length} gauges loaded ✓`);
         }catch(ge){void 0;}
+        // Persist the finished report so navigating away doesn't lose it
+        if(builtReport){
+          try{localStorage.setItem("tl_tripreport_v1",JSON.stringify({v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport}));}catch(se){void 0;}
+        }
       }
     }catch(e){
       setError(e.message||"Something went wrong. Please try again.");
@@ -3764,6 +3809,9 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
 
 function App({user}){
   const [tab,setTab]=useState("conditions");
+  const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
+  const [showSettings,setShowSettings]=useState(false);
+  const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
@@ -4445,11 +4493,25 @@ function App({user}){
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
-          <div style={{position:"absolute",top:14,right:16,zIndex:10}}>
+          <div style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
+            <button onClick={()=>setShowSettings(s=>!s)} aria-label="Settings"
+              style={{background:showSettings?"rgba(200,168,75,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              ⚙
+            </button>
             <button onClick={()=>sb?sb.auth.signOut():null}
               style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               Sign Out
             </button>
+            {showSettings&&(
+              <div style={{position:"absolute",top:44,right:0,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left"}}>
+                <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
+                <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif"}}>
+                  <span>🧭 Guide tab</span>
+                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#c8a84b",cursor:"pointer"}}/>
+                </label>
+                <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
+              </div>
+            )}
           </div>
           <Logo layout="horizontal" scale={0.95} />
         </div>
@@ -4464,7 +4526,7 @@ function App({user}){
         </>}
 
         <div className="nav">
-          {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].map(t=>(
+          {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].filter(t=>t.id!=="guide"||!hideGuide).map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});}}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
@@ -4824,7 +4886,7 @@ ${shopPins}
           </>}
 
           {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>}
-          {tab==="guide"&&<GuideBook user={user} loc={loc}/>}
+          {tab==="guide"&&!hideGuide&&<GuideBook user={user} loc={loc}/>}
         </div>
 
         {batchProgress&&(
