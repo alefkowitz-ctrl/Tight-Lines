@@ -2710,8 +2710,24 @@ function GuideBook({user, loc}){
           if(!files.length) return;
           const btn=document.getElementById("tripDetailAddBtn");
           if(btn){btn.textContent="⏳ "+files.length+" photos…";btn.disabled=true;}
+          // Re-read the trip FRESH from the DB before appending — never write back stale arrays
           let accDetails=[...(selectedTrip.catchDetails||[])];
           let accPhotos=[...(selectedTrip.photos||[])];
+          if(sb){
+            try{
+              const[{data:cdF},{data:prF},{data:tpF}]=await Promise.all([
+                sb.from("trips").select("catch_details").eq("id",tripId).single(),
+                sb.from("trip_photos").select("photo,sort_order").eq("trip_id",tripId).order("sort_order"),
+                sb.from("trips").select("photos").eq("id",tripId).single()
+              ]);
+              accDetails=((cdF?.catch_details)||[]).map(d=>({...d,analyzing:false}));
+              let fp=(prF||[]).map(r=>r.photo).filter(Boolean);
+              if(fp.length===0&&tpF?.photos?.length>0)fp=tpF.photos.filter(Boolean);
+              if(fp.length===0&&accDetails.length>0)fp=accDetails.map(d=>d.photo).filter(Boolean);
+              accPhotos=fp;
+              setSelectedTrip(prev=>({...prev,photos:accPhotos,catchDetails:accDetails}));
+            }catch(fe){void 0;}
+          }
           const tripId=selectedTrip.id;
           for(let fi=0;fi<files.length;fi++){
             const file=files[fi];
@@ -2906,14 +2922,30 @@ function GuideBook({user, loc}){
                         style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         ✏️ Edit
                       </button>
-                      <button onClick={e=>{e.stopPropagation();if(window.confirm("Remove this photo and catch data?")){
+                      <button onClick={async e=>{e.stopPropagation();if(!window.confirm("Remove this photo and catch data?"))return;
+                        const delPhoto=p;
                         const newPhotos=selectedTrip.photos.filter((_,j)=>j!==i);
                         const newDetails=(selectedTrip.catchDetails||[]).filter((_,j)=>j!==i);
+                        if(sb){
+                          // Persist FIRST, then update the screen — never the other way around
+                          const{error:e1}=await sb.from("trips").update({catch_details:newDetails,photos:newPhotos}).eq("id",selectedTrip.id);
+                          if(e1){window.alert("Could not remove — please try again. ("+e1.message+")");return;}
+                          if(typeof delPhoto==="string"&&delPhoto.startsWith("http")){
+                            const{error:e2}=await sb.from("trip_photos").delete().eq("trip_id",selectedTrip.id).eq("photo",delPhoto);
+                            if(e2){window.alert("Removed from trip, but the stored photo record could not be deleted: "+e2.message);}
+                          }
+                        }
                         const upd={...selectedTrip,photos:newPhotos,catchDetails:newDetails};
                         setSelectedTrip(upd);
-                        setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));
-                        void 0;if(sb){sb.from("trips").update({catch_details:newDetails}).eq("id",selectedTrip.id).then(({error})=>{if(error)void 0;else void 0;});}
-                      }}}
+                        setGuests(gs=>{
+                          const next=gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)}));
+                          try{
+                            const safe=next.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[],catchDetails:(t.catchDetails||[]).map(d2=>({...d2,photo:null}))}))}));
+                            localStorage.setItem("tl_guests_"+user.id,JSON.stringify(safe));
+                          }catch(ce){void 0;}
+                          return next;
+                        });
+                      }}
                         style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
                         🗑 Remove
                       </button>
