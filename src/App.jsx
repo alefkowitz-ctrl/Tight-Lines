@@ -2124,14 +2124,7 @@ function GuideBook({user, loc}){
       const idPromise=(async()=>{
         try{
           const b64=await resizeForID(it.dataUrl,800,0.7);
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),20000);
-          let res;
-          try{res=await fetch("/api/claude",{method:"POST",signal:ctrl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`}]}]})});}
-          finally{clearTimeout(tid);}
-          const rd=await res.json();
-          const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-          return{species:parsed.species||"",length:parsed.length!=null?String(Math.round(parsed.length)):""};
+          return await identifyFish(b64,`Identify this fish and estimate length. Species from: ${SPECIES_LIST.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null if unknown.`);
         }catch(ie){return null;}
       })();
       const condPromise=(async()=>{
@@ -2736,10 +2729,8 @@ function GuideBook({user, loc}){
               const idP=(async()=>{
                 try{
                   const b64=await resizeForID(dataUrl,800,0.7);
-                  const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
-                  const rd=await res.json();
-                  const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-                  if(parsed.species&&parsed.species!=="Unidentified")return{species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
+                  const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+                  if(r&&r.species&&r.species!=="Unidentified")return r;
                   return{species:"Unidentified",length:""};
                 }catch(fishErr){return{species:"Unidentified",length:""};}
               })();
@@ -3212,6 +3203,58 @@ const FLY_FACTS=[
   "The hatch timing depends on water temperature, not calendar date.",
   "Cutthroat trout are named for the red slash marks under their jaw.",
 ];
+// Identify a fish photo via the AI proxy — HTTP check, tolerant JSON extraction, one automatic retry
+async function identifyFish(b64,promptText){
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const ctrl=new AbortController();
+      const tid=setTimeout(()=>ctrl.abort(),25000);
+      let res;
+      try{
+        res=await fetch("/api/claude",{method:"POST",signal:ctrl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:promptText}]}]})});
+      }finally{clearTimeout(tid);}
+      if(!res.ok)throw new Error("HTTP "+res.status);
+      const rd=await res.json();
+      const txt=(rd.content||[]).map(c=>c.text||"").join(" ");
+      const m=txt.match(/\{[\s\S]*?\}/);
+      if(!m)throw new Error("no JSON in response");
+      const parsed=JSON.parse(m[0]);
+      return{species:parsed.species||"",length:parsed.length!=null?String(Math.round(parsed.length)):""};
+    }catch(err){
+      if(attempt===0){await new Promise(r=>setTimeout(r,1500));}
+      else{return null;}
+    }
+  }
+  return null;
+}
+
+// Snap AI-suggested river coordinates to the nearest matching USGS gauge (surveyed coords beat AI guesses)
+function snapRiversToGauges(rivers,gaugeList){
+  if(!Array.isArray(rivers)||!Array.isArray(gaugeList)||!gaugeList.length)return rivers;
+  const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT"};
+  const norm=s=>String(s||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean).flatMap(t=>(ABBR[t]||t).split(" "));
+  const streamPart=n=>String(n||"").toUpperCase().split(/\s+(?:AT|NEAR|NR|BLW?|BELOW|ABV?|ABOVE)\s+/)[0];
+  return rivers.map(r=>{
+    const rt=norm(r.name);
+    if(!rt.length)return r;
+    let best=null,bestScore=0;
+    for(const g of gaugeList){
+      if(!(g.lat&&g.lng))continue;
+      const gFull=norm(g.name);
+      const gStream=norm(streamPart(g.name));
+      let score=0;
+      const allInStream=rt.every(t=>gStream.includes(t));
+      if(allInStream&&gStream.length===rt.length)score=3;
+      else if(allInStream)score=2;
+      else if(rt.every(t=>gFull.includes(t)))score=1;
+      if(score===0)continue;
+      const d=(r.lat&&r.lng)?Math.hypot(g.lat-r.lat,g.lng-r.lng):(g.dist??9);
+      if(!best||score>bestScore||(score===bestScore&&d<best._d)){best={...g,_d:d};bestScore=score;}
+    }
+    return best?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name}:r;
+  });
+}
+
 // Process items with limited concurrency (order of results preserved)
 async function mapLimit(items,limit,fn){
   const out=new Array(items.length);let next=0;
@@ -3392,7 +3435,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:(rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),pgScaled),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
@@ -4358,10 +4401,8 @@ function App({user}){
           const idPromise=(async()=>{
             try{
               const base64=await resizeForID(it.dataUrl,800,0.7);
-              const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
-              const rd=await res.json();
-              const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-              if(parsed.species&&parsed.species!=="Unidentified")return{species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};
+              const r=await identifyFish(base64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+              if(r&&r.species&&r.species!=="Unidentified")return r;
               return{species:"Unidentified",length:""};
             }catch(fishErr){return{species:"Unidentified",length:""};}
           })();
@@ -4423,13 +4464,13 @@ function App({user}){
     const idPromise=(async()=>{
       try{
         const base64=await resizeForID(dataUrl,800,0.7);
-        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:base64}},{type:"text",text:`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`}]}]})});
-        const rd=await res.json();
-        const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-        if(parsed.species||parsed.length!=null){
-          setForm(f=>({...f,species:parsed.species||f.species,length:parsed.length!=null?String(Math.round(parsed.length)):f.length,sizeEstimated:parsed.length!=null}));
-        } else {
+        const r=await identifyFish(base64,`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`);
+        if(r&&(r.species||r.length)){
+          setForm(f=>({...f,species:r.species||f.species,length:r.length||f.length,sizeEstimated:!!r.length}));
+        } else if(r){
           setForm(f=>({...f,idNote:"Could not identify fish from this photo. Please select species manually."}));
+        } else {
+          setForm(f=>({...f,idNote:"Photo analysis failed. Please select species manually."}));
         }
       }catch(e3){
         void 0;
