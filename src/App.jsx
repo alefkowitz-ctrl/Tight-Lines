@@ -3389,17 +3389,33 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       addStep("Forecast loaded ✓");
 
       addStep("Loading stream data…","active");
-      // Use Intel tab gauges — already fetched, filtered, and correct
-      const pgScaled=(parentGauges||[]);
+      // Use Intel tab gauges when available; otherwise fetch our own (planner must never run blind)
+      let pgScaled=(parentGauges||[]);
+      if(!pgScaled.length){
+        try{
+          const usgs0=await fetchUSGSLive(lat,lng,2);
+          const liveTS0=(usgs0?.value?.timeSeries)??[];
+          pgScaled=liveTS0.map(t=>{
+            const raw=t.values?.[0]?.value?.[0]?.value;
+            const cfs=raw!=null?parseFloat(raw):null;
+            const{label,cls}=cfsLabel(cfs);
+            const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
+            const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+            const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+            const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+            return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
+          }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist).slice(0,40);
+        }catch(ge2){void 0;}
+      }
       setGauges(pgScaled);
-      addStep(`${pgScaled.length} streams loaded from Intel tab`);
+      addStep(`${pgScaled.length} streams loaded`);
 
       {
         // Filter USGS gauges to fishable streams only
         const NON_FISHABLE2=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
         const fishableGauges=pgScaled.filter(g=>{
           const n=g.name.toLowerCase();
-          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
+          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
           const hasWater=waterWords.some(w=>n.includes(w));
           const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
           return hasWater&&!hasNonFish;
@@ -3422,7 +3438,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(pgScaled.length?pgScaled.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst for today (maximum 6 streams). Use USGS flow data if available, otherwise use your expert knowledge of this region. Exclude urban drainage and irrigation. For each stream use the actual CFS from the USGS data. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           const reportTxt=await askClaude(synthPrompt,false,6000);
           void 0;
           void 0;
@@ -3435,7 +3451,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),pgScaled),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
@@ -4315,7 +4331,7 @@ function App({user}){
           const n=name.toLowerCase();
           const splitWords=["near ","at ","below ","above "," nr "," abv "," ab "," bl "];
           var streamPart=n;for(var si=0;si<splitWords.length;si++){var si2=n.indexOf(splitWords[si]);if(si2>5){streamPart=n.substring(0,si2);break;}}
-          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," cr"," ck"," fk"];
+          const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
           const hasWaterword=waterWords.some(function(w){return n.indexOf(w)!==-1;});
           const hasNonFishable=NON_FISHABLE.some(function(kw){return streamPart.indexOf(kw)!==-1;});
           return hasWaterword&&!hasNonFishable;
