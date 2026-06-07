@@ -1,5 +1,48 @@
 export const maxDuration = 120; // shop-report searches with page reads legitimately need >60s
 
+// ---- Daily per-user rate limits (server-enforced) ----
+// Planner runs are counted via saved rows in planner_reports (the report IS the ledger).
+// Cheap calls (fish ID, shop curation, CRM summaries, conditions) log one ai_usage row each.
+// Counting is by UTC day. The Supabase anon key is public by design (it ships in the app
+// bundle); RLS scopes every query to the calling user's own rows.
+const PLANNER_DAILY_LIMIT = 5;
+const CHEAP_DAILY_LIMIT = 50;
+const SB_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
+
+// Count the caller's rows in `table` created today (UTC). Uses the caller's own JWT,
+// so RLS guarantees we only ever count their rows. Returns:
+//   { auth:false }            -> token invalid/expired
+//   { auth:true, count:null } -> Supabase hiccup; treat as unknown (fail open)
+//   { auth:true, count:N }
+async function todayCount(table, jwt) {
+  try {
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    const r = await fetch(SB_URL + "/rest/v1/" + table + "?select=id&created_at=gte." + since.toISOString(), {
+      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, Prefer: "count=exact", Range: "0-0" }
+    });
+    if (r.status === 401 || r.status === 403) return { auth: false };
+    if (!r.ok && r.status !== 206) return { auth: true, count: null };
+    const cr = r.headers.get("content-range") || "";
+    const total = parseInt(cr.split("/")[1], 10);
+    return { auth: true, count: isNaN(total) ? null : total };
+  } catch (e) {
+    return { auth: true, count: null };
+  }
+}
+
+// Log one cheap-call usage row. Awaited but never blocks the AI call on failure.
+async function logUsage(jwt, kind) {
+  try {
+    await fetch(SB_URL + "/rest/v1/ai_usage", {
+      method: "POST",
+      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ kind })
+    });
+  } catch (e) { /* usage logging must never break the app */ }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -50,7 +93,8 @@ export default async function handler(req, res) {
     }
   }
 
-  const { proxy_url, ...body } = req.body;
+  // usage_kind is our own field — it must be stripped before forwarding to Anthropic
+  const { proxy_url, usage_kind, ...body } = req.body;
 
   // Proxy mode: forward to CORS-blocked external URLs (DWR, etc.)
   if (proxy_url) {
@@ -62,6 +106,21 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: e.message });
     }
   }
+
+  // ---- Rate-limit gate: applies ONLY to Anthropic calls (the ones that cost money) ----
+  const jwt = (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  if (!jwt) return res.status(401).json({ error: { message: "Please sign in to use AI features." } });
+  const kind = usage_kind === "planner" ? "planner" : "cheap";
+  const table = kind === "planner" ? "planner_reports" : "ai_usage";
+  const limit = kind === "planner" ? PLANNER_DAILY_LIMIT : CHEAP_DAILY_LIMIT;
+  const gate = await todayCount(table, jwt);
+  if (gate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
+  if (gate.count != null && gate.count >= limit) {
+    return res.status(429).json({ error: { message: kind === "planner"
+      ? "You've reached today's limit of " + PLANNER_DAILY_LIMIT + " trip reports. Reports you already ran today are saved in the planner — tap one to reopen it. The limit resets daily."
+      : "You've reached today's AI usage limit. It resets daily." } });
+  }
+  if (kind !== "planner") await logUsage(jwt, kind);
 
   // Anthropic API — handles both plain and web-search tool calls
   try {
