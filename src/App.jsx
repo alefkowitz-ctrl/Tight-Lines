@@ -5525,6 +5525,10 @@ ${shopPins}
 function SplashScreen({onDone}){
   const [fade,setFade]=React.useState(false);
   const [screen,setScreen]=React.useState(0);
+  // Intro walkthrough video — YouTube Short embedded in privacy-enhanced (no-cookie) mode.
+  // If the iframe itself fails to load (e.g. offline), the original artwork shows instead.
+  const WELCOME_VIDEO_EMBED="https://www.youtube-nocookie.com/embed/4BpQmrpQj9U";
+  const [vidOk,setVidOk]=React.useState(true);
   const total=4;
   function dismiss(){setFade(true);setTimeout(()=>onDone(),700);}
   function next(){if(screen<total-1)setScreen(s=>s+1);else dismiss();}
@@ -5568,6 +5572,19 @@ function SplashScreen({onDone}){
     )}
       {s.isSplash?(
         <>
+          {vidOk&&(
+            <div style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(200,168,75,0.35)",background:"#000",flexShrink:0}}>
+              <iframe
+                src={WELCOME_VIDEO_EMBED}
+                title="Guide's Choice walkthrough"
+                style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                onError={()=>setVidOk(false)}
+              />
+            </div>
+          )}
+          {!vidOk&&(
           <svg viewBox="0 0 340 180" width="300" height="160" style={{marginBottom:20}}>
             <defs>
               <linearGradient id="skg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0a1a2e"/><stop offset="100%" stopColor="#1a3a4a"/></linearGradient>
@@ -5591,6 +5608,7 @@ function SplashScreen({onDone}){
               <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
+          )}
           <div style={{marginBottom:8}}><Logo layout="stacked" mark={false} scale={1} /></div>
           <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
