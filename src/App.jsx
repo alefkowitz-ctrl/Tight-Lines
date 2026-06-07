@@ -124,7 +124,24 @@ function parseExif(buffer){
 async function uploadPhotoToStorage(base64DataUrl, folder){
   if(!sb) return null;
   try{
-    const res=await fetch(base64DataUrl);
+    // Downscale before upload: full-res photos time out on cell connections
+    let uploadUrl=base64DataUrl;
+    try{
+      uploadUrl=await new Promise((res2)=>{
+        const img=new Image();
+        img.onload=()=>{
+          const scale=Math.min(1,1600/Math.max(img.width,img.height));
+          if(scale>=1)return res2(base64DataUrl);
+          const cv=document.createElement("canvas");
+          cv.width=Math.round(img.width*scale);cv.height=Math.round(img.height*scale);
+          cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+          res2(cv.toDataURL("image/jpeg",0.82));
+        };
+        img.onerror=()=>res2(base64DataUrl);
+        img.src=base64DataUrl;
+      });
+    }catch{uploadUrl=base64DataUrl;}
+    const res=await fetch(uploadUrl);
     const blob=await res.blob();
     const ext=blob.type.split("/")[1]||"jpg";
     const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -314,7 +331,7 @@ function parseShopArray(txt){
 
 async function askClaude(prompt, useSearch=false, maxTokens=1200){
   const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
-  if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:1}];
+  if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:2}];
   const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
   if(d.error)throw new Error(d.error.message||"API error");
@@ -2016,6 +2033,13 @@ function GuideBook({user, loc}){
   const [guideSection, setGuideSection] = useState("clients");
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  // Persist which trip is open so an iOS reload (e.g. after closing the PDF tab) lands back on it
+  useEffect(()=>{
+    try{
+      if(view==="tripDetail"&&selectedGuest?.id&&selectedTrip?.id) sessionStorage.setItem("tl_guide_open",JSON.stringify({g:selectedGuest.id,t:selectedTrip.id}));
+      else if(view==="list") sessionStorage.removeItem("tl_guide_open");
+    }catch{}
+  },[view,selectedGuest?.id,selectedTrip?.id]);
 
   const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
 
@@ -2034,6 +2058,26 @@ function GuideBook({user, loc}){
         setGuestsLoading(false);
         return;
       }
+
+      // Auto-migrate any pre-login local guests/trips to this account (was a manual button)
+      try{
+        const localGuests=JSON.parse(localStorage.getItem("tl_guests")||"[]");
+        const localTrips=JSON.parse(localStorage.getItem("tl_trips")||"[]");
+        if(localGuests.length){
+          for(const g of localGuests){
+            const {id:oldId,...gData}=g;
+            const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
+            if(!error&&newG){
+              const gTrips=localTrips.filter(t=>t.guest_id===oldId);
+              for(const t of gTrips){
+                await sb.from("trips").insert({user_id:user.id,guest_id:newG.id,date:t.date,location:t.location,type:t.type,styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],gear:t.gear,guide_notes:t.guideNotes||t.guide_notes,photos:t.photos||[],trip_cost:t.tripCost||t.trip_cost,tip_amount:t.tipAmount||t.tip_amount,report_text:t.reportText||t.report_text,air_temp:t.airTemp||t.air_temp,water_temp:t.waterTemp||t.water_temp,weather_conditions:t.weatherConditions||t.weather_conditions,wind_speed:t.windSpeed||t.wind_speed,wind_dir:t.windDir||t.wind_dir,pressure:t.pressure,pressure_trend:t.pressureTrend||t.pressure_trend,stream_cfs:t.streamCFS||t.stream_cfs,stream_condition:t.streamCondition||t.stream_condition,stream_gauge_name:t.streamGaugeName||t.stream_gauge_name});
+              }
+            }
+          }
+          localStorage.removeItem("tl_guests");
+          localStorage.removeItem("tl_trips");
+        }
+      }catch(migErr){void 0;}
 
       // Logged in via Supabase - load from cloud (guests + trips fetched in PARALLEL)
       const [gRes,tRes]=await Promise.all([
@@ -2070,6 +2114,16 @@ function GuideBook({user, loc}){
       }));
       setGuests(guestsWithTrips);
       setGuestsLoading(false);
+      // Deep-restore: reopen the trip that was open before a reload
+      try{
+        const saved=JSON.parse(sessionStorage.getItem("tl_guide_open")||"null");
+        if(saved){
+          const g=guestsWithTrips.find(x=>x.id===saved.g);
+          const t=g&&(g.trips||[]).find(x=>x.id===saved.t);
+          if(g&&t){setSelectedGuest(g);setSelectedTrip(t);setView("tripDetail");}
+          sessionStorage.removeItem("tl_guide_open");
+        }
+      }catch{}
       // Update cache with fresh Supabase data (strip ALL photos incl. catch detail photos — base64 blows the localStorage quota and silently kills the cache)
       try{
         const cacheKey="tl_guests_"+user.id;
@@ -2081,20 +2135,7 @@ function GuideBook({user, loc}){
   },[user]);
 
   // Upload a base64 photo to Supabase Storage, return public URL
-  async function uploadPhotoToStorage(base64DataUrl, folder){
-    if(!sb) return null;
-    try{
-      // Convert base64 to blob
-      const res=await fetch(base64DataUrl);
-      const blob=await res.blob();
-      const ext=blob.type.split("/")[1]||"jpg";
-      const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const {data,error}=await sb.storage.from("trip-photos").upload(fileName, blob, {contentType:blob.type,upsert:false});
-      if(error){ void 0; return null; }
-      const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
-      return publicUrl;
-    }catch(e){ void 0; return null; }
-  }
+  // (duplicate uploadPhotoToStorage removed — global single source of truth handles downscale + upload)
 
   // Upload all photos in array, return URLs (falls back to base64 if storage fails)
   async function uploadPhotosToStorage(photos, folder){
@@ -2480,37 +2521,7 @@ function GuideBook({user, loc}){
           ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only.
         </div>
       )}
-      {!String(user?.id).startsWith("local")&&(()=>{
-        const localGuests=JSON.parse(localStorage.getItem("tl_guests")||"[]");
-        const localTrips=JSON.parse(localStorage.getItem("tl_trips")||"[]");
-        if(!localGuests.length) return null;
-        return(
-          <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
-            📦 You have <strong>{localGuests.length} guest{localGuests.length!==1?"s":""}</strong> saved locally from before you logged in.
-            <button className="btn" style={{width:"100%",marginTop:10,background:"rgba(200,168,75,0.3)",color:"var(--gold)",border:"1px solid rgba(200,168,75,0.5)"}}
-              onClick={async()=>{
-                let migrated=0;
-                for(const g of localGuests){
-                  const {id:oldId,...gData}=g;
-                  const {data:newG,error}=await sb.from("guests").insert({user_id:user.id,name:gData.name,birthday:gData.birthday,address:gData.address,email:gData.email,phone:gData.phone,notes:gData.notes,dietary:gData.dietary,skill_level:gData.skillLevel||gData.skill_level}).select().single();
-                  if(!error&&newG){
-                    migrated++;
-                    const gTrips=localTrips.filter(t=>t.guest_id===oldId);
-                    for(const t of gTrips){
-                      await sb.from("trips").insert({user_id:user.id,guest_id:newG.id,date:t.date,location:t.location,type:t.type,styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],gear:t.gear,guide_notes:t.guideNotes||t.guide_notes,photos:t.photos||[],trip_cost:t.tripCost||t.trip_cost,tip_amount:t.tipAmount||t.tip_amount,report_text:t.reportText||t.report_text,air_temp:t.airTemp||t.air_temp,water_temp:t.waterTemp||t.water_temp,weather_conditions:t.weatherConditions||t.weather_conditions,wind_speed:t.windSpeed||t.wind_speed,wind_dir:t.windDir||t.wind_dir,pressure:t.pressure,pressure_trend:t.pressureTrend||t.pressure_trend,stream_cfs:t.streamCFS||t.stream_cfs,stream_condition:t.streamCondition||t.stream_condition,stream_gauge_name:t.streamGaugeName||t.stream_gauge_name});
-                    }
-                  }
-                }
-                localStorage.removeItem("tl_guests");
-                localStorage.removeItem("tl_trips");
-                alert(`Migrated ${migrated} guest${migrated!==1?"s":""} to your account! Refreshing…`);
-                window.location.reload();
-              }}>
-              ☁️ Migrate to My Account
-            </button>
-          </div>
-        );
-      })()}
+      
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
@@ -3291,7 +3302,7 @@ function GuideBook({user, loc}){
 }}>✏️</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)",padding:"0 14px"}} onClick={()=>{deleteTrip(selectedGuest.id,selectedTrip.id);}}>🗑</button>
         </div>
-        {(selectedTrip.photos?.length>0||report)&&(
+        {!!report&&(
           <button className="btn" style={{width:"100%",marginTop:8,padding:12,fontSize:15,background:"linear-gradient(135deg,#1a3a45,#2c5f6e)"}}
             onClick={()=>generateTripReportPDF(selectedGuest,selectedTrip,report||"")}>
             📄 Export PDF Report
@@ -3747,13 +3758,16 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Reading current water conditions…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
-          // Searches are best-effort: a failed search resolves to "" (estimated mode) instead of rejecting Promise.all and killing the report
-          const searchRace=await Promise.race([
-            Promise.all([askClaude(searchPrompt1,true,3500).catch(()=>""),askClaude(searchPrompt2,true,3500).catch(()=>"")]),
-            new Promise(r=>setTimeout(()=>r(null),25000))
+          // Each search gets its own independent timeout; whichever finishes is kept (no all-or-nothing race)
+          let searchFailReason="";
+          const withTO=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
+          const onFail=e=>{searchFailReason=(e&&e.message==="timeout")?"timed out":"hit an error";return "";};
+          const [searchTxt1,searchTxt2]=await Promise.all([
+            withTO(askClaude(searchPrompt1,true,3500),35000).catch(onFail),
+            withTO(askClaude(searchPrompt2,true,3500),35000).catch(onFail)
           ]);
-          const [searchTxt1,searchTxt2]=searchRace||["",""];
-          const searchTxt=searchTxt1+" "+searchTxt2;
+          const searchTxt=(searchTxt1+" "+searchTxt2).trim();
+          const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
           void 0;
 
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
@@ -3765,7 +3779,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           try{pTempMap=await fetchUSGSTempBatch(fishableGauges.map(g=>g.siteNo));}catch{pTempMap={};}
           const maxWaterF=Object.values(pTempMap).reduce((m,v)=>(v>m?v:m),0);
           const thermalRisk=(airF!=null&&airF>=85)||maxWaterF>=65;
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi away":"")+(pTempMap[g.siteNo]!=null?" - water "+pTempMap[g.siteNo]+"F":"")+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+(thermalRisk?" HEAT ADVISORY ACTIVE (air "+(airF!=null?airF:"--")+"F"+(maxWaterF?", warmest gauge water "+maxWaterF+"F":"")+"): recommend dawn starts and being off the water by early afternoon; advise carrying a thermometer and stopping trout fishing at 67F water; do NOT encourage afternoon or evening trout fishing anywhere in this report.":"")+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. (6) Use at most 2 sections of the same river so the list covers diverse waters when the gauge list allows. (7) NEVER state drive times or drive durations - the straight-line distance is given per gauge; you may say 'closer' or 'farther' but never minutes or hours. (8) State water temperature ONLY if temperature data was explicitly provided - otherwise do not mention specific water temps. (9) Hatch guidance MUST match the given date's month and the region - never headline a hatch that is out of season for that month; if unsure about a hatch, name only broadly reliable food forms (caddis, midges, terrestrials, stonefly nymphs). (10) Name ONLY widely recognized commercial fly patterns (e.g. Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat) - NEVER invent or guess pattern names. (11) Keep flow narrative consistent: in high water fish hold in soft edges, banks, and slack water - never claim high flow concentrates fish in main-channel runs. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi away":"")+(pTempMap[g.siteNo]!=null?" - water "+pTempMap[g.siteNo]+"F":"")+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+(thermalRisk?" HEAT ADVISORY ACTIVE (air "+(airF!=null?airF:"--")+"F"+(maxWaterF?", warmest gauge water "+maxWaterF+"F":"")+"): recommend dawn starts and being off the water by early afternoon; advise carrying a thermometer and stopping trout fishing at 67F water; do NOT encourage afternoon or evening trout fishing anywhere in this report.":"")+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). If fewer than 6 genuinely deserve a recommendation, return fewer - NEVER pad the list with marginal trickles (under ~20 CFS) or non-trout water just to reach 6. CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. (6) Use at most 2 sections of the same river so the list covers diverse waters when the gauge list allows. (7) NEVER state drive times or drive durations - the straight-line distance is given per gauge; you may say 'closer' or 'farther' but never minutes or hours. (8) State water temperature ONLY if temperature data was explicitly provided - otherwise do not mention specific water temps. (9) Hatch guidance MUST match the given date's month and the region - never headline a hatch that is out of season for that month; if unsure about a hatch, name only broadly reliable food forms (caddis, midges, terrestrials, stonefly nymphs). (10) Name ONLY widely recognized commercial fly patterns (e.g. Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat) - NEVER invent or guess pattern names. (11) Keep flow narrative consistent: in high water fish hold in soft edges, banks, and slack water - never claim high flow concentrates fish in main-channel runs. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           let reportTxt;
           try{
             reportTxt=await askClaude(synthPrompt,false,6000);
@@ -3788,7 +3802,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
-            builtReport={dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){
@@ -3903,7 +3917,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       {report&&(
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
-          <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — no current local reports found":"Synthesized from live USGS flows, weather & current conditions"}</div>
+          <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — "+(report.searchNote||"no current local reports found"):"Synthesized from live USGS flows, weather & current conditions"}</div>
           <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{(report.overview||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
           {report.recommendation&&(
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
@@ -4218,7 +4232,8 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
 }
 
 function App({user}){
-  const [tab,setTab]=useState("conditions");
+  const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
+  useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
   const [showSettings,setShowSettings]=useState(false);
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
@@ -4452,7 +4467,22 @@ function App({user}){
       setSyncQueue(queue);
       return;
     }
-    const{data,error}=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
+    let data=null,error=null;
+    try{
+      const r=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
+      data=r.data;error=r.error;
+    }catch(netErr){error={message:netErr.message,_network:true};}
+    if(error&&(error._network||/load failed|network|fetch|timeout/i.test(error.message||""))){
+      // Network hiccup: route to the offline sync queue instead of losing the catch
+      const offlineId="offline-"+Date.now()+"-"+Math.random().toString(36).slice(2,6);
+      const offlineItem={...catchData,_offlineId:offlineId,_pending:true,id:offlineId};
+      setCatches(cs=>[offlineItem,...cs]);
+      const queue=JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');
+      queue.push({...catchData,_offlineId:offlineId});
+      localStorage.setItem('tl_sync_queue',JSON.stringify(queue));
+      setSyncQueue(queue);
+      return offlineId;
+    }
     if(error){
       alert("Catch save failed: "+error.message);
     } else if(data){
@@ -4768,6 +4798,7 @@ function App({user}){
         }catch(re){void 0;}
       }
       // Phase 2 — fish ID and conditions run in PARALLEL for each photo, 3 photos at a time
+      try{
       await mapLimit(items,3,async(it)=>{
         try{
           const fetchLat=it.photoLat??loc?.lat;
@@ -4783,7 +4814,7 @@ function App({user}){
               return{species:"Unidentified",length:""};
             }catch(fishErr){return{species:"Unidentified",length:""};}
           })();
-          const condPromise=(async()=>{
+          const condPromise=Promise.race([new Promise(r=>setTimeout(()=>r(null),20000)),(async()=>{
             if(!fetchLat||!fetchLng)return null;
             try{
               const d2=new Date(t.replace(" at "," "));
@@ -4805,7 +4836,7 @@ function App({user}){
               }
               return cd;
             }catch(condErr){return null;}
-          })();
+          })()]);
           const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
           let catchData={species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,gps:coords,time:t,notes:"",air_temp:null,weather_desc:null,wind_speed:null,wind_dir:null,pressure:null,stream_cfs:null,stream_condition:null,stream_gauge_name:null,water_temp:null};
           if(condRes)catchData={...catchData,...condRes};
@@ -4814,8 +4845,11 @@ function App({user}){
         }catch(batchErr){void 0;}
         finally{setBatchProgress(p=>p?{...p,done:Math.min((p.done||0)+1,p.total)}:p);}
       });
-      setBatchProgress({total:files.length,done:files.length,current:""});
-      setTimeout(()=>setBatchProgress(null),2000);
+      }finally{
+        // Overlay must clear no matter what happened above
+        setBatchProgress({total:files.length,done:files.length,current:""});
+        setTimeout(()=>setBatchProgress(null),1500);
+      }
       return;
     }
     // Single file mode — original flow
