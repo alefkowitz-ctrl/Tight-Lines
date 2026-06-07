@@ -329,12 +329,29 @@ function parseShopArray(txt){
   return null;
 }
 
-async function askClaude(prompt, useSearch=false, maxTokens=1200){
+// Single gateway for ALL Anthropic calls. Attaches the user's Supabase session token
+// (the server rate-limits per user) and a usage_kind ("planner" counts against the
+// 5/day planner limit; everything else is "cheap", 50/day). Surfaces daily-limit
+// errors with the server's friendly message. Returns the parsed API response.
+async function aiFetch(body, kind="cheap", opts={}){
+  let auth={};
+  try{
+    if(sb){const {data}=await sb.auth.getSession();const t=data&&data.session&&data.session.access_token;if(t)auth={Authorization:"Bearer "+t};}
+  }catch(e){void 0;}
+  const res=await fetch("/api/claude",{method:"POST",signal:opts.signal,headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({...body,usage_kind:kind})});
+  if(res.status===429||res.status===401){
+    let d=null;try{d=await res.json();}catch(e){void 0;}
+    const msg=(d&&d.error&&(d.error.message||(typeof d.error==="string"?d.error:null)))||(res.status===429?"Daily AI limit reached — it resets daily.":"Please sign in to use AI features.");
+    const err=new Error(msg);err.isLimit=res.status===429;throw err;
+  }
+  let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
+  if(d.error)throw new Error(d.error.message||(typeof d.error==="string"?d.error:"API error"));
+  return d;
+}
+async function askClaude(prompt, useSearch=false, maxTokens=1200, kind="cheap"){
   const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:2}];
-  const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  let d;try{d=await res.json();}catch(e){throw new Error("API request failed.");}
-  if(d.error)throw new Error(d.error.message||"API error");
+  const d=await aiFetch(body,kind);
   // Handle tool use responses - extract all text blocks including after tool results
   const texts=(d.content||[]).map(b=>b.type==="text"?b.text:b.type==="tool_result"?(Array.isArray(b.content)?b.content.map(x=>x.text||"").join(""):b.content||""):"").filter(Boolean);
   return texts.join(" ");
@@ -3055,11 +3072,10 @@ function GuideBook({user, loc}){
                         }catch(fe){void 0;continue;}
                       }
                       if(!imageSource){continue;}
-                      const claudeRes=await Promise.race([
-                        fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]})}),
+                      const rd=await Promise.race([
+                        aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]},"cheap"),
                         new Promise((_,r)=>setTimeout(()=>r(new Error("claude timeout")),20000))
                       ]);
-                      const rd=await claudeRes.json();
                       const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
                       if(parsed.species){details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};}
                       setSelectedTrip(st=>({...st,catchDetails:[...details]}));
@@ -3491,12 +3507,10 @@ async function identifyFish(b64,promptText){
     try{
       const ctrl=new AbortController();
       const tid=setTimeout(()=>ctrl.abort(),25000);
-      let res;
+      let rd;
       try{
-        res=await fetch("/api/claude",{method:"POST",signal:ctrl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:promptText}]}]})});
+        rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:promptText}]}]},"cheap",{signal:ctrl.signal});
       }finally{clearTimeout(tid);}
-      if(!res.ok)throw new Error("HTTP "+res.status);
-      const rd=await res.json();
       const txt=(rd.content||[]).map(c=>c.text||"").join(" ");
       const m=txt.match(/\{[\s\S]*?\}/);
       if(!m)throw new Error("no JSON in response");
@@ -3678,8 +3692,43 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
   const [shops,setShops]=useState([]);
   const [report,setReport]=useState(null);
+  const [savedReports,setSavedReports]=useState([]); // today's reports saved in Supabase — reopening is free
+  const [saveNote,setSaveNote]=useState(null);
 
   useEffect(()=>{if(defaultLocation)setLoc(l=>({...l,label:defaultLocation}));},[defaultLocation]);
+
+  // Apply a saved report payload to the planner (shared by sessionStorage restore and Earlier Today)
+  function applySavedReport(s){
+    try{
+      if(!s||!s.report)return;
+      setReport(s.report);
+      if(s.wxData)setWxData(s.wxData);
+      if(Array.isArray(s.gauges)&&s.gauges.length)setGauges(s.gauges);
+      if(s.loc&&s.loc.label)setLoc(s.loc);
+      if(s.date)setDate(s.date);
+      setError(null);
+      try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify({...s,v:1,ts:Date.now()}));}catch(se){void 0;}
+    }catch(e){void 0;}
+  }
+  // Open one of today's saved reports: list rows are lightweight, the payload loads on tap
+  async function openSavedReport(r){
+    if(!sb)return;
+    try{
+      const {data,error:perr}=await sb.from("planner_reports").select("payload").eq("id",r.id).single();
+      if(perr||!data||!data.payload){setError("Couldn't load that report: "+(perr?perr.message:"not found"));return;}
+      applySavedReport(data.payload);
+    }catch(e){setError("Couldn't load that report: "+(e.message||"unknown error"));}
+  }
+
+  // Load today's saved reports (specific columns only — payload is fetched on tap)
+  useEffect(()=>{(async()=>{
+    if(!sb)return;
+    try{
+      const today=new Date().toISOString().split("T")[0];
+      const {data,error:lerr}=await sb.from("planner_reports").select("id,created_at,loc_label").eq("report_date",today).order("created_at",{ascending:false}).limit(10);
+      if(!lerr&&Array.isArray(data))setSavedReports(data);
+    }catch(e){void 0;}
+  })();},[]);
 
   // Restore last generated report so tab switches don't lose it — session-scoped:
   // closing the app clears it, and the location field falls back to the Intel tab location
@@ -3710,6 +3759,15 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
   async function generate(){
     if(!loc.label.trim()){setError("Please enter a destination.");return;}
+    // Daily-limit pre-check — instant feedback instead of failing after a 90-second search.
+    // The server enforces the same limit regardless; this is purely UX.
+    if(sb){
+      try{
+        const since=new Date();since.setUTCHours(0,0,0,0);
+        const {count,error:cntErr}=await sb.from("planner_reports").select("id",{count:"exact",head:true}).gte("created_at",since.toISOString());
+        if(!cntErr&&count!=null&&count>=5){setError("You've reached today's limit of 5 trip reports. Reports you already ran today are listed below — tap one to reopen it. The limit resets daily.");return;}
+      }catch(pe){void 0;}
+    }
     setBusy(true);setError(null);setSteps([]);
     setWxData(null);setFlowPts([]);setGauges([]);setShops([]);setReport(null);
     let builtReport=null,finalGauges=null;
@@ -3776,8 +3834,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const withTO=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
           const onFail=e=>{searchFailReason=(e&&e.message==="timeout")?"timed out":"hit an error";return "";};
           const [searchTxt1,searchTxt2]=await Promise.all([
-            withTO(askClaude(searchPrompt1,true,6000),90000).catch(onFail),
-            withTO(askClaude(searchPrompt2,true,6000),90000).catch(onFail)
+            withTO(askClaude(searchPrompt1,true,6000,"planner"),90000).catch(onFail),
+            withTO(askClaude(searchPrompt2,true,6000,"planner"),90000).catch(onFail)
           ]);
           const searchTxt=(searchTxt1+" "+searchTxt2).trim();
           const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
@@ -3795,12 +3853,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi away":"")+(pTempMap[g.siteNo]!=null?" - water "+pTempMap[g.siteNo]+"F":"")+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+(thermalRisk?" HEAT ADVISORY ACTIVE (air "+(airF!=null?airF:"--")+"F"+(maxWaterF?", warmest gauge water "+maxWaterF+"F":"")+"): recommend dawn starts and being off the water by early afternoon; advise carrying a thermometer and stopping trout fishing at 67F water; do NOT encourage afternoon or evening trout fishing anywhere in this report.":"")+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). If fewer than 6 genuinely deserve a recommendation, return fewer - NEVER pad the list with marginal trickles (under ~20 CFS) or non-trout water just to reach 6. CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. (6) Use at most 2 sections of the same river, AND spread picks across different drainages and distances - do not let the two or three nearest creeks crowd out strong waters farther out (larger rivers, tailwaters); a real guide offers the client range. (7) NEVER state drive times or drive durations - the straight-line distance is given per gauge; you may say 'closer' or 'farther' but never minutes or hours. (8) State water temperature ONLY if temperature data was explicitly provided - otherwise do not mention specific water temps. (9) Hatch guidance MUST match the given date's month and the region - never headline a hatch that is out of season for that month; if unsure about a hatch, name only broadly reliable food forms (caddis, midges, terrestrials, stonefly nymphs). (10) Name ONLY widely recognized commercial fly patterns (e.g. Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat) - NEVER invent or guess pattern names. (11) Keep flow narrative consistent: in high water fish hold in soft edges, banks, and slack water - never claim high flow concentrates fish in main-channel runs. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           let reportTxt;
           try{
-            reportTxt=await askClaude(synthPrompt,false,6000);
+            reportTxt=await askClaude(synthPrompt,false,6000,"planner");
           }catch(se){
+            if(se&&se.isLimit)throw se; // daily limit — retrying is pointless
             // Transient upstream errors (Anthropic 500 "Internal server error" / 529 overloaded) — wait 2s, retry once
             addStep("Upstream hiccup — retrying…","active");
             await new Promise(r=>setTimeout(r,2000));
-            reportTxt=await askClaude(synthPrompt,false,6000);
+            reportTxt=await askClaude(synthPrompt,false,6000,"planner");
           }
           void 0;
           void 0;
@@ -3820,8 +3879,11 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){
           const msg=(e2&&e2.message)||String(e2);
-          const transient=/internal server error|overloaded|api error|api request failed/i.test(msg);
-          setError("Report failed: "+msg+(transient?" — this is a temporary issue with the AI service, not your location. Wait a minute and tap Generate again.":""));
+          if(e2&&e2.isLimit){setError(msg);}
+          else{
+            const transient=/internal server error|overloaded|api error|api request failed/i.test(msg);
+            setError("Report failed: "+msg+(transient?" — this is a temporary issue with the AI service, not your location. Wait a minute and tap Generate again.":""));
+          }
         }
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
@@ -3863,7 +3925,18 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         }catch(ge){void 0;}
         // Persist the finished report so navigating away doesn't lose it
         if(builtReport){
-          try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify({v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport}));}catch(se){void 0;}
+          const payload={v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport};
+          try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify(payload));}catch(se){void 0;}
+          // Save to Supabase: lets the user reopen today's reports for free, and the row
+          // is the planner usage-ledger entry the server counts against the daily limit.
+          if(sb){
+            try{
+              setSaveNote(null);
+              const {data:savedRow,error:saveErr}=await sb.from("planner_reports").insert({report_date:new Date().toISOString().split("T")[0],loc_label:loc.label,lat,lng,payload}).select("id,created_at,loc_label").single();
+              if(saveErr){setSaveNote("This report is shown but couldn't be saved for later: "+saveErr.message);}
+              else if(savedRow){setSavedReports(prev=>[savedRow,...prev].slice(0,10));}
+            }catch(sve){setSaveNote("This report is shown but couldn't be saved for later: "+(sve.message||"unknown error"));}
+          }
         }
       }
     }catch(e){
@@ -3891,6 +3964,21 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       </div>
 
       {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
+
+      {(savedReports.length>0||saveNote)&&!busy&&(
+        <div className="card">
+          <div className="ctitle">🕐 Earlier Today</div>
+          <div className="csub">Reports you already ran today — reopening one is free and instant</div>
+          {saveNote&&<div style={{fontSize:14,color:"var(--red)",marginBottom:8}}>{saveNote}</div>}
+          {savedReports.map(r=>(
+            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,168,75,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"'Crimson Pro',serif"}}>
+              <span style={{color:"var(--gold)"}}>{r.loc_label||"Saved report"}</span>
+              <span style={{color:"var(--stone)",marginLeft:8,fontSize:13}}>{new Date(r.created_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {busy&&<TripPlannerLoading steps={steps} destination={loc.label} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
 
       {wxData?.daily&&!busy&&(
@@ -4423,8 +4511,7 @@ function App({user}){
           base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
         }catch(fetchErr){void 0;continue;}
         if(!base64) continue;
-        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Look carefully at this fish photo. Identify the exact species based on coloring, spot patterns, and body shape. Rainbow trout have pink/red lateral stripe and black spots. Brown trout have brown/golden coloring with red spots. Cutthroat trout have red slash marks under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if a hand or scale is visible for reference. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]})});
-        const rd=await res.json();
+        const rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Look carefully at this fish photo. Identify the exact species based on coloring, spot patterns, and body shape. Rainbow trout have pink/red lateral stripe and black spots. Brown trout have brown/golden coloring with red spots. Cutthroat trout have red slash marks under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if a hand or scale is visible for reference. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]},"cheap");
         const txt=((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim();
         void 0;
         const parsed=JSON.parse(txt);
@@ -4642,14 +4729,13 @@ function App({user}){
     try{
       const gaugeInfo=(gauges||[]).slice(0,5).map(g=>`${g.name}: ${Math.round(g.cfs||0)} CFS (${g.label||""})`).join(", ");
       const prompt=`You are a local fly fishing guide for ${loc.label}. Location: ${loc.label}. Weather: ${weather.temp}°F, ${weather.desc}, wind ${weather.wind}mph ${weather.windDir}, pressure ${weather.pressure}" (${weather.pressureTrend?.label}). Nearby streams with live flow data: ${gaugeInfo||"no gauge data"}. Month: ${new Date().toLocaleString("en-US",{month:"long"})}. Write a 2-3 paragraph fly fishing conditions report SPECIFIC to ${loc.label} - use only insects, hatches, and techniques known to this exact region. Do not generalize from other areas. Cover: how current flows and weather affect fishing today, which specific local waters are fishing best right now, and hyper-local fly recommendations based on what is actually hatching here this time of year. Plain text only.`;
-      const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      const d=await aiFetch({
         model:"claude-sonnet-4-6",max_tokens:600,
         messages:[{role:"user",content:prompt}]
-      })});
-      const d=await res.json();
+      },"cheap");
       const txt=(d.content||[]).map(b=>b.text||"").filter(Boolean).join("");
       if(txt) setCondReport(txt.replace(/<cite[^>]*>|<\/cite>/g,""));
-    }catch(e){void 0;}
+    }catch(e){if(e&&e.isLimit)setCondReport("⚠️ "+e.message);}
     setCondReportLoading(false);
   }
 
