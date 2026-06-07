@@ -3755,7 +3755,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         try{
           // Step 1: Run two parallel searches for broader coverage
-          addStep("Reading current water conditions…","active");
+          addStep("Reading shop reports — this can take a couple of minutes…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
           // Each search gets its own independent timeout; whichever finishes is kept (no all-or-nothing race)
@@ -3763,8 +3763,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const withTO=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
           const onFail=e=>{searchFailReason=(e&&e.message==="timeout")?"timed out":"hit an error";return "";};
           const [searchTxt1,searchTxt2]=await Promise.all([
-            withTO(askClaude(searchPrompt1,true,3500),35000).catch(onFail),
-            withTO(askClaude(searchPrompt2,true,3500),35000).catch(onFail)
+            withTO(askClaude(searchPrompt1,true,6000),90000).catch(onFail),
+            withTO(askClaude(searchPrompt2,true,6000),90000).catch(onFail)
           ]);
           const searchTxt=(searchTxt1+" "+searchTxt2).trim();
           const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
@@ -4786,6 +4786,7 @@ function App({user}){
     e.target.value="";
     // Batch mode: multiple files selected
     if(files.length>1){
+      setAddOpen(false); // return to the catch list — new catches appear there as each one saves
       setBatchProgress({total:files.length,done:0,current:""});
       // Phase 1 — read photos + EXIF in selection order
       const items=[];
