@@ -3407,7 +3407,7 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
     const words=(streamName||"").toLowerCase().split(/[\s,()]+/).filter(w=>w.length>3);
     const local=localGauges&&localGauges.find(g=>{
       const gn=(g.name||"").toLowerCase();
-      return words.some(w=>gn.includes(w));
+      return words.filter(w=>gn.includes(w)).length>=2&&String(g.siteNo||"").length<=10;
     });
     if(local&&local.siteNo){setSiteNo(local.siteNo);setSiteName(local.name);setCfs(local.cfs);return;}
 
@@ -3436,7 +3436,7 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
           const n=(t.sourceInfo?.siteName||"").toLowerCase();
           const score=words.filter(w=>n.includes(w)).length;
           return{score,siteNo:t.sourceInfo?.siteCode?.[0]?.value,name:t.sourceInfo?.siteName,cfs:parseFloat(t.values?.[0]?.value?.[0]?.value)};
-        }).filter(t=>t.score>0&&t.siteNo).sort((a,b)=>b.score-a.score);
+        }).filter(t=>t.score>=2&&t.siteNo&&String(t.siteNo).length<=10).sort((a,b)=>b.score-a.score||String(a.siteNo).length-String(b.siteNo).length);
         if(scored.length>0){setSiteNo(scored[0].siteNo);setSiteName(scored[0].name);setCfs(scored[0].cfs);}
       }).catch(()=>{});
   },[streamName]);
@@ -3499,7 +3499,7 @@ async function identifyFish(b64,promptText){
 // --- Report-quality deterministic rules (when AI is wrong twice, make it code) ---
 
 // Known warm-water urban reaches that are not trout fisheries. Seed list; expand as cases arise.
-const WARM_URBAN_RE=/S(OUTH)?\.?\s+PLATTE\s+R(IVER)?\.?\s+(AT|NEAR|NR|ABV|ABOVE|BLW|BELOW)\s+(DENVER|ENGLEWOOD|COMMERCE\s*CITY|HENDERSON|64TH|88TH|BRIGHTON|FORT\s+LUPTON)/i;
+const WARM_URBAN_RE=/S(OUTH)?\.?\s+PLATTE\s+R(IVER)?\.?\s+(AT|NEAR|NR|ABV|ABOVE|BLW|BELOW)\s+(DENVER|ENGLEWOOD|COMMERCE\s*CITY|HENDERSON|64TH|88TH|BRIGHTON|FORT\s+LUPTON)|CHERRY\s+CR(EEK)?\.?\s+(AT|NEAR|NR)\s+(DENVER|GLENDALE)/i;
 function isWarmUrbanGauge(name){return WARM_URBAN_RE.test(String(name||""));}
 
 // Remove whole sentences that push afternoon/midday fishing (applied only under thermal risk)
@@ -3515,6 +3515,12 @@ function scrubAfternoonPush(text){
 
 // Fixed thermal-stress guidance injected verbatim when air >=85F or water >=65F
 const THERMAL_TIP="Heat advisory: with today's temperatures, fish early and plan to be off the water by early afternoon. Carry a stream thermometer and stop fishing for trout once water reaches 67\u00B0F \u2014 landing fish in warm water can kill them even after release.";
+
+// Banned flow-praise words slipped twice through the prompt rule -> deterministic now
+function scrubBannedFlowWords(text){
+  if(!text)return text;
+  return String(text).replace(/\bgoldilocks\b/gi,"well-suited").replace(/\b(ideal|perfect)(ly)?\b/gi,(m,w,ly)=>ly?"well":"well-suited");
+}
 
 // When a river's Tailwater badge is demoted, dam claims in its prose must go too
 function scrubDamClaims(text){
@@ -3542,11 +3548,11 @@ function enforceStreamTypes(rivers){
 // Snap AI-suggested river coordinates to the nearest matching USGS gauge (surveyed coords beat AI guesses)
 function snapRiversToGauges(rivers,gaugeList){
   if(!Array.isArray(rivers)||!Array.isArray(gaugeList)||!gaugeList.length)return rivers;
-  const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT"};
+  const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT",BLW:"BELOW",BL:"BELOW",ABV:"ABOVE",AB:"ABOVE",HWY:"HIGHWAY",NR:"NEAR",MTN:"MOUNTAIN",RD:"ROAD",FT:"FORT"};
   const norm=s=>String(s||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean).flatMap(t=>(ABBR[t]||t).split(" "));
   const streamPart=n=>String(n||"").toUpperCase().split(/\s+(?:AT|NEAR|NR|BLW?|BELOW|ABV?|ABOVE)\s+/)[0];
   return rivers.map(r=>{
-    const rt=norm(r.name);
+    const rt=norm(String(r.name||"").replace(/,?\s+[A-Za-z]{2}\.?\s*$/,"")); // strip trailing state code so ", CO" can't block a full-token match
     if(!rt.length)return r;
     let best=null,bestScore=0;
     for(const g of gaugeList){
@@ -3780,7 +3786,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            builtReport={dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:clean2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(clean2(rpt.bestTimes)):clean2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(clean2(rpt.tips))).trim():clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            const sb2=t=>scrubBannedFlowWords(clean2(t));
+            const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
+            builtReport={dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){
