@@ -490,22 +490,35 @@ async function fetchUSGSRange(siteNo, days){
   var e=new Date(), s=new Date();
   s.setDate(e.getDate()-days);
   function fmt(d){return d.toISOString().split("T")[0];}
-  // Use instantaneous values for <=7 days, daily values for longer periods
-  var url;
-  if(days<=7){
-    url="https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e);
-  } else {
-    url="https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e);
+  async function grab(url){
+    try{
+      var r=await fetch(url);
+      if(!r.ok) return [];
+      var d=await r.json();
+      var ts=(d.value&&d.value.timeSeries)||[];
+      if(!ts.length) return [];
+      var vals=(ts[0].values&&ts[0].values[0]&&ts[0].values[0].value)||[];
+      return vals.map(function(v){return{t:v.dateTime,v:parseFloat(v.value)};}).filter(function(v){return !isNaN(v.v)&&v.v>=0&&v.v<500000;});
+    }catch(err){ return []; }
   }
-  try{
-    var r=await fetch(url);
-    if(!r.ok) return [];
-    var d=await r.json();
-    var ts=(d.value&&d.value.timeSeries)||[];
-    if(!ts.length) return [];
-    var vals=(ts[0].values&&ts[0].values[0]&&ts[0].values[0].value)||[];
-    return vals.map(function(v){return{t:v.dateTime,v:parseFloat(v.value)};}).filter(function(v){return !isNaN(v.v)&&v.v>=0&&v.v<500000;});
-  }catch(e){ return []; }
+  function thin(pts){
+    if(pts.length<=800) return pts;
+    var step=Math.ceil(pts.length/800), out=[];
+    for(var i=0;i<pts.length;i+=step) out.push(pts[i]);
+    if(out[out.length-1]!==pts[pts.length-1]) out.push(pts[pts.length-1]);
+    return out;
+  }
+  // Instantaneous values for short ranges, daily values for longer
+  if(days<=7){
+    return thin(await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)));
+  }
+  var pts=await grab("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e));
+  if(!pts.length){
+    // Some gauges publish live (IV) readings but no daily (DV) series — fall back to IV history (~120 days max)
+    var s2=new Date(); s2.setDate(s2.getDate()-Math.min(days,120));
+    pts=await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s2)+"&endDT="+fmt(e));
+  }
+  return thin(pts);
 }
 
 
@@ -1125,7 +1138,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
       </div>
       {loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
       {!loading&&points.length>0&&renderChart()}
-      {!loading&&points.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>No chart data available</div>}
+      {!loading&&points.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>USGS history unavailable for this gauge{siteNo?` (site ${siteNo})`:""} — live flow shown above is current</div>}
     </div>
   );
 }
@@ -3183,14 +3196,14 @@ function UpcomingTrips({user}){
 
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 // ── Stream Gauge Chart — looks up USGS gauge by stream name ──────────────────
-function StreamGaugeChart({streamName, localGauges, lat, lng}){
-  const [siteNo, setSiteNo] = useState(null);
+function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
+  const [siteNo, setSiteNo] = useState(knownSiteNo||null);
   const [siteName, setSiteName] = useState("");
   const [cfs, setCfs] = useState(null);
   const [tried, setTried] = useState(false);
 
   useEffect(()=>{
-    if(!streamName||tried) return;
+    if(!streamName||tried||siteNo) return;
     setTried(true);
 
     // First check local gauges already fetched
@@ -3298,7 +3311,7 @@ function snapRiversToGauges(rivers,gaugeList){
       const d=(r.lat&&r.lng)?Math.hypot(g.lat-r.lat,g.lng-r.lng):(g.dist??9);
       if(!best||score>bestScore||(score===bestScore&&d<best._d)){best={...g,_d:d};bestScore=score;}
     }
-    return best?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name}:r;
+    return best?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null}:r;
   });
 }
 
@@ -3489,7 +3502,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           let reportTxt;
           try{
             reportTxt=await askClaude(synthPrompt,false,6000);
@@ -3658,7 +3671,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-                <StreamGaugeChart streamName={r.name} localGauges={gauges} lat={r.lat||loc?.lat} lng={r.lng||loc?.lng}/>
+                <StreamGaugeChart streamName={r.name} knownSiteNo={r.siteNo} localGauges={gauges} lat={r.lat||loc?.lat} lng={r.lng||loc?.lng}/>
               </div>
               );
             })}
