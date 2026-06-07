@@ -463,8 +463,145 @@ function getStateRegLink(label){
 }
 
 
+// ============ MODERNIZED USGS DATA LAYER (api.waterdata.usgs.gov) ============
+// Legacy waterservices.usgs.gov degrades Aug 2026, dies Q1 2027.
+// Strategy: new API first; if a gauge has no fresh data there (USGS backfill
+// is incomplete — e.g. 07087200 live on legacy, dead on new), fall back to legacy.
+// All helpers return LEGACY-SHAPED objects so existing consumers don't change.
+var USGS_NW="https://api.waterdata.usgs.gov/ogcapi/v0/collections";
+var NW_STALE_MS=24*60*60*1000; // ignore "latest" readings older than 24h (new API can return decades-old values)
+
+async function nwGet(url){
+  try{var r=await fetch(url);if(!r.ok)return null;return await r.json();}catch{return null;}
+}
+function nwSiteNo(id){return String(id||"").replace(/^USGS-/,"");}
+function nwFresh(f,now){
+  var t=Date.parse(f?.properties?.time||"");
+  return !isNaN(t)&&(now-t)<=NW_STALE_MS;
+}
+function chunkArr(a,n){var o=[];for(var i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;}
+
+// Latest readings for many sites in few calls. Returns fresh features only.
+async function nwLatest(siteNos,param){
+  if(!siteNos||!siteNos.length)return[];
+  var now=Date.now(),out=[];
+  var chunks=chunkArr(siteNos.map(function(s){return "USGS-"+nwSiteNo(s);}),100);
+  for(var i=0;i<chunks.length;i++){
+    var d=await nwGet(USGS_NW+"/latest-continuous/items?f=json&limit=10000&monitoring_location_id="+chunks[i].join(",")+"&parameter_code="+param);
+    (d?.features||[]).forEach(function(f){if(nwFresh(f,now))out.push(f);});
+  }
+  return out;
+}
+
+// Gauge names + coords inside a bbox (minLng,minLat,maxLng,maxLat string).
+// Returns Map siteNo -> {name,lat,lng}
+async function nwLocations(bbox){
+  var d=await nwGet(USGS_NW+"/monitoring-locations/items?f=json&limit=10000&bbox="+bbox+"&site_type_code=ST");
+  var m=new Map();
+  (d?.features||[]).forEach(function(f){
+    var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
+    var sn=p.monitoring_location_number||nwSiteNo(p.id);
+    if(sn)m.set(sn,{name:p.monitoring_location_name||("Site "+sn),lat:c[1]||0,lng:c[0]||0});
+  });
+  return m;
+}
+
+// One monitoring location by site number -> {name,lat,lng} or null
+async function nwLocation(siteNo){
+  var d=await nwGet(USGS_NW+"/monitoring-locations/items/USGS-"+nwSiteNo(siteNo)+"?f=json");
+  if(!d)return null;
+  var p=d.properties||{},c=(d.geometry||{}).coordinates||[];
+  return {name:p.monitoring_location_name||("Site "+nwSiteNo(siteNo)),lat:c[1]||0,lng:c[0]||0};
+}
+
+// Build a legacy {value:{timeSeries:[...]}} object from new-API features + name map
+function nwToLegacy(features,nameMap){
+  var bySite=new Map();
+  (features||[]).forEach(function(f){
+    var p=f.properties||{},sn=nwSiteNo(p.monitoring_location_id);
+    if(!sn)return;
+    if(!bySite.has(sn))bySite.set(sn,{geom:(f.geometry||{}).coordinates||[],vals:[]});
+    var v=parseFloat(p.value);
+    if(!isNaN(v))bySite.get(sn).vals.push({value:String(p.value),dateTime:p.time});
+  });
+  var ts=[];
+  bySite.forEach(function(e,sn){
+    var info=(nameMap&&nameMap.get&&nameMap.get(sn))||{};
+    e.vals.sort(function(a,b){return Date.parse(a.dateTime)-Date.parse(b.dateTime);});
+    ts.push({
+      sourceInfo:{
+        siteName:info.name||("Site "+sn),
+        siteCode:[{value:sn}],
+        geoLocation:{geogLocation:{latitude:info.lat!=null?info.lat:(e.geom[1]||0),longitude:info.lng!=null?info.lng:(e.geom[0]||0)}}
+      },
+      values:[{value:e.vals}]
+    });
+  });
+  return {value:{timeSeries:ts}};
+}
+
+// Daily values [{t,v}] for one site over an explicit date range (00003 = daily mean)
+async function nwDailyRange(siteNo,param,startStr,endStr){
+  var d=await nwGet(USGS_NW+"/daily/items?f=json&limit=10000&monitoring_location_id=USGS-"+nwSiteNo(siteNo)+"&parameter_code="+param+"&statistic_id=00003&time="+startStr+"T00:00:00Z/"+endStr+"T00:00:00Z");
+  return (d?.features||[]).map(function(f){var p=f.properties||{};return{t:p.time,v:parseFloat(p.value)};})
+    .filter(function(x){return !isNaN(x.v);})
+    .sort(function(a,b){return Date.parse(a.t)-Date.parse(b.t);});
+}
+
+// Daily values across a bbox for a date range, adapted to the legacy shape
+async function nwDailyBboxLegacy(bbox,startStr,endStr){
+  try{
+    var pair=await Promise.all([
+      nwGet(USGS_NW+"/daily/items?f=json&limit=10000&bbox="+bbox+"&parameter_code=00060&statistic_id=00003&time="+startStr+"T00:00:00Z/"+endStr+"T00:00:00Z"),
+      nwLocations(bbox)
+    ]);
+    var feats=(pair[0]?.features)||[];
+    if(!feats.length) return {value:{timeSeries:[]}};
+    return nwToLegacy(feats,pair[1]);
+  }catch{ return {value:{timeSeries:[]}}; }
+}
+
+// History points [{t,v}] for one site: /daily for long ranges, /continuous for short,
+// each falling back to the other, then to legacy while it still exists.
+async function nwHistory(siteNo,param,days,statClamp){
+  var e=new Date(),s=new Date();s.setDate(e.getDate()-days);
+  function iso(d){return d.toISOString().split("T")[0]+"T00:00:00Z";}
+  function mapDaily(d){
+    return (d?.features||[]).map(function(f){var p=f.properties||{};return{t:p.time,v:parseFloat(p.value)};})
+      .filter(function(x){return !isNaN(x.v)&&x.v>=0&&x.v<500000;})
+      .sort(function(a,b){return Date.parse(a.t)-Date.parse(b.t);});
+  }
+  var sn="USGS-"+nwSiteNo(siteNo),pts=[];
+  if(days>7){
+    pts=mapDaily(await nwGet(USGS_NW+"/daily/items?f=json&limit=10000&monitoring_location_id="+sn+"&parameter_code="+param+"&statistic_id=00003&time="+iso(s)+"/"+iso(e)));
+  }
+  if(!pts.length){
+    var s2=new Date();s2.setDate(s2.getDate()-Math.min(days,90)); // /continuous capped to keep payloads sane
+    pts=mapDaily(await nwGet(USGS_NW+"/continuous/items?f=json&limit=10000&monitoring_location_id="+sn+"&parameter_code="+param+"&time="+iso(s2)+"/"+iso(e)));
+  }
+  return pts;
+}
+
+// Recent-years peak (replaces legacy annual-stat service): max of 3y of daily values,
+// preferring the daily-max statistic, falling back to daily-mean.
+async function nwPeak(siteNo){
+  var e=new Date(),s=new Date();s.setFullYear(e.getFullYear()-3);
+  function iso(d){return d.toISOString().split("T")[0]+"T00:00:00Z";}
+  var sn="USGS-"+nwSiteNo(siteNo),best=0;
+  var stats=["00001","00003"];
+  for(var i=0;i<stats.length&&!best;i++){
+    var d=await nwGet(USGS_NW+"/daily/items?f=json&limit=10000&monitoring_location_id="+sn+"&parameter_code=00060&statistic_id="+stats[i]+"&time="+iso(s)+"/"+iso(e));
+    (d?.features||[]).forEach(function(f){var v=parseFloat(f?.properties?.value);if(!isNaN(v)&&v>best)best=v;});
+  }
+  return best>0?best:null;
+}
+
+
 async function fetchUSGSStat(siteNo){
-  // Fetch the annual max (peak) statistic for a site so we can show % of max
+  // Recent-years peak for "% of max" display. New API first (3y of daily values);
+  // legacy annual-stat service as fallback until it is decommissioned.
+  var peak=await nwPeak(siteNo);
+  if(peak) return peak;
   try{
     var url="https://waterservices.usgs.gov/nwis/stat/?format=json&sites="+siteNo+"&parameterCd=00060&statReportType=annual&statYearType=water";
     var r=await fetch(url);
@@ -472,7 +609,6 @@ async function fetchUSGSStat(siteNo){
     var d=await r.json();
     var ts=(d.value&&d.value.timeSeries)||[];
     if(!ts.length) return null;
-    // Find the max statistic value across all years
     var maxVal=0;
     ts.forEach(function(t){
       (t.values||[]).forEach(function(v){
@@ -508,22 +644,32 @@ async function fetchUSGSRange(siteNo, days){
     if(out[out.length-1]!==pts[pts.length-1]) out.push(pts[pts.length-1]);
     return out;
   }
-  // Instantaneous values for short ranges, daily values for longer
-  if(days<=7){
-    return thin(await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)));
-  }
-  var pts=await grab("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e));
+  // New API first (handles daily-vs-continuous internally); legacy fallback for
+  // gauges USGS hasn't backfilled yet (e.g. 07087200), until decommission.
+  var pts=await nwHistory(siteNo,"00060",days);
   if(!pts.length){
-    // Some gauges publish live (IV) readings but no daily (DV) series — fall back to IV history (~120 days max)
-    var s2=new Date(); s2.setDate(s2.getDate()-Math.min(days,120));
-    pts=await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s2)+"&endDT="+fmt(e));
+    if(days<=7){
+      pts=await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e));
+    }else{
+      pts=await grab("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e));
+      if(!pts.length){
+        var s2=new Date(); s2.setDate(s2.getDate()-Math.min(days,120));
+        pts=await grab("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s2)+"&endDT="+fmt(e));
+      }
+    }
   }
   return thin(pts);
 }
 
 
 async function fetchUSGSTemp(siteNo){
+  // New API first; legacy fallback until decommission.
   try{
+    const fs=await nwLatest([siteNo],"00010");
+    if(fs.length){
+      const c=parseFloat(fs[0].properties.value);
+      if(!isNaN(c)) return Math.round(c*9/5+32);
+    }
     const url="https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00010&siteStatus=active";
     const r=await fetch(url);
     if(!r.ok) return null;
@@ -547,6 +693,15 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2){
     var minLat=Math.round((lat-p)*10000)/10000;
     var maxLat=Math.round((lat+p)*10000)/10000;
     var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
+    // New API: locations (names) + batched latest flows, adapted to legacy shape
+    try{
+      var locs=await nwLocations(bbox);
+      if(locs.size){
+        var feats=await nwLatest(Array.from(locs.keys()),"00060");
+        if(feats.length){var legacyShaped=nwToLegacy(feats,locs);if(legacyShaped.value.timeSeries.length>0) return legacyShaped;}
+      }
+    }catch{}
+    // Legacy fallback (covers gauges not yet on the new API), until decommission
     try{
       var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST");
       if(r.ok){var j=await r.json();if(j&&j.value&&j.value.timeSeries&&j.value.timeSeries.length>0) return j;}
@@ -557,6 +712,19 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2){
 
 async function fetchUSGSTempBatch(siteNos){
   if(!siteNos||!siteNos.length) return {};
+  // New API first
+  try{
+    var fs=await nwLatest(siteNos,"00010");
+    if(fs.length){
+      var o={};
+      fs.forEach(function(f){
+        var sn=nwSiteNo(f.properties.monitoring_location_id);
+        var c=parseFloat(f.properties.value);
+        if(sn&&!isNaN(c)) o[sn]=Math.round(c*9/5+32);
+      });
+      if(Object.keys(o).length) return o;
+    }
+  }catch{}
   try{
     var url="https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNos.join(",")+"&parameterCd=00010";
     var r=await fetch(url);
@@ -580,8 +748,18 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   // Run weather and stream fetch in parallel with a single bbox
   const wxUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weathercode,windspeed_10m,winddirection_10m,surface_pressure&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto`;
   const p=1.5;
-  const usgsUrl=`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${(lng-p).toFixed(2)},${(lat-p).toFixed(2)},${(lng+p).toFixed(2)},${(lat+p).toFixed(2)}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`;
-  const [wxRes,usgsRes]=await Promise.allSettled([fetch(wxUrl),fetch(usgsUrl)]);
+  const histBbox=`${(lng-p).toFixed(2)},${(lat-p).toFixed(2)},${(lng+p).toFixed(2)},${(lat+p).toFixed(2)}`;
+  const usgsPromise=(async()=>{
+    var leg=await nwDailyBboxLegacy(histBbox,dateStr,dateStr);
+    if(leg.value.timeSeries.length) return leg;
+    // Legacy fallback until decommission
+    try{
+      var r=await fetch(`https://waterservices.usgs.gov/nwis/dv/?format=json&bBox=${histBbox}&parameterCd=00060&startDT=${dateStr}&endDT=${dateStr}&siteType=ST`);
+      if(r.ok) return await r.json();
+    }catch{}
+    return {value:{timeSeries:[]}};
+  })();
+  const [wxRes,usgsRes]=await Promise.allSettled([fetch(wxUrl),usgsPromise]);
   try{
     if(wxRes.status==="fulfilled"&&wxRes.value.ok){
       const wx=await wxRes.value.json();
@@ -596,8 +774,8 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
     }
   }catch{}
   try{
-    if(usgsRes.status==="fulfilled"&&usgsRes.value.ok){
-      const d=await usgsRes.value.json();
+    if(usgsRes.status==="fulfilled"&&usgsRes.value){
+      const d=usgsRes.value;
       const ts=(d.value?.timeSeries)??[];
       const parsed=ts.map(t=>{
         const raw=t.values?.[0]?.value?.[0]?.value;
@@ -624,27 +802,24 @@ async function fetchUSGSHistory(lat,lng){
   s.setDate(e.getDate()-30);
   function fmt(d){return d.toISOString().split("T")[0];}
   var bbox=minLng+","+minLat+","+maxLng+","+maxLat;
+  var p2=2.5;
+  var bbox2=(lng-p2)+","+(lat-p2)+","+(lng+p2)+","+(lat+p2);
+  // New API first at both ring sizes, then legacy fallback until decommission
+  var leg=await nwDailyBboxLegacy(bbox,fmt(s),fmt(e));
+  if(leg.value.timeSeries.length) return leg;
+  leg=await nwDailyBboxLegacy(bbox2,fmt(s),fmt(e));
+  if(leg.value.timeSeries.length) return leg;
   try{
     var url="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
     var r=await fetch(url);
-    if(!r.ok) throw new Error("failed");
-    var d=await r.json();
-    var ts=(d.value&&d.value.timeSeries)||[];
-    if(ts.length>0) return d;
-    throw new Error("empty");
-  }catch(err){
-    // Try wider area
-    var p2=2.5;
-    var bbox2=(lng-p2)+","+(lat-p2)+","+(lng+p2)+","+(lat+p2);
-    try{
-      var url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox2+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
-      var r2=await fetch(url2);
-      if(!r2.ok) throw new Error("failed2");
-      return r2.json();
-    }catch(e2){
-      return{value:{timeSeries:[]}};
-    }
-  }
+    if(r.ok){var d=await r.json();var ts=(d.value&&d.value.timeSeries)||[];if(ts.length>0) return d;}
+  }catch(err){}
+  try{
+    var url2="https://waterservices.usgs.gov/nwis/dv/?format=json&bBox="+bbox2+"&parameterCd=00060&siteType=ST&siteStatus=active&startDT="+fmt(s)+"&endDT="+fmt(e);
+    var r2=await fetch(url2);
+    if(r2.ok) return r2.json();
+  }catch(e2){}
+  return{value:{timeSeries:[]}};
 }
 
 function cleanLabel(item){
@@ -1021,20 +1196,29 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         const e=new Date(); e.setFullYear(e.getFullYear()-1);
         const s=new Date(e); s.setDate(s.getDate()-days);
         const fmt=d=>d.toISOString().split("T")[0];
-        const [flowRes,tempRes]=await Promise.all([
-          fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003"),
-          fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00010&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003")
+        // New API first; legacy fallback until decommission
+        let [avg0,temps0]=await Promise.all([
+          nwDailyRange(siteNo,"00060",fmt(s),fmt(e)),
+          nwDailyRange(siteNo,"00010",fmt(s),fmt(e))
         ]);
-        const flowD=await flowRes.json();
-        const ts=flowD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
-        const avg=ts.map(v=>({t:v.dateTime,v:parseFloat(v.value)})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<500000);
-        setHistAvg(avg);
-        try{
-          const tempD=await tempRes.json();
-          const tts=tempD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
-          const temps=tts.map(v=>({t:v.dateTime,v:parseFloat(v.value)*9/5+32})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<100);
-          setTempPoints(temps);
-        }catch{}
+        if(!avg0.length){
+          try{
+            const flowRes=await fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00060&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003");
+            const flowD=await flowRes.json();
+            const ts=flowD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
+            avg0=ts.map(v=>({t:v.dateTime,v:parseFloat(v.value)}));
+          }catch{}
+        }
+        if(!temps0.length){
+          try{
+            const tempRes=await fetch("https://waterservices.usgs.gov/nwis/dv/?format=json&sites="+siteNo+"&parameterCd=00010&startDT="+fmt(s)+"&endDT="+fmt(e)+"&statCd=00003");
+            const tempD=await tempRes.json();
+            const tts=tempD.value?.timeSeries?.[0]?.values?.[0]?.value||[];
+            temps0=tts.map(v=>({t:v.dateTime,v:parseFloat(v.value)}));
+          }catch{}
+        }
+        setHistAvg(avg0.filter(v=>!isNaN(v.v)&&v.v>0&&v.v<500000));
+        setTempPoints(temps0.map(v=>({t:v.t,v:v.v*9/5+32})).filter(v=>!isNaN(v.v)&&v.v>0&&v.v<100));
       }catch{}
     })();
   },[siteNo, days]);
@@ -1720,15 +1904,28 @@ function GuideSavedGauges({user}){
   },[user?.id]);
   useEffect(()=>{
     if(!savedGauges.length){setSgData([]);return;}
-    Promise.all(savedGauges.map(async g=>{
-      try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
-      catch{return{...g,cfs:null,label:"N/A",cls:""};}
-    })).then(setSgData);
+    (async()=>{
+      // One batched new-API call for all gauges; legacy per-site fallback for any it misses
+      var nwMap={};
+      try{
+        var feats=await nwLatest(savedGauges.map(g=>g.site_no),"00060");
+        feats.forEach(f=>{var sn=nwSiteNo(f.properties.monitoring_location_id);var v=parseFloat(f.properties.value);if(sn&&!isNaN(v))nwMap[sn]=v;});
+      }catch{}
+      var rows=await Promise.all(savedGauges.map(async g=>{
+        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        catch{return{...g,cfs:null,label:"N/A",cls:""};}
+      }));
+      setSgData(rows);
+    })();
   },[savedGauges.length]);
   async function addGauge(){
     if(!gaugeInput.trim()||!sb)return;setGaugeAdding(true);
     let siteNo=gaugeInput.trim();const match=siteNo.match(/sites?=(\d+)/i)||siteNo.match(/(\d{8,})/);if(match)siteNo=match[1];
-    try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");const d=await r.json();const ts=d.value?.timeSeries?.[0];const name=ts?.sourceInfo?.siteName||"Site "+siteNo;const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:"https://waterdata.usgs.gov/monitoring-location/"+siteNo+"/"}).select().single();if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}}
+    try{let name=null;
+      try{const loc=await nwLocation(siteNo);if(loc&&loc.name&&!loc.name.startsWith("Site "))name=loc.name;}catch{}
+      if(!name){try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");const d=await r.json();const ts=d.value?.timeSeries?.[0];name=ts?.sourceInfo?.siteName||null;}catch{}}
+      name=name||"Site "+siteNo;const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:"https://waterdata.usgs.gov/monitoring-location/"+siteNo+"/"}).select().single();if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}}
     catch(e){alert("Could not add gauge: "+e.message);}setGaugeAdding(false);
   }
   return(
@@ -3218,8 +3415,19 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
     const query=streamName.split("(")[0].split(",")[0].trim();
     if(!lat||!lng) return;
     const _p=1.0,_mnLng=Math.round((lng-_p)*10000)/10000,_mxLng=Math.round((lng+_p)*10000)/10000,_mnLat=Math.round((lat-_p)*10000)/10000,_mxLat=Math.round((lat+_p)*10000)/10000;
-    fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${_mnLng},${_mnLat},${_mxLng},${_mxLat}&parameterCd=00060&siteType=ST`)
-      .then(r=>r.json())
+    (async()=>{
+      const bbox=`${_mnLng},${_mnLat},${_mxLng},${_mxLat}`;
+      try{
+        const locs=await nwLocations(bbox);
+        if(locs.size){
+          const feats=await nwLatest(Array.from(locs.keys()),"00060");
+          const leg=nwToLegacy(feats,locs);
+          if(leg.value.timeSeries.length) return leg;
+        }
+      }catch{}
+      // Legacy fallback until decommission
+      try{const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`);return await r.json();}catch{return{value:{timeSeries:[]}};}
+    })()
       .then(d=>{
         const ts=d.value?.timeSeries||[];
         if(!ts.length) return;
@@ -3719,15 +3927,25 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
     const timer=setTimeout(async()=>{
       setSearching(true);
       try{
-        const p=2.5;const bbox=`${((loc?.lng||0)-p).toFixed(2)},${((loc?.lat||0)-p).toFixed(2)},${((loc?.lng||0)+p).toFixed(2)},${((loc?.lat||0)+p).toFixed(2)}`;const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`;
-        const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
-        const d=await r.json();
-        const ts=(d.value?.timeSeries||[]).map(t=>({
-          name:t.sourceInfo?.siteName||"",
-          siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
-          lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
-          lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
-        })).filter(x=>x.siteNo&&x.name);
+        const p=2.5;const bbox=`${((loc?.lng||0)-p).toFixed(2)},${((loc?.lat||0)-p).toFixed(2)},${((loc?.lng||0)+p).toFixed(2)},${((loc?.lat||0)+p).toFixed(2)}`;
+        // New API: locations endpoint carries every field this list needs
+        let ts=[];
+        try{
+          const locs=await nwLocations(bbox);
+          ts=Array.from(locs.entries()).map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng})).filter(x=>x.siteNo&&x.name);
+        }catch{}
+        if(!ts.length){
+          // Legacy fallback (via proxy) until decommission
+          const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`;
+          const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
+          const d=await r.json();
+          ts=(d.value?.timeSeries||[]).map(t=>({
+            name:t.sourceInfo?.siteName||"",
+            siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
+            lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
+            lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
+          })).filter(x=>x.siteNo&&x.name);
+        }
         setSearchResults(ts.filter(x=>x.name.toLowerCase().includes(q)).slice(0,6));
       }catch{}
       setSearching(false);
@@ -4259,7 +4477,14 @@ function App({user}){
         if(m) siteNo=m[1];
       }
       if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      // Add 8s timeout so it doesn't hang forever
+      // New API first (stale-filtered); legacy fallback with 8s abort until decommission
+      try{
+        var nf=await nwLatest([siteNo],"00060");
+        if(nf.length){
+          var ncfs=parseFloat(nf[0].properties.value);
+          if(!isNaN(ncfs)){var nl=cfsLabel(ncfs,null);return{...gauge,cfs:ncfs,label:nl.label,cls:nl.cls};}
+        }
+      }catch{}
       var controller=new AbortController();
       var timer=setTimeout(()=>controller.abort(),8000);
       var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060",{signal:controller.signal});
@@ -4287,10 +4512,13 @@ function App({user}){
     if(!siteNo){setGaugeAdding(false);alert("Please enter a USGS site number or URL from waterdata.usgs.gov");return;}
     // Fetch name from USGS
     var name="Custom Gauge";
-    try{
-      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");
-      if(r.ok){var d=await r.json();var ts=(d.value&&d.value.timeSeries)||[];if(ts.length) name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||name;}
-    }catch(e){}
+    try{var loc=await nwLocation(siteNo);if(loc&&loc.name&&!loc.name.startsWith("Site "))name=loc.name;}catch(e){}
+    if(name==="Custom Gauge"){
+      try{
+        var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");
+        if(r.ok){var d=await r.json();var ts=(d.value&&d.value.timeSeries)||[];if(ts.length) name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||name;}
+      }catch(e){}
+    }
     var newGauge={user_id:user.id,site_no:siteNo,name:name,url:url};
     if(sb&&!String(user.id).startsWith("local")){
       var{data}=await sb.from("saved_gauges").insert(newGauge).select().single();
