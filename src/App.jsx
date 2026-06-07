@@ -3496,6 +3496,35 @@ async function identifyFish(b64,promptText){
   return null;
 }
 
+// --- Report-quality deterministic rules (when AI is wrong twice, make it code) ---
+
+// Known warm-water urban reaches that are not trout fisheries. Seed list; expand as cases arise.
+const WARM_URBAN_RE=/S(OUTH)?\.?\s+PLATTE\s+R(IVER)?\.?\s+(AT|NEAR|NR|ABV|ABOVE|BLW|BELOW)\s+(DENVER|ENGLEWOOD|COMMERCE\s*CITY|HENDERSON|64TH|88TH|BRIGHTON|FORT\s+LUPTON)/i;
+function isWarmUrbanGauge(name){return WARM_URBAN_RE.test(String(name||""));}
+
+// Remove whole sentences that push afternoon/midday fishing (applied only under thermal risk)
+function scrubAfternoonPush(text){
+  if(!text)return text;
+  let t=String(text);
+  t=t.replace(/[^.!?]*\bdo(?:n't|\s+not)\s+skip\s+afternoon[^.!?]*[.!?]/gi,"");
+  t=t.replace(/[^.!?]*\bafternoon[^.!?]*\b(?:remains|stays|is|can\s+fish|fishes?)\s*(?:highly\s+|acceptably\s+)?(?:viable|productive|fishable|acceptable|well|fine)[^.!?]*[.!?]/gi,"");
+  t=t.replace(/[^.!?]*\bmidday[^.!?]*\b(?:productive|acceptable|fishes\s+well|remains|fine)[^.!?]*[.!?]/gi,"");
+  t=t.replace(/[^.!?]*\bfish(?:ing)?\s+(?:throughout|across|all)\s+(?:the\s+)?day[^.!?]*[.!?]/gi,"");
+  return t.replace(/\s{2,}/g," ").trim();
+}
+
+// Fixed thermal-stress guidance injected verbatim when air >=85F or water >=65F
+const THERMAL_TIP="Heat advisory: with today's temperatures, fish early and plan to be off the water by early afternoon. Carry a stream thermometer and stop fishing for trout once water reaches 67\u00B0F \u2014 landing fish in warm water can kill them even after release.";
+
+// When a river's Tailwater badge is demoted, dam claims in its prose must go too
+function scrubDamClaims(text){
+  if(!text)return text;
+  let t=String(text);
+  t=t.replace(/[^.!?;]*\bdam[\s-]?control(?:led|s)?\b[^.!?;]*[.!?;]?/gi,"");
+  t=t.replace(/[^.!?;]*\btailwater\s+conditions?\b[^.!?;]*[.!?;]?/gi,"");
+  return t.replace(/\s{2,}/g," ").replace(/^\s*[,;]\s*/,"").trim();
+}
+
 // Deterministic stream-type check: a gauge name encodes dam proximity (BLW/BELOW ... RES/DAM).
 // The AI may only call something a Tailwater if its matched gauge agrees; otherwise it becomes Freestone.
 function enforceStreamTypes(rivers){
@@ -3504,7 +3533,7 @@ function enforceStreamTypes(rivers){
   return rivers.map(r=>{
     if(typeof r.type==="string"&&/tailwater/i.test(r.type)){
       const g=String(r.gaugeSnap||"");
-      if(!damRe.test(g))return{...r,type:"Freestone"};
+      if(!damRe.test(g))return{...r,type:"Freestone",why:scrubDamClaims(r.why),conditions:scrubDamClaims(r.conditions),techniques:scrubDamClaims(r.techniques)};
     }
     return r;
   });
@@ -3703,7 +3732,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
           const hasWater=waterWords.some(w=>n.includes(w));
           const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
-          return hasWater&&!hasNonFish;
+          return hasWater&&!hasNonFish&&!isWarmUrbanGauge(g.name);
         }).slice(0,25);
         addStep("Analyzing area conditions…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
@@ -3724,7 +3753,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           // Step 2: Synthesize into JSON (no web search, just structure the prose)
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
-          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi away":"")+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. (6) Use at most 2 sections of the same river so the list covers diverse waters when the gauge list allows. (7) NEVER state drive times or drive durations - the straight-line distance is given per gauge; you may say 'closer' or 'farther' but never minutes or hours. (8) State water temperature ONLY if temperature data was explicitly provided - otherwise do not mention specific water temps. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
+          // Thermal-stress check: one batched water-temp call; deterministic trigger, never the AI's call
+          const airF=(wx&&wx.current&&wx.current.temperature_2m!=null)?Math.round(wx.current.temperature_2m):null;
+          let pTempMap={};
+          try{pTempMap=await fetchUSGSTempBatch(fishableGauges.map(g=>g.siteNo));}catch{pTempMap={};}
+          const maxWaterF=Object.values(pTempMap).reduce((m,v)=>(v>m?v:m),0);
+          const thermalRisk=(airF!=null&&airF>=85)||maxWaterF>=65;
+          const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi away":"")+(pTempMap[g.siteNo]!=null?" - water "+pTempMap[g.siteNo]+"F":"")+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+(thermalRisk?" HEAT ADVISORY ACTIVE (air "+(airF!=null?airF:"--")+"F"+(maxWaterF?", warmest gauge water "+maxWaterF+"F":"")+"): recommend dawn starts and being off the water by early afternoon; advise carrying a thermometer and stopping trout fishing at 67F water; do NOT encourage afternoon or evening trout fishing anywhere in this report.":"")+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. (5) CREDIBILITY RULES an expert guide would follow: label type 'Tailwater' ONLY for water directly below a major dam, otherwise 'Freestone' - when unsure say Freestone; NEVER call any flow perfect, ideal, or Goldilocks - state what the number suits (wading, nymphing, dries) and note fish are caught across a wide range; frame crowd levels as likelihood based on access and popularity (e.g. 'likely busy near town access'), never as fact; base time-of-day advice on the actual season and temperatures given - with cold spring/early-summer water, midday often fishes well, so never give generic avoid-midday-heat advice unless temps truly warrant it. (6) Use at most 2 sections of the same river so the list covers diverse waters when the gauge list allows. (7) NEVER state drive times or drive durations - the straight-line distance is given per gauge; you may say 'closer' or 'farther' but never minutes or hours. (8) State water temperature ONLY if temperature data was explicitly provided - otherwise do not mention specific water temps. (9) Hatch guidance MUST match the given date's month and the region - never headline a hatch that is out of season for that month; if unsure about a hatch, name only broadly reliable food forms (caddis, midges, terrestrials, stonefly nymphs). (10) Name ONLY widely recognized commercial fly patterns (e.g. Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat) - NEVER invent or guess pattern names. (11) Keep flow narrative consistent: in high water fish hold in soft edges, banks, and slack water - never claim high flow concentrates fish in main-channel runs. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
           let reportTxt;
           try{
             reportTxt=await askClaude(synthPrompt,false,6000);
@@ -3745,7 +3780,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
-            builtReport={dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            builtReport={dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:enforceStreamTypes(snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled)),hatches:clean2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(clean2(rpt.bestTimes)):clean2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(clean2(rpt.tips))).trim():clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
         }catch(e2){
