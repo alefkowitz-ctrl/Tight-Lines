@@ -5525,10 +5525,13 @@ ${shopPins}
 function SplashScreen({onDone}){
   const [fade,setFade]=React.useState(false);
   const [screen,setScreen]=React.useState(0);
-  // Intro walkthrough video — YouTube Short embedded in privacy-enhanced (no-cookie) mode.
-  // If the iframe itself fails to load (e.g. offline), the original artwork shows instead.
+  // Intro walkthrough video — YouTube Short in privacy-enhanced (no-cookie) mode.
+  // The splash shows a tappable thumbnail; tapping opens a fullscreen player (autoplay).
+  // If the thumbnail fails to load (e.g. offline), the original artwork shows instead.
   const WELCOME_VIDEO_EMBED="https://www.youtube-nocookie.com/embed/4BpQmrpQj9U";
+  const WELCOME_VIDEO_THUMB="https://i.ytimg.com/vi/4BpQmrpQj9U/oar2.jpg";
   const [vidOk,setVidOk]=React.useState(true);
+  const [vidOpen,setVidOpen]=React.useState(false);
   const total=4;
   function dismiss(){setFade(true);setTimeout(()=>onDone(),700);}
   function next(){if(screen<total-1)setScreen(s=>s+1);else dismiss();}
@@ -5573,15 +5576,24 @@ function SplashScreen({onDone}){
       {s.isSplash?(
         <>
           {vidOk&&(
-            <div style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(200,168,75,0.35)",background:"#000",flexShrink:0}}>
+            <button onClick={()=>setVidOpen(true)} style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(200,168,75,0.35)",background:"#000",flexShrink:0,padding:0,cursor:"pointer",display:"block"}}>
+              <img src={WELCOME_VIDEO_THUMB} onError={()=>setVidOk(false)} alt="Watch the walkthrough" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:0.85}}/>
+              <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:64,height:64,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"2px solid var(--gold)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <div style={{width:0,height:0,borderTop:"13px solid transparent",borderBottom:"13px solid transparent",borderLeft:"22px solid var(--gold)",marginLeft:5}}/>
+              </div>
+              <div style={{position:"absolute",bottom:10,left:0,right:0,textAlign:"center",fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--foam)",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>Watch the quick tour</div>
+            </button>
+          )}
+          {vidOpen&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"#000",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <iframe
-                src={WELCOME_VIDEO_EMBED}
+                src={WELCOME_VIDEO_EMBED+"?autoplay=1&playsinline=1&rel=0"}
                 title="Guide's Choice walkthrough"
-                style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}}
+                style={{width:"min(100vw, 56.25vh)",height:"100%",border:"none"}}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
-                onError={()=>setVidOk(false)}
               />
+              <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"'Crimson Pro',serif",zIndex:10001}}>✕ Close</button>
             </div>
           )}
           {!vidOk&&(
