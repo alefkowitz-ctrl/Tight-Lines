@@ -3418,9 +3418,12 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
 
     // First check local gauges already fetched
     const words=(streamName||"").toLowerCase().split(/[\s,()]+/).filter(w=>w.length>3);
-    const local=localGauges&&localGauges.find(g=>{
+    let local=null,localBest=0;
+    (localGauges||[]).forEach(g=>{
+      if(String(g.siteNo||"").length>10)return;
       const gn=(g.name||"").toLowerCase();
-      return words.filter(w=>gn.includes(w)).length>=2&&String(g.siteNo||"").length<=10;
+      const hits=words.filter(w=>gn.includes(w)).length;
+      if(hits>=2&&hits>localBest){localBest=hits;local=g;}
     });
     if(local&&local.siteNo){setSiteNo(local.siteNo);setSiteName(local.name);setCfs(local.cfs);return;}
 
@@ -3562,7 +3565,13 @@ function enforceStreamTypes(rivers){
 function snapRiversToGauges(rivers,gaugeList){
   if(!Array.isArray(rivers)||!Array.isArray(gaugeList)||!gaugeList.length)return rivers;
   const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT",BLW:"BELOW",BL:"BELOW",ABV:"ABOVE",AB:"ABOVE",HWY:"HIGHWAY",NR:"NEAR",MTN:"MOUNTAIN",RD:"ROAD",FT:"FORT"};
-  const norm=s=>String(s||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean).flatMap(t=>(ABBR[t]||t).split(" "));
+  const norm=s=>{
+    const raw=String(s||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean);
+    return raw.flatMap((t,i)=>{
+      if(t==="ST"&&i>0&&/\d/.test(raw[i-1]))return["STREET"]; // "75TH ST" = street, not Saint
+      return (ABBR[t]||t).split(" ");
+    });
+  };
   const streamPart=n=>String(n||"").toUpperCase().split(/\s+(?:AT|NEAR|NR|BLW?|BELOW|ABV?|ABOVE)\s+/)[0];
   return rivers.map(r=>{
     const rt=norm(String(r.name||"").replace(/,?\s+[A-Za-z]{2}\.?\s*$/,"")); // strip trailing state code so ", CO" can't block a full-token match
@@ -3737,7 +3746,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
             const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
             return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
-          }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist).slice(0,40);
+          }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist);
+          // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left
+          pgScaled=[...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)].slice(0,40);
         }catch(ge2){void 0;}
       }
       setGauges(pgScaled);
