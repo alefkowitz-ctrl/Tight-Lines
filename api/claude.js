@@ -22,7 +22,15 @@ async function todayCount(table, jwt) {
     const r = await fetch(SB_URL + "/rest/v1/" + table + "?select=id&created_at=gte." + since.toISOString(), {
       headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, Prefer: "count=exact", Range: "0-0" }
     });
-    if (r.status === 401 || r.status === 403) return { auth: false };
+    if (r.status === 401 || r.status === 403) {
+      // Distinguish a real auth failure from a table-permission problem (42501).
+      // A grants/config mistake must FAIL OPEN — never lock users out of AI features
+      // with a misleading "session expired" message.
+      let code = "";
+      try { const b = await r.json(); code = (b && b.code) || ""; } catch (e) { /* no body */ }
+      if (code === "42501") return { auth: true, count: null };
+      return { auth: false };
+    }
     if (!r.ok && r.status !== 206) return { auth: true, count: null };
     const cr = r.headers.get("content-range") || "";
     const total = parseInt(cr.split("/")[1], 10);
