@@ -3328,7 +3328,7 @@ function resizeForID(dataUrl,max=800,quality=0.7){
   });
 }
 
-function TripPlannerLoading({steps,onCancel}){
+function TripPlannerLoading({steps,onCancel,destination}){
   const [factIdx,setFactIdx]=React.useState(Math.floor(Math.random()*FLY_FACTS.length));
   const [fade,setFade]=React.useState(true);
   const [prog,setProg]=React.useState(3);
@@ -3355,7 +3355,7 @@ function TripPlannerLoading({steps,onCancel}){
       <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>✕ Cancel</button>
       <div style={{fontSize:56,marginBottom:20}}>🪶</div>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
-      <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near you<br/>and finding where they're moving…</div>
+      <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near {destination||"you"}<br/>and finding where they're moving…</div>
       <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
       </div>
@@ -3389,15 +3389,17 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
   useEffect(()=>{if(defaultLocation)setLoc(l=>({...l,label:defaultLocation}));},[defaultLocation]);
 
-  // Restore last generated report so tab switches / reloads don't lose it (12h freshness, trip date not past)
+  // Restore last generated report so tab switches don't lose it — session-scoped:
+  // closing the app clears it, and the location field falls back to the Intel tab location
   useEffect(()=>{
+    try{localStorage.removeItem("tl_tripreport_v1");}catch(lre){void 0;} // one-time cleanup of old persistent key
     try{
-      const raw=localStorage.getItem("tl_tripreport_v1");
+      const raw=sessionStorage.getItem("tl_tripreport_v1");
       if(!raw)return;
       const s=JSON.parse(raw);
       if(!s||s.v!==1||!s.report)return;
       const today=new Date().toISOString().split("T")[0];
-      if(Date.now()-(s.ts||0)>12*60*60*1000||(s.date||"")<today){try{localStorage.removeItem("tl_tripreport_v1");}catch(re){void 0;}return;}
+      if(Date.now()-(s.ts||0)>12*60*60*1000||(s.date||"")<today){try{sessionStorage.removeItem("tl_tripreport_v1");}catch(re){void 0;}return;}
       setReport(s.report);
       if(s.wxData)setWxData(s.wxData);
       if(Array.isArray(s.gauges)&&s.gauges.length)setGauges(s.gauges);
@@ -3556,7 +3558,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         }catch(ge){void 0;}
         // Persist the finished report so navigating away doesn't lose it
         if(builtReport){
-          try{localStorage.setItem("tl_tripreport_v1",JSON.stringify({v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport}));}catch(se){void 0;}
+          try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify({v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport}));}catch(se){void 0;}
         }
       }
     }catch(e){
@@ -3584,7 +3586,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       </div>
 
       {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
-      {busy&&<TripPlannerLoading steps={steps} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
+      {busy&&<TripPlannerLoading steps={steps} destination={loc.label} onCancel={()=>{setBusy(false);setSteps([]);setError(null);}}/>}
 
       {wxData?.daily&&!busy&&(
         <div className="card">
