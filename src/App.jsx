@@ -3436,10 +3436,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       addStep("Forecast loaded ✓");
 
       addStep("Loading stream data…","active");
-      // Use Intel tab gauges ONLY when the destination is near the Intel location (≤30mi).
-      // Otherwise they're centered on the wrong place — fetch fresh for the destination below.
-      const nearIntel=!!(parentLoc&&parentLoc.lat&&parentLoc.lng&&(Math.sqrt(Math.pow(parentLoc.lat-lat,2)+Math.pow(parentLoc.lng-lng,2))*69)<=30);
-      let pgScaled=nearIntel?(parentGauges||[]):[];
+      // Always fetch gauges centered on the trip destination — never reuse Intel tab gauges,
+      // which are centered on the user's current location and caused wrong-water reports.
+      let pgScaled=[];
       if(!pgScaled.length){
         try{
           const usgs0=await fetchUSGSLive(lat,lng,2);
