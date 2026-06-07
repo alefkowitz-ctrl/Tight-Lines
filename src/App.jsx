@@ -1160,7 +1160,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
 }
 
 // ── Location Search ───────────────────────────────────────────────────────────
-function LocationSearch({onSelect,initialValue="",placeholder="Search river, city, or state…"}){
+function LocationSearch({onSelect,onTextChange,initialValue="",placeholder="Search river, city, or state…"}){
   const [query,setQuery]=useState(initialValue);
   const [suggs,setSuggs]=useState([]);
   const [open,setOpen]=useState(false);
@@ -1179,6 +1179,7 @@ function LocationSearch({onSelect,initialValue="",placeholder="Search river, cit
 
   function onChange(val){
     setQuery(val);
+    if(onTextChange)onTextChange(val);
     clearTimeout(debounce.current);
     if(val.trim().length<2){setSuggs([]);setOpen(false);return;}
     debounce.current=setTimeout(()=>fetchSuggs(val),350);
@@ -3473,8 +3474,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Reading current water conditions…","active");
           const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
           const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
+          // Searches are best-effort: a failed search resolves to "" (estimated mode) instead of rejecting Promise.all and killing the report
           const searchRace=await Promise.race([
-            Promise.all([askClaude(searchPrompt1,true,3500),askClaude(searchPrompt2,true,3500)]),
+            Promise.all([askClaude(searchPrompt1,true,3500).catch(()=>""),askClaude(searchPrompt2,true,3500).catch(()=>"")]),
             new Promise(r=>setTimeout(()=>r(null),25000))
           ]);
           const [searchTxt1,searchTxt2]=searchRace||["",""];
@@ -3485,7 +3487,15 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           addStep("Building recommendations…","active");
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
           const synthPrompt="You are a fly fishing guide for "+loc.label+". Date: "+ds+". Weather: "+(wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown")+". USGS live flow data for streams within 2hrs: "+(fishableGauges.length?fishableGauges.map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS - "+g.label+")").join("; "):"not available")+(savedInRadius.length?". User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", "):"")+"."+" Current conditions from public sources (background context only): "+(searchTxt.slice(0,1500)||"none")+". TASK: Choose where a professional fly fishing guide would take a paying client today. Rank the 6 BEST trout fisheries within 2hrs of this location from best to worst (maximum 6 streams). CRITICAL RULES: (1) Choose streams ONLY from the USGS gauge list above - those are the established gauged fisheries; pick the best of them and use the actual CFS shown for each. (2) Only if that list is empty or too short, add famous, well-established public fisheries you are CERTAIN exist within range - the renowned waters a local fly shop would recommend, preferring tailwaters; NEVER invent streams and NEVER include obscure micro-creeks, alpine lake outlets, or waters you are not sure about. (3) Exclude urban drainage and irrigation. (4) If no flow data was provided above, state in the overview that recommendations are based on regional knowledge rather than live flows. Keep each field 1 sentence. Synthesize the background context into your own original assessment — do NOT name, quote, or attribute any specific shop, business, website, or author. Return ONLY JSON no markdown: "+'{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}';
-          const reportTxt=await askClaude(synthPrompt,false,6000);
+          let reportTxt;
+          try{
+            reportTxt=await askClaude(synthPrompt,false,6000);
+          }catch(se){
+            // Transient upstream errors (Anthropic 500 "Internal server error" / 529 overloaded) — wait 2s, retry once
+            addStep("Upstream hiccup — retrying…","active");
+            await new Promise(r=>setTimeout(r,2000));
+            reportTxt=await askClaude(synthPrompt,false,6000);
+          }
           void 0;
           void 0;
           const clean=reportTxt.replace(/```json|```/g,"").trim();
@@ -3500,7 +3510,11 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             builtReport={dataSource:searchTxt.length>200?"current":"estimated",overview:clean2(rpt.overview),recommendation:clean2(rpt.recommendation),bestFor:rpt.bestFor||null,rivers:snapRiversToGauges((rpt.rivers||[]).map(r=>({...r,conditions:clean2(r.conditions),techniques:clean2(r.techniques),why:clean2(r.why),bestTime:clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled),hatches:clean2(rpt.hatches),bestTimes:clean2(rpt.bestTimes),tips:clean2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."); }
-        }catch(e2){setError("Report failed: "+((e2&&e2.message)||String(e2)));}
+        }catch(e2){
+          const msg=(e2&&e2.message)||String(e2);
+          const transient=/internal server error|overloaded|api error|api request failed/i.test(msg);
+          setError("Report failed: "+msg+(transient?" — this is a temporary issue with the AI service, not your location. Wait a minute and tap Generate again.":""));
+        }
         addStep("Report complete ✓");
         // Fetch gauges AFTER report so we know which streams to prioritize
         addStep("Loading stream gauges…","active");
@@ -3559,7 +3573,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div className="ctitle">🗓 Plan Your Trip</div>
         <label className="lbl">Destination</label>
         <div style={{marginBottom:12}}>
-          <LocationSearch placeholder="River, city, or region…" initialValue={loc.label} onSelect={s=>setLoc(s)}/>
+          <LocationSearch placeholder="River, city, or region…" initialValue={loc.label} onSelect={s=>setLoc(s)} onTextChange={val=>setLoc({label:val,lat:null,lng:null})}/>
         </div>
         <label className="lbl">Trip Date</label>
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
