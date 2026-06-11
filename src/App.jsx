@@ -310,6 +310,50 @@ function extractJSON(text){
   try{const m=c.match(/\[[\s\S]*\]/);if(m)return JSON.parse(m[0]);}catch{}
   return null;
 }
+// repairJSON — last-resort recovery for an otherwise-complete report whose JSON
+// has a character the strict parsers choke on: a raw newline/tab/CR inside a
+// string value, a stray inner double-quote (e.g. a 9" leader), or a trailing
+// comma. Lab-only for now (the deep-read that produces these verbose fields is
+// lab-only). Fires ONLY after JSON.parse, the brace-slice, and extractJSON have
+// all failed, so it can only turn an error into a success — never a regression.
+// Known limitation: an un-escaped inner quote immediately followed by a , } ]
+// is ambiguous and may not recover (returns null, never throws).
+function repairJSON(text){
+  if(!text) return null;
+  let c=String(text).replace(/```json|```/g,"").trim();
+  const s=c.indexOf("{"), e=c.lastIndexOf("}");
+  if(s===-1||e<=s) return null;
+  c=c.slice(s,e+1);
+  try{return JSON.parse(c);}catch{}
+  let out="", inStr=false;
+  for(let i=0;i<c.length;i++){
+    const ch=c[i];
+    if(inStr){
+      if(ch==="\\"){ out+=ch+(c[i+1]??""); i++; continue; }
+      if(ch==="\n"){ out+="\\n"; continue; }
+      if(ch==="\r"){ out+="\\r"; continue; }
+      if(ch==="\t"){ out+="\\t"; continue; }
+      if(ch==="\""){
+        let j=i+1; while(j<c.length&&/\s/.test(c[j]))j++;
+        const nx=c[j];
+        if(nx===undefined||nx===":"||nx===","||nx==="}"||nx==="]"){ out+="\""; inStr=false; }
+        else { out+="\\\""; }
+        continue;
+      }
+      out+=ch; continue;
+    } else {
+      if(ch==="\""){ out+=ch; inStr=true; continue; }
+      if(ch===","){
+        let j=i+1; while(j<c.length&&/\s/.test(c[j]))j++;
+        if(c[j]==="}"||c[j]==="]"){ continue; }
+        out+=ch; continue;
+      }
+      out+=ch; continue;
+    }
+  }
+  try{return JSON.parse(out);}catch{}
+  return null;
+}
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 function getKey(){return true;}
@@ -4003,6 +4047,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           try{rpt=JSON.parse(clean);}catch(pe){void 0;}
           if(!rpt){const s=clean.indexOf("{"),e=clean.lastIndexOf("}");if(s!==-1&&e>s)try{rpt=JSON.parse(clean.slice(s,e+1));}catch(pe2){void 0;}}
           if(!rpt) rpt=extractJSON(reportTxt);
+          if(!rpt&&LAB) rpt=repairJSON(reportTxt);
           void 0;
           if(rpt&&(rpt.overview||rpt.rivers)){
             const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
@@ -4011,7 +4056,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled,loc),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
-          } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,400):"")); }
+          } else { if(LAB){try{console.log("[LAB RAW FULL "+String(reportTxt||"").length+" chars]\n"+reportTxt);}catch(_lg){void 0;}} setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,1500):"")); }
         }catch(e2){
           const msg=(e2&&e2.message)||String(e2);
           if(e2&&e2.isLimit){setError(msg);}
