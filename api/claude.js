@@ -7,6 +7,10 @@ export const maxDuration = 120; // shop-report searches with page reads legitima
 // bundle); RLS scopes every query to the calling user's own rows.
 const PLANNER_DAILY_LIMIT = 5;
 const CHEAP_DAILY_LIMIT = 50;
+// Accounts exempt from daily limits (the dev's own testing). Configured as a Vercel
+// env var (comma-separated Supabase user UUIDs) so no ID lives in the public repo.
+const DEV_UNLIMITED = (process.env.VITE_DEV_UNLIMITED_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+function jwtSub(jwt){ try { return JSON.parse(Buffer.from(String(jwt).split(".")[1] || "", "base64").toString("utf8")).sub || null; } catch (e) { return null; } }
 const SB_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
 
@@ -121,9 +125,10 @@ export default async function handler(req, res) {
   const kind = usage_kind === "planner" ? "planner" : "cheap";
   const table = kind === "planner" ? "planner_reports" : "ai_usage";
   const limit = kind === "planner" ? PLANNER_DAILY_LIMIT : CHEAP_DAILY_LIMIT;
+  const exempt = DEV_UNLIMITED.length > 0 && DEV_UNLIMITED.includes(jwtSub(jwt) || "");
   const gate = await todayCount(table, jwt);
   if (gate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
-  if (gate.count != null && gate.count >= limit) {
+  if (!exempt && gate.count != null && gate.count >= limit) {
     return res.status(429).json({ error: { message: kind === "planner"
       ? "You've reached today's limit of " + PLANNER_DAILY_LIMIT + " trip reports. Reports you already ran today are saved in the planner — tap one to reopen it. The limit resets daily."
       : "You've reached today's AI usage limit. It resets daily." } });
