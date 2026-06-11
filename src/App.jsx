@@ -3592,6 +3592,7 @@ function buildLabSynth(a){
     "(3) DISTANCE DISCIPLINE: only recommend water realistically within ~2 hours. Do NOT reach for famous names farther than that. Do NOT let a famous distant fishery crowd out quality water within about an hour. If a gauged stream within range is genuine trout water, keep a place for it.",
     "(4) For every pick give your best lat and lng so distance can be verified. Set \"source\" to \"gauge\" if the pick matches one of the listed gauges, otherwise \"search\".",
     "(5) Do NOT invent water that appears in neither the reports nor the gauge list. Exclude urban drainage, irrigation, and warmwater bass streams presented as trout water.",
+    "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. Name ONLY widely recognized commercial fly patterns (Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat). In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
     "SOURCING: synthesize the reports into your own original assessment. Do NOT rely on a single source and do NOT name, quote, or attribute any specific shop, business, website, or author.",
     "Keep each field to 1 sentence. Return ONLY JSON no markdown: ",
@@ -3601,26 +3602,61 @@ function buildLabSynth(a){
 
 // Deterministic distance governor: drop picks beyond the day-trip ring, and
 // reconcile each pick's displayed CFS to the live gauge value when one attached.
-function labGovernor(rivers,loc){
-  if(!Array.isArray(rivers))return rivers;
+// Estimate drive minutes from straight-line miles, terrain-adjusted by elevation
+// (a mountain pass is far slower than the crow-flies distance implies). Keyless
+// open-meteo elevation lookup (same provider as the weather); fails open to a flat
+// estimate. Drops picks beyond the day-trip ring; if nothing is in range, keeps
+// the single nearest, flagged as a road-trip (never returns an empty list).
+async function labGovernor(rivers,loc){
+  if(!Array.isArray(rivers)||!rivers.length)return rivers;
   const haveOrigin=loc&&loc.lat!=null&&loc.lng!=null;
-  const MAX_MI=130;
-  return rivers.map(r=>{
+  let elevs=null;
+  if(haveOrigin){
+    try{
+      const lats=[loc.lat,...rivers.map(r=>r.lat!=null?r.lat:loc.lat)];
+      const lngs=[loc.lng,...rivers.map(r=>r.lng!=null?r.lng:loc.lng)];
+      const eu="https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lngs.join(",");
+      const er=await fetch(eu);const ej=await er.json();
+      elevs=Array.isArray(ej.elevation)?ej.elevation:null; // meters: [origin, ...picks]
+    }catch(e){elevs=null;}
+  }
+  const originElevM=elevs?elevs[0]:null;
+  const CAP_MIN=150;
+  const annotated=rivers.map((r,i)=>{
     const cfs=(r.gaugeCfs!=null)?String(Math.round(r.gaugeCfs)):r.cfs;
     const source=r.gaugeSnap?"gauge":(r.source||"search");
-    let miFromOrigin=null;
-    if(haveOrigin&&r.lat!=null&&r.lng!=null)miFromOrigin=Math.round(Math.hypot(r.lat-loc.lat,r.lng-loc.lng)*69);
-    return{...r,cfs,source,miFromOrigin};
-  }).filter(r=>!(r.miFromOrigin!=null&&r.miFromOrigin>MAX_MI));
+    let mi=null,driveMin=null;
+    if(haveOrigin&&r.lat!=null&&r.lng!=null){
+      mi=Math.round(Math.hypot(r.lat-loc.lat,r.lng-loc.lng)*69);
+      const pickElevM=elevs?elevs[i+1]:null;
+      const maxFt=(originElevM!=null&&pickElevM!=null)?Math.max(originElevM,pickElevM)*3.281:null;
+      const mountain=maxFt!=null&&maxFt>6500; // high country: winding roads + passes
+      const circuity=mountain?1.6:1.25;
+      const speed=mountain?50:58;
+      driveMin=Math.round((mi*circuity)/speed*60);
+    }
+    return{...r,cfs,source,miFromOrigin:mi,driveMin};
+  });
+  const inRange=annotated.filter(r=>r.driveMin==null||r.driveMin<=CAP_MIN);
+  if(inRange.length)return inRange;
+  // Nothing within day-trip range: keep the single nearest, honestly flagged.
+  const nearest=annotated.slice().sort((a,b)=>(a.driveMin||1e9)-(b.driveMin||1e9))[0];
+  if(!nearest)return [];
+  const hrs=nearest.driveMin?Math.round(nearest.driveMin/6)/10:null;
+  const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — the nearest real trout water; plan an overnight rather than a day trip.";
+  return [{...nearest,outOfRange:true,why:(note+" "+(nearest.why||"")).trim(),conditions:(note+" "+(nearest.conditions||"")).trim()}];
 }
 
-// Single finalize step. Prod path = exactly the original behavior. Lab path =
-// proximity-capped gauge match + tailwater-keep + distance governor.
+// Single finalize step. Prod path = exactly the original behavior (sync). Lab
+// path = proximity-capped gauge match + tailwater-keep + async drive-time governor.
 function finalizeRivers(lab,rivers,gaugeList,loc){
   if(!lab)return enforceStreamTypes(snapRiversToGauges(rivers,gaugeList));
+  return finalizeLabRivers(rivers,gaugeList,loc);
+}
+async function finalizeLabRivers(rivers,gaugeList,loc){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
-  out=labGovernor(out,loc);                        // drop too-far picks, reconcile CFS
+  out=await labGovernor(out,loc);                  // drive-time governor, never-empty
   return out;
 }
 
@@ -3937,7 +3973,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
-            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled,loc),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
+            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:thermalRisk?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[]})),fishableGauges.length?fishableGauges:pgScaled,loc),hatches:sb2(rpt.hatches),bestTimes:thermalRisk?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:thermalRisk?(THERMAL_TIP+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[]};
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,400):"")); }
         }catch(e2){
