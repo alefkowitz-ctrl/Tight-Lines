@@ -3593,6 +3593,7 @@ function buildLabSynth(a){
     "(4) For every pick give your best lat and lng so distance can be verified. Set \"source\" to \"gauge\" if the pick matches one of the listed gauges, otherwise \"search\".",
     "(5) Do NOT invent water that appears in neither the reports nor the gauge list. Exclude urban drainage, irrigation, and warmwater bass streams presented as trout water.",
     "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
+    "(7) Each river entry must be ONE specific fishery - one tailwater below ONE dam, or one continuous section. NEVER combine two different tailwaters, two different dams, or two far-apart access points into a single entry; if two are both worth recommending, list them as SEPARATE entries each with its own coordinates and access points.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. Name ONLY widely recognized commercial fly patterns (Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat). In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
     "SOURCING: synthesize the reports into your own original assessment. Do NOT rely on a single source and do NOT name, quote, or attribute any specific shop, business, website, or author.",
     "Keep each field to 1 sentence. Return ONLY JSON no markdown: ",
@@ -3653,9 +3654,35 @@ function finalizeRivers(lab,rivers,gaugeList,loc){
   if(!lab)return enforceStreamTypes(snapRiversToGauges(rivers,gaugeList));
   return finalizeLabRivers(rivers,gaugeList,loc);
 }
+// Fusion guard: a real tailwater sits below ONE dam, so its access points cluster
+// within a few miles. A "Tailwater" entry whose access points are far apart has
+// fused two different dam tailwaters — narrow it to the section at the mapped
+// coordinates, drop the outlier access, clean the name, and flag it. (Freestone
+// entries are exempt — a long freestone river legitimately spans many miles.)
+function labSplitFused(rivers){
+  if(!Array.isArray(rivers))return rivers;
+  const coordRe=/(-?\d{1,3}\.\d{2,})[ ,]+(-?\d{1,3}\.\d{2,})/;
+  const placeOf=s=>String(s||"").split(/[(—:\-]/)[0].replace(/\b(access|public|area|TU|BLM|parking|trailhead|bridge|road|pullouts?|section|the)\b/gi,"").replace(/\s+/g," ").trim();
+  return rivers.map(r=>{
+    if(!/tailwater/i.test(String(r.type||""))||r.lat==null||r.lng==null||!Array.isArray(r.accessPoints)||r.accessPoints.length<2)return r;
+    const dist=(la,lo)=>Math.hypot(la-r.lat,lo-r.lng)*69;
+    const tagged=r.accessPoints.map(a=>{const m=coordRe.exec(String(a));return m?{str:a,d:dist(parseFloat(m[1]),parseFloat(m[2]))}:{str:a,d:null};});
+    const far=tagged.filter(a=>a.d!=null&&a.d>12);
+    if(!far.length)return r; // single coherent tailwater — leave it
+    const kept=tagged.filter(a=>a.d==null||a.d<=12);
+    const keptPlaces=[...new Set(kept.map(a=>placeOf(a.str)).filter(Boolean))];
+    const farPlaces=[...new Set(far.map(a=>placeOf(a.str)).filter(Boolean))];
+    let name=String(r.name||"");
+    farPlaces.forEach(p=>{const esc=p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");name=name.replace(new RegExp("\\s*[/,]\\s*"+esc,"gi"),"");});
+    const note="⚠ This entry appears to combine two tailwaters below different dams. Narrowed to the "+(keptPlaces.join("/")||"mapped")+" section; the "+(farPlaces.join("/")||"other")+" stretch is below a different dam and is a separate fishery.";
+    return {...r,name,accessPoints:kept.length?kept.map(a=>a.str):r.accessPoints,why:(note+" "+(r.why||"")).trim()};
+  });
+}
+
 async function finalizeLabRivers(rivers,gaugeList,loc){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
+  out=labSplitFused(out);                          // split fused two-dam tailwater entries
   out=await labGovernor(out,loc);                  // drive-time governor, never-empty
   return out;
 }
