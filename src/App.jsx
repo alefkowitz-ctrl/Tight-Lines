@@ -3861,9 +3861,14 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
     // The server enforces the same limit regardless; this is purely UX.
     if(sb){
       try{
-        const since=new Date();since.setUTCHours(0,0,0,0);
-        const {count,error:cntErr}=await sb.from("planner_reports").select("id",{count:"exact",head:true}).gte("created_at",since.toISOString());
-        if(!cntErr&&count!=null&&count>=5){setError("You've reached today's limit of 5 trip reports. Reports you already ran today are listed below — tap one to reopen it. The limit resets daily.");return;}
+        const devIds=String(import.meta.env.VITE_DEV_UNLIMITED_IDS||"").split(",").map(s=>s.trim()).filter(Boolean);
+        let uid=null; try{uid=(await sb.auth.getUser()).data.user?.id||null;}catch(e){void 0;}
+        const devExempt=uid&&devIds.includes(uid);
+        if(!devExempt){
+          const since=new Date();since.setUTCHours(0,0,0,0);
+          const {count,error:cntErr}=await sb.from("planner_reports").select("id",{count:"exact",head:true}).gte("created_at",since.toISOString());
+          if(!cntErr&&count!=null&&count>=5){setError("You've reached today's limit of 5 trip reports. Reports you already ran today are listed below — tap one to reopen it. The limit resets daily.");return;}
+        }
       }catch(pe){void 0;}
     }
     setBusy(true);setError(null);setSteps([]);
