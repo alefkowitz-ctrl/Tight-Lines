@@ -3635,7 +3635,7 @@ function buildLabSynth(a){
     "(2) TAILWATERS: cold water below a dam is often the premier trout fishery in a region; include the relevant tailwater even when no gauge is named like a trout stream. When the reports clearly establish a water is a below-dam tailwater, set its \"verified\" field to \"tailwater\".",
     "(3) DISTANCE DISCIPLINE: only recommend water realistically within ~2 hours. Do NOT reach for famous names farther than that. Do NOT let a famous distant fishery crowd out quality water within about an hour. If a gauged stream within range is genuine trout water, keep a place for it.",
     "(4) For every pick give your best lat and lng so distance can be verified. Set \"source\" to \"gauge\" if the pick matches one of the listed gauges, otherwise \"search\".",
-    "(5) Do NOT invent water that appears in neither the reports nor the gauge list. Exclude urban drainage, irrigation, and warmwater bass streams presented as trout water.",
+    "(5) Do NOT invent water that appears in neither the reports nor the gauge list. Exclude urban drainage, irrigation, and warmwater bass streams presented as trout water. If the RETRIEVED REPORTS identify a nearby water as warmwater, smallmouth, or bass water - or list it under 'AVOID AS TROUT WATER' - do NOT include it as a trout fishery even when it is gauged or close; trust the reports' species designation over a bare gauge.",
     "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
     "(7) Each river entry must be ONE specific fishery - one tailwater below ONE dam, or one continuous section. NEVER combine two different tailwaters, two different dams, or two far-apart access points into a single entry; if two are both worth recommending, list them as SEPARATE entries each with its own coordinates and access points.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. Name ONLY widely recognized commercial fly patterns (Pheasant Tail, Hare's Ear, Copper John, RS2, Zebra Midge, Elk Hair Caddis, Stimulator, Chubby Chernobyl, Parachute Adams, Pat's Rubber Legs, Woolly Bugger, San Juan Worm, Prince Nymph, Griffith's Gnat). In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
@@ -3692,6 +3692,22 @@ async function labGovernor(rivers,loc){
   return [{...nearest,outOfRange:true,why:(note+" "+(nearest.why||"")).trim(),conditions:(note+" "+(nearest.conditions||"")).trim()}];
 }
 
+// Deterministic backstop to the deep-read grounding: drop a pick the model's OWN
+// text describes as warmwater/bass/transition water (e.g. "smallmouth/trout
+// transition zone", "borderline trout"). High-precision phrases only, so a
+// tailwater that merely mentions smallmouth downstream is untouched, and a cold
+// trout stream having a warm day is never affected (it won't be self-described
+// this way) — this is why temperature could not be the knife but this can.
+// Lab-only. Never empties the list: if every pick trips it, keep them all (the
+// never-empty governor + an honest overview handle a no-trout-water region).
+const WARM_TEXT_RE=/transition zone|borderline trout|marginal[^.]{0,20}trout|warmwater (?:fishery|stream|water)|primarily (?:bass|smallmouth)|bass (?:water|stream|fishery)/i;
+function dropWarmwaterByText(rivers){
+  if(!Array.isArray(rivers)||!rivers.length)return rivers;
+  const txt=r=>[r.name,r.type,r.why,r.conditions,r.condition,r.techniques].map(v=>String(v||"")).join(" ");
+  const kept=rivers.filter(r=>!WARM_TEXT_RE.test(txt(r)));
+  return kept.length?kept:rivers;
+}
+
 // Single finalize step. Prod path = exactly the original behavior (sync). Lab
 // path = proximity-capped gauge match + tailwater-keep + async drive-time governor.
 function finalizeRivers(lab,rivers,gaugeList,loc){
@@ -3727,6 +3743,7 @@ async function finalizeLabRivers(rivers,gaugeList,loc){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
   out=labSplitFused(out);                          // split fused two-dam tailwater entries
+  out=dropWarmwaterByText(out);                     // drop picks the model itself calls warmwater/bass (backstop to deep-read)
   out=await labGovernor(out,loc);                  // drive-time governor, never-empty
   return out;
 }
@@ -4008,7 +4025,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const withTO=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
           const onFail=e=>{searchFailReason=(e&&e.message==="timeout")?"timed out":"hit an error";return "";};
           const LAB=isLab();
-          const labFetchPrompt="Search for local fly shop fishing report pages within about a 2 hour drive of "+loc.label+". Then FETCH and read in full the 2-3 most relevant shop report pages. Report which trout streams are fishing best right now and why, with each stream's current conditions and its correct LOCAL geography - which canyon, which town, and for tailwaters which dam - stated exactly as the shop reports describe it. Do NOT substitute your own assumptions about where a stream is or which dam a tailwater sits below; if the reports do not say, do not guess. Synthesize in your own words; do not name, quote, or attribute any specific shop. Be concise.";
+          const labFetchPrompt="Search for local fly shop fishing report pages within about a 2 hour drive of "+loc.label+". Then FETCH and read in full the 2-3 most relevant shop report pages. Report which trout streams are fishing best right now and why, with each stream's current conditions and its correct LOCAL geography - which canyon, which town, and for tailwaters which dam - stated exactly as the shop reports describe it. Do NOT substitute your own assumptions about where a stream is or which dam a tailwater sits below; if the reports do not say, do not guess. ALSO, from the same reports, identify which nearby streams within range are WARMWATER or smallmouth/bass water rather than trout water - local shops know which creeks hold bass, not trout - and list those by name on a separate line beginning 'AVOID AS TROUT WATER:' so they are not recommended as a trout destination. Synthesize in your own words; do not name, quote, or attribute any specific shop. Be concise.";
           const tasks=[
             withTO(askClaude(searchPrompt1,true,6000,"planner"),90000).catch(onFail),
             withTO(askClaude(searchPrompt2,true,6000,"planner"),90000).catch(onFail)
