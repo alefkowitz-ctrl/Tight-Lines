@@ -140,7 +140,8 @@ export default async function handler(req, res) {
     const headers = {
       "Content-Type": "application/json",
       "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "web-fetch-2025-09-10"
     };
 
     // First call
@@ -154,7 +155,7 @@ export default async function handler(req, res) {
     // web_search is a SERVER-side tool: results arrive in the same response.
     // Long searches pause with stop_reason "pause_turn" — continue them until done.
     let iterations = 0;
-    while (data && data.stop_reason === "pause_turn" && iterations < 5) {
+    while (data && data.stop_reason === "pause_turn" && iterations < 8) {
       iterations++;
       const messages = [
         ...(body.messages || []),
