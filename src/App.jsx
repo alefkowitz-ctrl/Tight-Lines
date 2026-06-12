@@ -3818,6 +3818,47 @@ async function labVerifyPicks(rivers,loc,ground){
   return [{...top,why:("⚠ This pick was flagged during verification and could not be confirmed as trout water — treat as low confidence. "+String(top.why||"")).trim()}];
 }
 
+// Report-level review (lab only): the "what's missing / does this hold up" pass — the
+// part a human reviewer does after checking the individual picks. Flag-only: it never
+// drops a pick and never writes a full stream card (no invented flows/access/flies). It
+// (1) names well-known trout waters in range the report omitted, and (2) flags clear logic
+// faults (out-of-season hatch, unsafe time-of-day advice, implausible flow claim).
+// One planner-tagged search call, fail-open. Rides the same grounding, so it's a strong
+// mitigation for recall gaps (the St. Vrain/Big Thompson miss), not a guarantee.
+async function labReviewReport(report,loc,ground){
+  try{
+    if(!report||!Array.isArray(report.rivers))return null;
+    const picks=report.rivers.map(r=>r&&r.name).filter(Boolean);
+    if(!picks.length)return null;
+    const ctx=[
+      "You are a senior fly fishing guide reviewing a draft trip-planning report near "+((loc&&loc.label)||"the area")+" for accuracy and completeness, the way you would critique a colleague's report before it goes out.",
+      "The report recommends these trout waters: "+picks.join(", ")+".",
+      report.hatches?("Hatches it lists: "+String(report.hatches).slice(0,300)+"."):"",
+      report.bestTimes?("Time-of-day guidance it gives: "+String(report.bestTimes).slice(0,200)+"."):"",
+      "Using current public sources, answer TWO questions:",
+      "1) OMISSIONS: What well-known, established public trout waters within roughly the same drive range did this report leave out — especially in directions or drainages it ignored? Name only genuine, recognized fisheries a local fly shop would mention; do NOT invent waters and do NOT list marginal trickles. For each, give a 6-12 word reason (e.g. its drainage/direction or why it fishes now). If nothing notable is missing, return an empty list.",
+      "2) LOGIC: Flag any clear faults in the report's own reasoning — a hatch out of season for this date, unsafe or self-contradictory time-of-day advice, or an implausible flow claim. If none, return an empty list.",
+      "Be conservative and specific; an empty list is correct when the report is sound.",
+      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"logic":["issue"]}.'
+    ].filter(Boolean).join(" ");
+    const race=Promise.race([askClaude(ctx,true,1800,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
+    const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+    if(a===-1||b<=a)return null;
+    const o=JSON.parse(clean.slice(a,b+1));
+    const tidy=arr=>Array.isArray(arr)?arr.map(x=>String(x||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim()).filter(s=>s.length>=3):[];
+    return {omissions:tidy(o.omissions).slice(0,5),logic:tidy(o.logic).slice(0,4)};
+  }catch(_r){return null;}
+}
+// Fold review findings into the overview as a clearly-marked footer (no UI change needed).
+function applyReviewNotes(overview,review){
+  if(!review)return overview;
+  let extra="";
+  if(review.omissions&&review.omissions.length)extra+=" ⚠ Also worth a look: a local guide might also weigh "+review.omissions.join("; ")+". These were not covered above — confirm current flows before relying on them.";
+  if(review.logic&&review.logic.length)extra+=" ⚠ Report-review flags: "+review.logic.join("; ")+".";
+  return (String(overview||"")+extra).trim();
+}
+
 // Single finalize step. Prod path = exactly the original behavior (sync). Lab
 // path = proximity-capped gauge match + tailwater-keep + async drive-time governor,
 // then deterministic dam-name reconcile + a skeptical verification pass (ground = deep-read text).
@@ -4188,6 +4229,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
+            if(LAB){try{const review=await labReviewReport(builtReport,loc,searchTxt);if(review&&((review.omissions&&review.omissions.length)||(review.logic&&review.logic.length)))builtReport={...builtReport,overview:applyReviewNotes(builtReport.overview,review)};}catch(_rv){void 0;}}
             setReport(builtReport);
           } else { if(LAB){try{console.log("[LAB RAW FULL "+String(reportTxt||"").length+" chars]\n"+reportTxt);}catch(_lg){void 0;}} setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,1500):"")); }
         }catch(e2){
