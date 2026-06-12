@@ -3634,15 +3634,17 @@ function cleanFlyList(arr){
 
 // Deterministic stream-type check: a gauge name encodes dam proximity (BLW/BELOW ... RES/DAM).
 // The AI may only call something a Tailwater if its matched gauge agrees; otherwise it becomes Freestone.
-// ── Planner Lab (search-driven selection) — hidden, opt-in via ?lab=1 ──────────
-// Lab mode lives entirely behind this flag. With it OFF (the default for every
-// user) none of the lab code paths run and the live planner is byte-for-byte
-// unchanged. Turn on by opening the app at ?lab=1, off with ?lab=0.
-function isLab(){try{return localStorage.getItem("gc_lab")==="1";}catch(e){return false;}}
+// ── Planner engine (search-driven selection + verification) — NOW THE DEFAULT ──
+// The search-driven pipeline (deep-read grounding, drainage-aware synth, dam-name
+// reconcile, skeptical pick verification, and the report-level omissions + in-place
+// corrections review) is the live default for every user. The older gauge-locked prod
+// path is preserved as a rollback lever: open the app at ?lab=0 to force it on, ?lab=1
+// to return to the default. isLab() = "use the new pipeline", true unless explicitly off.
+function isLab(){try{return localStorage.getItem("gc_lab")!=="0";}catch(e){return true;}}
 try{
   const _lp=new URLSearchParams(window.location.search);
   if(_lp.get("lab")==="1")localStorage.setItem("gc_lab","1");
-  if(_lp.get("lab")==="0")localStorage.removeItem("gc_lab");
+  if(_lp.get("lab")==="0")localStorage.setItem("gc_lab","0");
 }catch(e){void 0;}
 
 // Search-driven synthesis prompt: candidates come from the RETRIEVED REPORTS,
@@ -4243,7 +4245,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
-          } else { if(LAB){try{console.log("[LAB RAW FULL "+String(reportTxt||"").length+" chars]\n"+reportTxt);}catch(_lg){void 0;}} setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,1500):"")); }
+          } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Please try again in a moment."); }
         }catch(e2){
           const msg=(e2&&e2.message)||String(e2);
           if(e2&&e2.isLimit){setError(msg);}
@@ -4344,7 +4346,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   return(
     <div>
       <div className="card">
-        <div className="ctitle">🗓 Plan Your Trip {isLab()&&<span style={{fontSize:11,fontWeight:700,color:"#123024",background:"var(--gold)",padding:"2px 8px",borderRadius:10,verticalAlign:"middle"}}>PLANNER LAB</span>}</div>
+        <div className="ctitle">🗓 Plan Your Trip</div>
         <label className="lbl">Destination</label>
         <div style={{marginBottom:12}}>
           <LocationSearch placeholder="River, city, or region…" initialValue={loc.label} onSelect={s=>setLoc(s)} onTextChange={val=>setLoc({label:val,lat:null,lng:null})}/>
