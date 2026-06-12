@@ -3836,8 +3836,8 @@ async function labReviewReport(report,loc,ground){
       report.hatches?("Hatches listed: "+String(report.hatches).slice(0,200)+"."):"",
       report.bestTimes?("Timing given: "+String(report.bestTimes).slice(0,150)+"."):"",
       "Answer two things, TERSELY:",
-      "1) OMISSIONS: up to 3 well-known public trout waters in similar drive range it left out (especially ignored directions/drainages). Each formatted 'Name — reason in 5 words max'. Only real, recognized fisheries a local fly shop would name; no invented or marginal water. Empty list if nothing notable is missing.",
-      "2) LOGIC: up to 2 clear factual faults in its reasoning (hatch out of season, wrong tailwater/freestone label, unsafe or self-contradictory timing, implausible flow). Each ONE short clause, 12 words max — the fault only, no explanation. Empty list if sound.",
+      "1) OMISSIONS: up to 3 well-known public trout waters in similar drive range the report does not mention — pick distinct fisheries, not two sections of the same stream. Format each as 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; do NOT critique the report or use words like ignored, skipped, missing, or left out. Only real, recognized fisheries a local fly shop would name; no invented or marginal water. Empty list if nothing notable is missing.",
+      "2) LOGIC: up to 2 clear factual faults in the report's reasoning (hatch out of season, wrong tailwater/freestone label, unsafe or self-contradictory timing, implausible flow). State each as a plain correction the angler can act on, naming the right fact — e.g. 'salmonfly dries run size 4-6, not the 6-8 listed' — 16 words max. Empty list if sound.",
       "Be conservative; empty lists are correct when the report is fine.",
       'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"logic":["fault"]}.'
     ].filter(Boolean).join(" ");
@@ -3847,7 +3847,7 @@ async function labReviewReport(report,loc,ground){
     if(a===-1||b<=a)return null;
     const o=JSON.parse(clean.slice(a,b+1));
     const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
-    const tidy=(arr,cap)=>Array.isArray(arr)?arr.map(x=>clip(x,90)).filter(s=>s.length>=3).slice(0,cap):[];
+    const tidy=(arr,cap)=>Array.isArray(arr)?arr.map(x=>clip(x,100)).filter(s=>s.length>=3).slice(0,cap):[];
     return {omissions:tidy(o.omissions,3),logic:tidy(o.logic,2)};
   }catch(_r){return null;}
 }
@@ -3856,7 +3856,7 @@ function applyReviewNotes(overview,review){
   if(!review)return overview;
   let extra="";
   if(review.omissions&&review.omissions.length)extra+=" ⚠ Also consider (verify flows): "+review.omissions.join("; ")+".";
-  if(review.logic&&review.logic.length)extra+=" ⚠ Review flags: "+review.logic.join("; ")+".";
+  if(review.logic&&review.logic.length)extra+=" ⚠ Corrections to the above: "+review.logic.join("; ")+".";
   return (String(overview||"")+extra).trim();
 }
 
