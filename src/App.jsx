@@ -3825,39 +3825,49 @@ async function labVerifyPicks(rivers,loc,ground){
 // faults (out-of-season hatch, unsafe time-of-day advice, implausible flow claim).
 // One planner-tagged search call, fail-open. Rides the same grounding, so it's a strong
 // mitigation for recall gaps (the St. Vrain/Big Thompson miss), not a guarantee.
-async function labReviewReport(report,loc,ground){
+async function labReviewReport(report,loc,ground,dateStr){
   try{
     if(!report||!Array.isArray(report.rivers))return null;
     const picks=report.rivers.map(r=>r&&r.name).filter(Boolean);
     if(!picks.length)return null;
+    const riverFlies=report.rivers.filter(r=>r&&r.name).map(r=>r.name+": "+((Array.isArray(r.flies)?r.flies:[]).join(", ")||"(none)")).join(" | ");
     const ctx=[
-      "You are a senior fly fishing guide doing a fast sanity-check on a draft trip report near "+((loc&&loc.label)||"the area")+".",
-      "It recommends: "+picks.join(", ")+".",
-      report.hatches?("Hatches listed: "+String(report.hatches).slice(0,200)+"."):"",
-      report.bestTimes?("Timing given: "+String(report.bestTimes).slice(0,150)+"."):"",
-      "Answer two things, TERSELY:",
-      "1) OMISSIONS: up to 3 well-known public trout waters in similar drive range the report does not mention — pick distinct fisheries, not two sections of the same stream. Format each as 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; do NOT critique the report or use words like ignored, skipped, missing, or left out. Only real, recognized fisheries a local fly shop would name; no invented or marginal water. Empty list if nothing notable is missing.",
-      "2) LOGIC: up to 2 clear factual faults in the report's reasoning (hatch out of season, wrong tailwater/freestone label, unsafe or self-contradictory timing, implausible flow). State each as a plain correction the angler can act on, naming the right fact — e.g. 'salmonfly dries run size 4-6, not the 6-8 listed' — 16 words max. Empty list if sound.",
-      "Be conservative; empty lists are correct when the report is fine.",
-      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"logic":["fault"]}.'
+      "You are a senior fly fishing guide fact-checking a draft trip report near "+((loc&&loc.label)||"the area")+" for "+(dateStr||"today")+".",
+      "Streams: "+picks.join(", ")+".",
+      riverFlies?("Per-stream fly lists — "+riverFlies+"."):"",
+      report.hatches?("Hatch Activity text: "+String(report.hatches).slice(0,600)):"",
+      report.bestTimes?("Best Times text: "+String(report.bestTimes).slice(0,300)):"",
+      report.tips?("Insider Tips text: "+String(report.tips).slice(0,600)):"",
+      "Do TWO things:",
+      "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Format each 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
+      "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, or unsafe/self-contradictory timing. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
+      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
     ].filter(Boolean).join(" ");
-    const race=Promise.race([askClaude(ctx,true,1800,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
+    const race=Promise.race([askClaude(ctx,true,2600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
     const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
     if(a===-1||b<=a)return null;
     const o=JSON.parse(clean.slice(a,b+1));
     const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
-    const tidy=(arr,cap)=>Array.isArray(arr)?arr.map(x=>clip(x,100)).filter(s=>s.length>=3).slice(0,cap):[];
-    return {omissions:tidy(o.omissions,3),logic:tidy(o.logic,2)};
+    const omissions=Array.isArray(o.omissions)?o.omissions.map(x=>clip(x,100)).filter(s=>s.length>=3).slice(0,3):[];
+    const fxIn=o.fixes||{};
+    const txt=v=>{const s=String(v||"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();return s.length>=20?s:"";}; // only accept a substantive rewrite
+    const fixes={};
+    if(txt(fxIn.hatches))fixes.hatches=txt(fxIn.hatches);
+    if(txt(fxIn.bestTimes))fixes.bestTimes=txt(fxIn.bestTimes);
+    if(txt(fxIn.tips))fixes.tips=txt(fxIn.tips);
+    if(Array.isArray(fxIn.rivers)){
+      const rv=fxIn.rivers.map(r=>({name:String((r&&r.name)||"").trim(),flies:(Array.isArray(r&&r.flies)?r.flies:[]).map(f=>String(f||"").replace(/<cite[^>]*>|<\/cite>/g,"").trim()).filter(Boolean).slice(0,8)})).filter(r=>r.name&&r.flies.length);
+      if(rv.length)fixes.rivers=rv.slice(0,6);
+    }
+    return {omissions,fixes};
   }catch(_r){return null;}
 }
-// Fold review findings into the overview as a clearly-marked footer (no UI change needed).
+// Fold omissions into the overview as a clearly-marked footer (corrections are applied
+// directly to the report content at the call site, not surfaced as a separate callout).
 function applyReviewNotes(overview,review){
-  if(!review)return overview;
-  let extra="";
-  if(review.omissions&&review.omissions.length)extra+=" ⚠ Also consider (verify flows): "+review.omissions.join("; ")+".";
-  if(review.logic&&review.logic.length)extra+=" ⚠ Corrections to the above: "+review.logic.join("; ")+".";
-  return (String(overview||"")+extra).trim();
+  if(!review||!review.omissions||!review.omissions.length)return overview;
+  return (String(overview||"")+" ⚠ Also consider (verify flows): "+review.omissions.join("; ")+".").trim();
 }
 
 // Single finalize step. Prod path = exactly the original behavior (sync). Lab
@@ -4229,7 +4239,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
-            if(LAB){reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes},loc,searchTxt).catch(()=>null);} // run the report review in parallel with finalize + gauge-load
+            if(LAB){reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips},loc,searchTxt,ds).catch(()=>null);} // run the report review (omissions + in-place corrections) in parallel with finalize + gauge-load
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
@@ -4280,15 +4290,29 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           }
           addStep(`${pg.length} gauges loaded ✓`);
         }catch(ge){void 0;}
-        // Fold in the review footer now that it's resolved (it ran in parallel with finalize + gauge-load).
-        // This re-renders with the ⚠ notes a beat after the report first appeared, and runs before the save
-        // so the persisted copy includes them.
+        // Fold the review result in now that it's resolved (it ran in parallel with finalize + gauge-load):
+        // corrections are applied directly to the report content (same scrubs the assembly used), and the
+        // omissions footer is appended. Re-renders a beat after first paint, before the save persists it.
         if(reviewPromise&&builtReport){
           try{
             const review=await reviewPromise;
-            if(review&&((review.omissions&&review.omissions.length)||(review.logic&&review.logic.length))){
-              builtReport={...builtReport,overview:applyReviewNotes(builtReport.overview,review)};
-              setReport(builtReport);
+            if(review){
+              const fx=review.fixes||{};
+              let changed=false;
+              let nb={...builtReport};
+              if(fx.hatches){nb.hatches=sb2(fx.hatches);changed=true;}
+              if(fx.bestTimes){nb.bestTimes=eThermal?scrubAfternoonPush(sb2(fx.bestTimes)):sb2(fx.bestTimes);changed=true;}
+              if(fx.tips){nb.tips=eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(fx.tips))).trim():sb2(fx.tips);changed=true;}
+              if(Array.isArray(fx.rivers)&&fx.rivers.length&&Array.isArray(nb.rivers)){
+                const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+                nb.rivers=nb.rivers.map(rv=>{
+                  const m=fx.rivers.find(f=>{const a=nrm(f.name),b=nrm(rv.name);return a&&b&&(a===b||a.startsWith(b)||b.startsWith(a));});
+                  if(m&&Array.isArray(m.flies)&&m.flies.length){const cleaned=cleanFlyList(m.flies);if(cleaned.length){changed=true;return {...rv,flies:cleaned};}}
+                  return rv;
+                });
+              }
+              if(review.omissions&&review.omissions.length){nb.overview=applyReviewNotes(nb.overview,review);changed=true;}
+              if(changed){builtReport=nb;setReport(builtReport);}
             }
           }catch(_rv){void 0;}
         }
@@ -4389,6 +4413,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — "+(report.searchNote||"no current local reports found"):"Synthesized from live USGS flows, weather & current conditions"}</div>
           <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{(report.overview||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
+          {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
+          {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
+          {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
+          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div><div className="divider"/></> }
           {report.recommendation&&(
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
               <span style={{fontSize:20,flexShrink:0}}>🏆</span>
@@ -4425,10 +4453,6 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
               );
             })}
           </>}
-          {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
-          {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
-          {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
-          {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div></> }
         </div>
       )}
     </div>
