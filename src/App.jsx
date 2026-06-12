@@ -3831,31 +3831,32 @@ async function labReviewReport(report,loc,ground){
     const picks=report.rivers.map(r=>r&&r.name).filter(Boolean);
     if(!picks.length)return null;
     const ctx=[
-      "You are a senior fly fishing guide reviewing a draft trip-planning report near "+((loc&&loc.label)||"the area")+" for accuracy and completeness, the way you would critique a colleague's report before it goes out.",
-      "The report recommends these trout waters: "+picks.join(", ")+".",
-      report.hatches?("Hatches it lists: "+String(report.hatches).slice(0,300)+"."):"",
-      report.bestTimes?("Time-of-day guidance it gives: "+String(report.bestTimes).slice(0,200)+"."):"",
-      "Using current public sources, answer TWO questions:",
-      "1) OMISSIONS: What well-known, established public trout waters within roughly the same drive range did this report leave out — especially in directions or drainages it ignored? Name only genuine, recognized fisheries a local fly shop would mention; do NOT invent waters and do NOT list marginal trickles. For each, give a 6-12 word reason (e.g. its drainage/direction or why it fishes now). If nothing notable is missing, return an empty list.",
-      "2) LOGIC: Flag any clear faults in the report's own reasoning — a hatch out of season for this date, unsafe or self-contradictory time-of-day advice, or an implausible flow claim. If none, return an empty list.",
-      "Be conservative and specific; an empty list is correct when the report is sound.",
-      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"logic":["issue"]}.'
+      "You are a senior fly fishing guide doing a fast sanity-check on a draft trip report near "+((loc&&loc.label)||"the area")+".",
+      "It recommends: "+picks.join(", ")+".",
+      report.hatches?("Hatches listed: "+String(report.hatches).slice(0,200)+"."):"",
+      report.bestTimes?("Timing given: "+String(report.bestTimes).slice(0,150)+"."):"",
+      "Answer two things, TERSELY:",
+      "1) OMISSIONS: up to 3 well-known public trout waters in similar drive range it left out (especially ignored directions/drainages). Each formatted 'Name — reason in 5 words max'. Only real, recognized fisheries a local fly shop would name; no invented or marginal water. Empty list if nothing notable is missing.",
+      "2) LOGIC: up to 2 clear factual faults in its reasoning (hatch out of season, wrong tailwater/freestone label, unsafe or self-contradictory timing, implausible flow). Each ONE short clause, 12 words max — the fault only, no explanation. Empty list if sound.",
+      "Be conservative; empty lists are correct when the report is fine.",
+      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"logic":["fault"]}.'
     ].filter(Boolean).join(" ");
     const race=Promise.race([askClaude(ctx,true,1800,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
     const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
     if(a===-1||b<=a)return null;
     const o=JSON.parse(clean.slice(a,b+1));
-    const tidy=arr=>Array.isArray(arr)?arr.map(x=>String(x||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim()).filter(s=>s.length>=3):[];
-    return {omissions:tidy(o.omissions).slice(0,5),logic:tidy(o.logic).slice(0,4)};
+    const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
+    const tidy=(arr,cap)=>Array.isArray(arr)?arr.map(x=>clip(x,90)).filter(s=>s.length>=3).slice(0,cap):[];
+    return {omissions:tidy(o.omissions,3),logic:tidy(o.logic,2)};
   }catch(_r){return null;}
 }
 // Fold review findings into the overview as a clearly-marked footer (no UI change needed).
 function applyReviewNotes(overview,review){
   if(!review)return overview;
   let extra="";
-  if(review.omissions&&review.omissions.length)extra+=" ⚠ Also worth a look: a local guide might also weigh "+review.omissions.join("; ")+". These were not covered above — confirm current flows before relying on them.";
-  if(review.logic&&review.logic.length)extra+=" ⚠ Report-review flags: "+review.logic.join("; ")+".";
+  if(review.omissions&&review.omissions.length)extra+=" ⚠ Also consider (verify flows): "+review.omissions.join("; ")+".";
+  if(review.logic&&review.logic.length)extra+=" ⚠ Review flags: "+review.logic.join("; ")+".";
   return (String(overview||"")+extra).trim();
 }
 
@@ -4115,7 +4116,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
     }
     setBusy(true);setError(null);setSteps([]);
     setWxData(null);setFlowPts([]);setGauges([]);setShops([]);setReport(null);
-    let builtReport=null,finalGauges=null;
+    let builtReport=null,finalGauges=null,reviewPromise=null;
     try{
       addStep("Finding location…","active");
       let lat=loc.lat,lng=loc.lng;
@@ -4228,8 +4229,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
+            if(LAB){reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes},loc,searchTxt).catch(()=>null);} // run the report review in parallel with finalize + gauge-load
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
-            if(LAB){try{const review=await labReviewReport(builtReport,loc,searchTxt);if(review&&((review.omissions&&review.omissions.length)||(review.logic&&review.logic.length)))builtReport={...builtReport,overview:applyReviewNotes(builtReport.overview,review)};}catch(_rv){void 0;}}
+            // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
           } else { if(LAB){try{console.log("[LAB RAW FULL "+String(reportTxt||"").length+" chars]\n"+reportTxt);}catch(_lg){void 0;}} setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,1500):"")); }
         }catch(e2){
@@ -4278,6 +4280,18 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           }
           addStep(`${pg.length} gauges loaded ✓`);
         }catch(ge){void 0;}
+        // Fold in the review footer now that it's resolved (it ran in parallel with finalize + gauge-load).
+        // This re-renders with the ⚠ notes a beat after the report first appeared, and runs before the save
+        // so the persisted copy includes them.
+        if(reviewPromise&&builtReport){
+          try{
+            const review=await reviewPromise;
+            if(review&&((review.omissions&&review.omissions.length)||(review.logic&&review.logic.length))){
+              builtReport={...builtReport,overview:applyReviewNotes(builtReport.overview,review)};
+              setReport(builtReport);
+            }
+          }catch(_rv){void 0;}
+        }
         // Persist the finished report so navigating away doesn't lose it
         if(builtReport){
           const payload={v:1,ts:Date.now(),loc:{label:loc.label,lat,lng},date,wxData:wx,gauges:finalGauges||pgScaled,report:builtReport};
