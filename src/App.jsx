@@ -3737,11 +3737,93 @@ function dropWarmwaterByText(rivers){
   return kept.length?kept:rivers;
 }
 
+// ---- Verification layer (lab only): authoritative data SUGGESTS, verification DECIDES. ----
+// Pull the impoundment name out of a USGS/DWR gauge name, e.g.
+// "BLUE RIVER BELOW DILLON, CO." -> "DILLON"; "...BELOW CHEESMAN RESERVOIR" -> "CHEESMAN".
+function damFromGauge(g){
+  const s=String(g||"").toUpperCase();
+  const m=s.match(/\b(?:BELOW|BLW)\s+([A-Z][A-Z0-9 .'\-]*?)(?:\s+(?:RES\w*|DAM|LAKE)\b|,|\s+(?:AT|NEAR|NR)\b|$)/);
+  return m?m[1].replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim():"";
+}
+function titleCaseWords(s){return String(s||"").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());}
+// Deterministic dam-name fix: when a pick is typed Tailwater and its snapped gauge names a
+// dam, but the prose names a DIFFERENT dam, correct the prose to the gauge's dam. Acts ONLY
+// on a direct contradiction (the Blue River "Green Mountain vs Dillon" recurrence). No AI.
+function damNameReconcile(rivers){
+  if(!Array.isArray(rivers))return rivers;
+  const damRe=/\b(?:below|blw|under|tailwater (?:below|of))\s+(?:the\s+)?([A-Z][A-Za-z0-9 .'\-]*?)\s+(?:dam|reservoir)\b|\b([A-Z][A-Za-z0-9 .'\-]*?)\s+(?:dam|reservoir)\b/i;
+  return rivers.map(r=>{
+    if(!/tailwater/i.test(String(r.type||"")))return r;
+    const gDam=damFromGauge(r.gaugeSnap);
+    if(!gDam)return r;
+    const fields=[r.why,r.conditions,r.techniques,r.name].map(v=>String(v||"")).join("  ");
+    const m=damRe.exec(fields);
+    const pDam=m?String(m[1]||m[2]||"").replace(/[^A-Za-z0-9 ]/g," ").replace(/\s+/g," ").trim().toUpperCase():"";
+    if(!pDam)return r;
+    const a=gDam.replace(/\s+/g,""),b=pDam.replace(/\s+/g,"");
+    if(a===b||a.includes(b)||b.includes(a))return r; // names agree (or one contains the other) -> no conflict
+    const good=titleCaseWords(gDam);
+    const re=new RegExp("\\b"+pDam.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s+/g,"\\s+")+"\\b","gi");
+    const fix=t=>String(t||"").replace(re,good);
+    const note="⚠ Live gauge data places this tailwater below "+good+" Dam; the dam name was corrected.";
+    return {...r,why:(note+" "+fix(r.why)).trim(),conditions:fix(r.conditions),techniques:fix(r.techniques)};
+  });
+}
+// Parse the deep-read's "AVOID AS TROUT WATER:" line(s) into normalized stream names.
+function parseAvoidList(ground){
+  const out=[];const re=/AVOID AS TROUT WATER:\s*([^\n\r]*)/ig;let m;
+  while((m=re.exec(String(ground||"")))){
+    m[1].split(/[,;]|\band\b/i).forEach(p=>{const t=p.replace(/[^A-Za-z0-9 ]/g," ").replace(/\s+/g," ").trim();if(t.length>=4)out.push(t.toLowerCase());});
+  }
+  return out;
+}
+function coreNorm(s){return String(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\b(the|creek|river|stream|fork|north|south|east|west|middle|upper|lower)\b/g," ").replace(/\s+/g," ").trim();}
+function avoidHit(name,avoid){const n=coreNorm(name);if(!n)return false;return avoid.some(a=>{const c=coreNorm(a);return c.length>=3&&(n.includes(c)||c.includes(n));});}
+// Skeptical verification pass: one batched Sonnet search asks, for each pick, coldwater
+// trout vs warmwater/bass. DROP only on a direct contradiction (deep-read AVOID-list match,
+// or a 'warmwater' verdict). LABEL 'unsure' picks; never penalize on silence; never empty
+// the list. Lab-only, fail-open. Planner-tagged so it costs no extra user credit.
+async function labVerifyPicks(rivers,loc,ground){
+  if(!Array.isArray(rivers)||!rivers.length)return rivers;
+  const avoid=parseAvoidList(ground);
+  const flags=rivers.map(r=>({avoid:avoidHit(r.name,avoid)}));
+  let verdicts=[];
+  try{
+    const items=rivers.map((r,i)=>(i+1)+") "+String(r.name||"?")+(r.type?" ["+r.type+"]":"")+(r.gaugeSnap?" (gauge: "+r.gaugeSnap+")":"")).join("  ");
+    const vp=["You are a skeptical senior fly fishing guide fact-checking a trip plan near "+((loc&&loc.label)||"the area")+".",
+      "For EACH numbered water below, use current public sources to decide whether it is a COLDWATER TROUT fishery, or a WARMWATER/bass/smallmouth water that is NOT trout water.",
+      "Be conservative: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery. If you are not certain, answer 'unsure' — never guess 'warmwater'.",
+      "If a water is described as a tailwater, also note whether the named dam appears wrong.",
+      "Return ONLY a JSON array, one object per item, SAME ORDER, no markdown: ",
+      '[{"n":1,"verdict":"trout|warmwater|unsure","note":"max 12 words"}].',
+      "Waters: "+items].join(" ");
+    const race=Promise.race([askClaude(vp,true,1500,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").trim();
+    const a=clean.indexOf("["),b=clean.lastIndexOf("]");
+    if(a!==-1&&b>a)verdicts=JSON.parse(clean.slice(a,b+1));
+  }catch(_v){verdicts=[];}
+  const byN=new Map();(Array.isArray(verdicts)?verdicts:[]).forEach((v,i)=>{const n=Number(v&&v.n)||(i+1);byN.set(n,v);});
+  const NOTE_UNSURE="⚠ Species and location not confirmed by current reports — verify locally before relying on this pick.";
+  const decided=rivers.map((r,i)=>{
+    const v=byN.get(i+1)||{};const verdict=String(v.verdict||"").toLowerCase();
+    const drop=flags[i].avoid||verdict==="warmwater";
+    let why=r.why;
+    if(!drop&&verdict==="unsure")why=(NOTE_UNSURE+" "+String(r.why||"")).trim();
+    if(!drop&&v&&v.note&&/\b(wrong|incorrect|mislabel\w*|not (?:a )?trout|actually below|should be)\b/i.test(String(v.note)))why=("⚠ "+String(v.note).trim()+" "+String(why||"")).trim();
+    return {r:{...r,why},drop};
+  });
+  const kept=decided.filter(d=>!d.drop).map(d=>d.r);
+  if(kept.length)return kept;
+  const top=decided[0].r; // never empty: keep top-ranked, clearly flagged
+  return [{...top,why:("⚠ This pick was flagged during verification and could not be confirmed as trout water — treat as low confidence. "+String(top.why||"")).trim()}];
+}
+
 // Single finalize step. Prod path = exactly the original behavior (sync). Lab
-// path = proximity-capped gauge match + tailwater-keep + async drive-time governor.
-function finalizeRivers(lab,rivers,gaugeList,loc){
+// path = proximity-capped gauge match + tailwater-keep + async drive-time governor,
+// then deterministic dam-name reconcile + a skeptical verification pass (ground = deep-read text).
+function finalizeRivers(lab,rivers,gaugeList,loc,ground){
   if(!lab)return enforceStreamTypes(snapRiversToGauges(rivers,gaugeList));
-  return finalizeLabRivers(rivers,gaugeList,loc);
+  return finalizeLabRivers(rivers,gaugeList,loc,ground);
 }
 // Fusion guard: a real tailwater sits below ONE dam, so its access points cluster
 // within a few miles. A "Tailwater" entry whose access points are far apart has
@@ -3768,12 +3850,14 @@ function labSplitFused(rivers){
   });
 }
 
-async function finalizeLabRivers(rivers,gaugeList,loc){
+async function finalizeLabRivers(rivers,gaugeList,loc,ground){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
   out=labSplitFused(out);                          // split fused two-dam tailwater entries
   out=dropWarmwaterByText(out);                     // drop picks the model itself calls warmwater/bass (backstop to deep-read)
+  out=damNameReconcile(out);                        // correct wrong-dam claims against the live gauge name (deterministic)
   out=await labGovernor(out,loc);                  // drive-time governor, never-empty
+  out=await labVerifyPicks(out,loc,ground);        // skeptical trout-vs-warmwater pass + AVOID-list enforcement (drop on contradiction, label on doubt, never empty)
   return out;
 }
 
@@ -4103,7 +4187,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
-            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
+            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers(LAB,(rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?((LAB?THERMAL_TIP_SOFT:THERMAL_TIP)+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             setReport(builtReport);
           } else { if(LAB){try{console.log("[LAB RAW FULL "+String(reportTxt||"").length+" chars]\n"+reportTxt);}catch(_lg){void 0;}} setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Try again, or tell Adam what this said."+(LAB?" [LAB RAW "+String(reportTxt||"").length+" chars]: "+String(reportTxt||"").replace(/\s+/g," ").slice(0,1500):"")); }
         }catch(e2){
