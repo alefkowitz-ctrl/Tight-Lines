@@ -2612,8 +2612,7 @@ function GuideSavedGauges({user}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
             <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.cfs>=1000?(g.cfs/1000).toFixed(1)+"k":g.cfs?.toFixed(0)} CFS</span>}
-              <span className={"gbadge "+(g.cls||"")} style={{fontSize:14}}>{g.label}</span>
+              {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10}}>
