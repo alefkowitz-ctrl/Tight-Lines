@@ -1097,28 +1097,134 @@ function RegsLink({label}){
 
 // Hatch predictions: shows all seasonally/regionally appropriate hatches with temp-range context.
 // Temp data is informational — notes tell users when each hatch peaks, not a filter gate.
+// ---- Regional hatch resolution (App Dev 19, queue #9 Bozeman fix) ----
+// Deterministic state lookup from lat/lng (no network call) -> 9 fishing regions.
+// Replaces the old single west=lng<=-100 boolean that made every Western US
+// location (Bozeman MT, Denver CO, Phoenix AZ) render byte-identical hatch charts.
+const STATE_BBOX=[
+  // [stateCode, minLat, maxLat, minLng, maxLng] - approximate rectangles, checked in order;
+  // first match wins. Boxes are tightened at known overlap borders (ID/MT, MT/WY, NY/VT)
+  // rather than relying on check-order alone, since real state shapes aren't rectangles.
+  ["WA",45.5,49.1,-124.9,-116.9],
+  ["OR",41.9,46.3,-124.7,-116.4],
+  ["ID",41.9,49.1,-117.4,-114.0], // tightened east edge so MT doesn't get swallowed
+  ["CA",32.4,42.1,-124.5,-114.1],
+  ["MT",45.0,49.1,-116.1,-104.0], // south edge aligned to true MT/WY border (45.0°N)
+  ["WY",40.9,45.0,-111.2,-104.0],
+  ["CO",36.9,41.1,-109.2,-102.0],
+  ["UT",36.9,42.1,-114.2,-109.0],
+  ["AZ",31.3,37.1,-114.9,-109.0],
+  ["NM",31.2,37.1,-109.2,-103.0],
+  ["NV",35.0,42.1,-120.1,-114.0],
+  ["MI",41.6,48.3,-90.5,-82.3],
+  ["WI",42.4,47.2,-92.9,-86.6],
+  ["MN",43.4,49.4,-97.3,-89.4],
+  ["IA",40.3,43.6,-96.7,-90.1],
+  ["IL",36.9,42.6,-91.6,-87.0],
+  ["PA",39.7,42.3,-80.6,-74.6],
+  ["WV",37.1,40.7,-82.7,-77.7],
+  ["VA",36.5,39.5,-83.7,-75.1],
+  ["NC",33.8,36.7,-84.4,-75.4],
+  ["TN",34.9,36.7,-90.4,-81.6],
+  ["GA",30.3,35.1,-85.7,-80.7],
+  ["VT",42.6,45.1,-73.5,-71.4], // checked before NY so VT's strip isn't swallowed by NY's box
+  ["NH",42.6,45.4,-72.6,-70.6],
+  ["NY",40.4,45.1,-79.8,-73.5], // tightened east edge to stop short of VT
+  ["ME",42.9,47.5,-71.2,-66.8],
+  ["MA",41.1,43.0,-73.6,-69.8],
+  ["CT",40.9,42.1,-73.8,-71.7],
+  ["RI",41.1,42.1,-71.9,-71.1],
+  ["NJ",38.9,41.4,-75.6,-73.9],
+  ["SC",32.0,35.3,-83.4,-78.4],
+  ["AL",30.1,35.1,-88.5,-84.8],
+  ["FL",24.4,31.1,-87.7,-79.9]
+];
+function stateFromLatLng(lat,lng){
+  if(lat==null||lng==null) return null;
+  for(const s of STATE_BBOX){
+    if(lat>=s[1]&&lat<=s[2]&&lng>=s[3]&&lng<=s[4]) return s[0];
+  }
+  return null;
+}
+const REGION_BY_STATE={
+  WA:"pnw",OR:"pnw",ID:"pnw",
+  CA:"california",
+  MT:"n_rockies", // WY handled separately below (latitude split)
+  CO:"s_rockies",UT:"s_rockies",
+  AZ:"southwest",NM:"southwest",NV:"southwest",
+  MI:"midwest",WI:"midwest",MN:"midwest",IA:"midwest",IL:"midwest",
+  PA:"appalachia",WV:"appalachia",VA:"appalachia",
+  NY:"northeast",VT:"northeast",NH:"northeast",ME:"northeast",MA:"northeast",CT:"northeast",RI:"northeast",NJ:"northeast",
+  SC:"southeast",AL:"southeast",FL:"southeast"
+  // NC, TN, GA intentionally omitted: mountain vs. lowland split handled in regionFromLatLng
+};
+// WY: split at 43°N (Continental Divide / watershed proxy) -- Yellowstone/Snake/Bighorn/
+// Shoshone basins (Cody, Jackson, Cooke City) read north; North Platte/Green/Flaming Gorge
+// basins (Saratoga, Casper, Rawlins) read south.
+// NC/TN/GA: mountain counties (Appalachia) vs. lowland (Southeast) split by longitude --
+// Appalachian ranges in these three states sit west of roughly -82° to -83.5°.
+function regionFromLatLng(lat,lng){
+  const st=stateFromLatLng(lat,lng);
+  if(!st) return "s_rockies"; // fail-open default: closest to current CO-centric behavior
+  if(st==="WY") return lat>=43?"n_rockies":"s_rockies";
+  if(st==="NC") return lng<=-82.3?"appalachia":"southeast";
+  if(st==="TN") return lng<=-83.0?"appalachia":"southeast";
+  if(st==="GA") return lng<=-83.5?"appalachia":"southeast";
+  return REGION_BY_STATE[st]||"s_rockies";
+}
+// Region-aware "where" text for hatches whose example rivers vary meaningfully by region.
+// Falls back to a generic phrase for regions not explicitly listed (never throws, never blank).
+const REGION_WHERE={
+  salmonfly:{
+    pnw:"large freestone rivers (Deschutes, Yakima, Clackamas) \u2014 not small creeks or most tailwaters",
+    n_rockies:"large freestone rivers (Madison, Big Hole, Yellowstone, Rock Creek) \u2014 not small creeks or most tailwaters",
+    s_rockies:"large freestone rivers (Colorado, Gunnison, Arkansas) \u2014 not small creeks or most tailwaters",
+    california:"large freestone rivers (Trinity, McCloud) \u2014 not small creeks or most tailwaters",
+    _default:"large, fast freestone rivers \u2014 not small creeks or most tailwaters"
+  },
+  greendrake:{
+    n_rockies:"specific famous rivers (Henry's Fork, Madison) \u2014 sporadic or absent elsewhere",
+    s_rockies:"specific famous rivers (Frying Pan, Roaring Fork) \u2014 sporadic or absent elsewhere",
+    appalachia:"specific famous rivers (Penns Creek, Beaverkill) \u2014 sporadic or absent elsewhere",
+    northeast:"specific famous rivers (Penns Creek, Beaverkill) \u2014 sporadic or absent elsewhere",
+    _default:"sporadic and famous-water-specific where it occurs"
+  },
+  hex:{
+    midwest:"silty-bottomed rivers and stillwaters \u2014 famous on Michigan's Au Sable and Wisconsin waters, absent from rocky freestone streams",
+    pnw:"silty-bottomed rivers and stillwaters \u2014 known on select Oregon waters, absent from rocky freestone streams",
+    california:"silty-bottomed rivers and stillwaters \u2014 locally famous on Fall River and Lake Almanor, absent from rocky freestone streams",
+    northeast:"silty-bottomed rivers and stillwaters \u2014 present on a handful of waters, far less prolific than Midwest, absent from rocky freestone streams",
+    _default:"silty-bottomed rivers and stillwaters, absent from rocky freestone streams"
+  }
+};
+function regionWhere(key,region){
+  const m=REGION_WHERE[key];
+  if(!m) return null;
+  return m[region]||m._default;
+}
 function predictHatches(opts){
   const month=opts.month,t=opts.waterTempF!=null?opts.waterTempF:null;
-  const lng=opts.lng!=null?opts.lng:-100,west=lng<=-100,bigWater=(opts.maxCfs||0)>400;
+  const lng=opts.lng!=null?opts.lng:-100,bigWater=(opts.maxCfs||0)>400;
   const src=opts.tempGaugeName?" ("+opts.tempGaugeName+")":"";
+  const userRegion=regionFromLatLng(opts.lat!=null?opts.lat:null,lng);
   const R=[
     {name:"Midges",months:[1,2,3,4,5,6,7,8,9,10,11,12],lo:33,hi:70,flies:["Zebra Midge #18-22","Griffith's Gnat #18-22","RS2 #20-22"],timing:"Midday in cold months, mornings and evenings in summer",base:0.55,note:"Year-round staple; often the only game in cold water"},
     {name:"Blue-Winged Olive (Baetis)",months:[3,4,5,9,10,11],lo:40,hi:58,flies:["Pheasant Tail #16-20","BWO Comparadun #16-20","RS2 #18-20"],timing:"Afternoons; best on overcast days",base:0.7,note:"Cloudy, drizzly days bring the heaviest emergences"},
-    {name:"Skwala Stonefly",months:[2,3,4],lo:40,hi:50,west:true,where:"select western freestones (Bitterroot, Yakima, Clark Fork)",flies:["Pat's Rubber Legs #8-10","Skwala Dry #10"],timing:"Warmest part of the day",base:0.5,note:"Early-season western stonefly"},
-    {name:"Mother's Day Caddis",months:[4,5],lo:48,hi:56,west:true,flies:["Elk Hair Caddis #14-16","Sparkle Pupa #14-16"],timing:"Afternoons",base:0.6,note:"Can blanket western rivers when temps hit the low 50s"},
-    {name:"Salmonfly",months:[5,6,7],lo:50,hi:58,west:true,big:true,where:"large, fast freestone rivers (Colorado, Gunnison, Arkansas, Madison, Big Hole, Deschutes) \u2014 not small creeks or most tailwaters",flies:["Chubby Chernobyl #6-8","Pat's Rubber Legs #4-8"],timing:"Midday; the hatch moves upstream day by day",base:0.6,note:"Trout key on them hard where they occur"},
-    {name:"Golden Stonefly",months:[6,7],lo:52,hi:62,west:true,flies:["Yellow Stimulator #8-10","Golden Stone Nymph #8-10"],timing:"Mornings and evenings",base:0.55,note:"Follows the salmonfly hatch on many western rivers"},
-    {name:"Pale Morning Dun",months:[6,7,8],lo:54,hi:66,west:true,flies:["PMD Comparadun #16-18","Split Case PMD #16-18"],timing:"Late morning into early afternoon",base:0.7,note:"The premier summer mayfly across the West"},
-    {name:"October Caddis",months:[9,10],lo:45,hi:55,west:true,flies:["Orange Stimulator #8-10","October Caddis Pupa #8-10"],timing:"Afternoons",base:0.5,note:"Big orange caddis of western fall"},
-    {name:"Quill Gordon",months:[3,4],lo:45,hi:52,east:true,flies:["Quill Gordon #12-14","Pheasant Tail #14"],timing:"Early afternoon on the first warm days",base:0.5,note:"The earliest major eastern mayfly"},
-    {name:"Hendrickson",months:[4,5],lo:50,hi:56,east:true,flies:["Hendrickson #12-14","Red Quill #12-14","Pheasant Tail #14"],timing:"Early to mid afternoon",base:0.7,note:"The classic eastern spring hatch"},
-    {name:"March Brown",months:[5,6],lo:50,hi:58,east:true,flies:["March Brown #10-12","Hare's Ear Nymph #12"],timing:"Sporadic through the afternoon",base:0.5,note:"Large eastern mayfly, never blanket but reliable"},
-    {name:"Sulphur",months:[5,6,7],lo:55,hi:65,east:true,flies:["Sulphur Comparadun #16-18","Sulphur Spinner #16-18"],timing:"Evenings; spinner falls at dusk",base:0.7,note:"The East's premier early-summer mayfly"},
-    {name:"Light Cahill",months:[6,7],lo:58,hi:66,east:true,flies:["Light Cahill #14-16","Cahill Spinner #14-16"],timing:"Evenings",base:0.55,note:"Reliable eastern summer evening mayfly"},
-    {name:"Hexagenia (Hex)",months:[6,7],lo:60,hi:70,east:true,where:"silty-bottomed rivers and stillwaters \u2014 famous on Michigan's Au Sable and Wisconsin waters, absent from rocky freestone streams",flies:["Hex Dun #4-6","Hex Nymph #6"],timing:"At dusk and after dark",base:0.55,note:"The giant Midwest night hatch"},
-    {name:"Slate Drake (Isonychia)",months:[5,6,9,10],lo:52,hi:64,east:true,flies:["Isonychia #10-12","Mahogany Dun #12"],timing:"Afternoons and evenings",base:0.5,note:"Eastern swimmer mayfly, both early summer and fall"},
+    {name:"Skwala Stonefly",months:[2,3,4],lo:40,hi:50,regions:["pnw","n_rockies","california"],where:"select western freestones (Bitterroot, Yakima, Clark Fork)",flies:["Pat's Rubber Legs #8-10","Skwala Dry #10"],timing:"Warmest part of the day",base:0.5,note:"Early-season western stonefly"},
+    {name:"Mother's Day Caddis",months:[4,5],lo:48,hi:56,regions:["pnw","n_rockies","s_rockies"],flies:["Elk Hair Caddis #14-16","Sparkle Pupa #14-16"],timing:"Afternoons",base:0.6,note:"Can blanket western rivers when temps hit the low 50s"},
+    {name:"Salmonfly",months:[5,6,7],lo:50,hi:58,regions:["pnw","n_rockies","s_rockies","california"],regionWhereKey:"salmonfly",big:true,flies:["Chubby Chernobyl #6-8","Pat's Rubber Legs #4-8"],timing:"Midday; the hatch moves upstream day by day",base:0.6,note:"Trout key on them hard where they occur"},
+    {name:"Golden Stonefly",months:[6,7],lo:52,hi:62,regions:["pnw","n_rockies","s_rockies","california"],flies:["Yellow Stimulator #8-10","Golden Stone Nymph #8-10"],timing:"Mornings and evenings",base:0.55,note:"Follows the salmonfly hatch on many western rivers"},
+    {name:"Pale Morning Dun",months:[6,7,8],lo:54,hi:66,regions:["pnw","n_rockies","s_rockies","california","southwest"],flies:["PMD Comparadun #16-18","Split Case PMD #16-18"],timing:"Late morning into early afternoon",base:0.7,note:"The premier summer mayfly across the West"},
+    {name:"October Caddis",months:[9,10],lo:45,hi:55,regions:["pnw","n_rockies","s_rockies","california"],flies:["Orange Stimulator #8-10","October Caddis Pupa #8-10"],timing:"Afternoons",base:0.5,note:"Big orange caddis of western fall"},
+    {name:"Quill Gordon",months:[3,4],lo:45,hi:52,regions:["appalachia","northeast"],flies:["Quill Gordon #12-14","Pheasant Tail #14"],timing:"Early afternoon on the first warm days",base:0.5,note:"The earliest major eastern mayfly"},
+    {name:"Hendrickson",months:[4,5],lo:50,hi:56,regions:["appalachia","northeast","midwest"],flies:["Hendrickson #12-14","Red Quill #12-14","Pheasant Tail #14"],timing:"Early to mid afternoon",base:0.7,note:"The classic eastern spring hatch"},
+    {name:"March Brown",months:[5,6],lo:50,hi:58,regions:["appalachia","northeast","midwest","california"],flies:["March Brown #10-12","Hare's Ear Nymph #12"],timing:"Sporadic through the afternoon",base:0.5,note:"Large eastern mayfly, never blanket but reliable"},
+    {name:"Sulphur",months:[5,6,7],lo:55,hi:65,regions:["appalachia","northeast"],flies:["Sulphur Comparadun #16-18","Sulphur Spinner #16-18"],timing:"Evenings; spinner falls at dusk",base:0.7,note:"The East's premier early-summer mayfly"},
+    {name:"Light Cahill",months:[6,7],lo:58,hi:66,regions:["appalachia","northeast","midwest"],flies:["Light Cahill #14-16","Cahill Spinner #14-16"],timing:"Evenings",base:0.55,note:"Reliable eastern summer evening mayfly"},
+    {name:"Hexagenia (Hex)",months:[6,7],lo:60,hi:70,regions:["midwest","pnw","california","northeast"],regionWhereKey:"hex",flies:["Hex Dun #4-6","Hex Nymph #6"],timing:"At dusk and after dark",base:0.55,note:"The giant night hatch"},
+    {name:"Slate Drake (Isonychia)",months:[5,6,9,10],lo:52,hi:64,regions:["appalachia","northeast","midwest"],flies:["Isonychia #10-12","Mahogany Dun #12"],timing:"Afternoons and evenings",base:0.5,note:"Eastern swimmer mayfly, both early summer and fall"},
     {name:"Caddis (evening)",months:[5,6,7,8,9],lo:52,hi:68,flies:["Elk Hair Caddis #14-18","X-Caddis #14-16","Soft Hackle #14-16"],timing:"Last two hours before dark",base:0.7,note:"Reliable summer evening activity on most trout water"},
-    {name:"Green Drake",months:[6,7],lo:54,hi:62,where:"specific famous rivers (Henry's Fork, Frying Pan, Roaring Fork, Penns Creek) \u2014 sporadic or absent elsewhere",flies:["Green Drake #10-12","Hare's Ear Nymph #10-12"],timing:"Afternoons, often during unsettled weather",base:0.5,note:"Short but famous; trout abandon caution for them"},
+    {name:"Green Drake",months:[6,7],lo:54,hi:62,regionWhereKey:"greendrake",flies:["Green Drake #10-12","Hare's Ear Nymph #10-12"],timing:"Afternoons, often during unsettled weather",base:0.5,note:"Short but famous; trout abandon caution for them"},
     {name:"Yellow Sally",months:[6,7,8],lo:55,hi:65,flies:["Yellow Sally #14-16","Yellow Stimulator #14"],timing:"Afternoons and evenings",base:0.5,note:"Small summer stonefly, easy to overlook"},
     {name:"Trico",months:[7,8,9],lo:58,hi:70,flies:["Trico Spinner #20-24","Trico Dun #20-22"],timing:"Early mornings; spinner fall around 8-10am",base:0.55,note:"Tiny flies, picky fish, great dry-fly fishing"},
     {name:"Terrestrials (hoppers, ants, beetles)",months:[7,8,9],lo:58,hi:74,flies:["Hopper #8-12","Ant #14-18","Beetle #14-16"],timing:"Warm, breezy afternoons near grassy banks",base:0.6,note:"Not a hatch but a major summer food source"},
@@ -1127,8 +1233,7 @@ function predictHatches(opts){
   const out=[];
   for(const r of R){
     if(!r.months.includes(month))continue;
-    if(r.west===true&&!west)continue;
-    if(r.east===true&&west)continue;
+    if(r.regions&&!r.regions.includes(userRegion))continue;
     if(r.big&&!bigWater)continue;
     let tempCtx="";
     if(t!==null){
@@ -1139,10 +1244,12 @@ function predictHatches(opts){
     }
     const gaugeNote=t!==null&&opts.tempGaugeName?" Temp reading from "+opts.tempGaugeName+".":"";
     const timingNote=". Best fished "+r.timing.charAt(0).toLowerCase()+r.timing.slice(1)+".";
-    const whereNote=r.where?". Found only on "+r.where+" \u2014 check whether your water holds this hatch":"";
-    const lk=r.where?"Moderate":(r.base>=0.65?"High":"Moderate");
+    const whereText=r.regionWhereKey?regionWhere(r.regionWhereKey,userRegion):r.where;
+    const whereNote=whereText?". Found only on "+whereText+" \u2014 check whether your water holds this hatch":"";
+    const lk=whereText?"Moderate":(r.base>=0.65?"High":"Moderate");
     out.push({name:r.name,likelihood:lk,waterTempRange:r.lo+"-"+r.hi+"\u00b0F",flies:r.flies,timing:r.timing,notes:r.note+whereNote+timingNote+" Typically active when water reaches "+r.lo+"\u2013"+r.hi+"\u00b0F."+tempCtx+gaugeNote,_s:r.base});
   }
+
   out.sort((a,b)=>b._s-a._s);
   const top=out.slice(0,6).map(function(h){const o={...h};delete o._s;return o;});
   if(t!==null&&t>=70) top.push({name:"Warm Water Caution",likelihood:"High",waterTempRange:"Above 70\u00b0F",flies:["Fish early morning or evening only"],timing:"Avoid midday fishing",notes:"Water at "+Math.round(t)+"\u00b0F"+src+" is approaching stress levels for trout (critical above 68\u00b0F). Release fish quickly and consider skipping midday."});
@@ -1160,7 +1267,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
     if(!loc) return;
     const gl=(gauges&&gauges.length?gauges:window._loadedGauges)||[];
     const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
-    setResult(predictHatches({month:new Date().getMonth()+1,waterTempF:waterTemp||null,lng:(loc&&loc.lng!=null)?loc.lng:null,maxCfs,tempGaugeName:null}));
+    setResult(predictHatches({month:new Date().getMonth()+1,waterTempF:waterTemp||null,lat:(loc&&loc.lat!=null)?loc.lat:null,lng:(loc&&loc.lng!=null)?loc.lng:null,maxCfs,tempGaugeName:null}));
     setOpen(true);setLoading(false);
   }
   return(
@@ -5355,7 +5462,7 @@ function App({user}){
       window._recomputeHatches=()=>{
         const gl=window._loadedGauges||[];
         const maxCfs=gl.reduce((m,g)=>Math.max(m,g.cfs||0),0);
-        setHatchResult(predictHatches({month:new Date().getMonth()+1,waterTempF:null,lng:newLoc.lng!=null?newLoc.lng:null,maxCfs,tempGaugeName:null}));
+        setHatchResult(predictHatches({month:new Date().getMonth()+1,waterTempF:null,lat:newLoc.lat!=null?newLoc.lat:null,lng:newLoc.lng!=null?newLoc.lng:null,maxCfs,tempGaugeName:null}));
         setHatchLoading(false);
       };
       window._recomputeHatches();
