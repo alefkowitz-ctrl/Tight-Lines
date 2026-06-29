@@ -478,13 +478,80 @@ function pressureTrend(current, prev){
   return {icon:"→",label:"Steady",color:"var(--stone)"};
 }
 
-function fishingPressureNote(pressure){
-  if(!pressure) return null;
-  const p=parseFloat(pressure);
-  if(p>30.2) return "High pressure — fish active near surface, dry fly conditions good";
-  if(p>29.9) return "Normal pressure — stable feeding, all techniques productive";
-  if(p>29.5) return "Low pressure — fish moving to deeper water, nymphs & streamers best";
-  return "Very low pressure — storm incoming, fish feeding aggressively before front";
+// Deterministic, plain-language fishing read for a selected forecast day.
+// Uses ONLY the daily fields already fetched from Open-Meteo. States only
+// well-established weather->trout effects; goes quiet on weak signals and
+// returns a neutral baseline when nothing notable fires. No AI call, no
+// fabricated precision (no barometric "bite windows," no bite score). This is
+// the SINGLE place heat-as-a-factor is decided for the weather tab.
+// d = data.daily object; sel = selected day index.
+function weekWeatherRead(d, sel){
+  if(!d || sel==null || !d.time || sel>=d.time.length) return null;
+  const code = d.weather_code?.[sel];
+  const hi = d.temperature_2m_max?.[sel];
+  const lo = d.temperature_2m_min?.[sel];
+  const rain = d.precipitation_probability_max?.[sel] ?? 0;
+  const wind = d.wind_speed_10m_max?.[sel];
+  const gust = d.wind_gusts_10m_max?.[sel];
+  const prevHi = sel>0 ? d.temperature_2m_max?.[sel-1] : null;
+  const prevCode = sel>0 ? d.weather_code?.[sel-1] : null;
+  const pres = d.surface_pressure_mean?.[sel];
+  const prevPres = sel>0 ? d.surface_pressure_mean?.[sel-1] : null;
+
+  const clauses = [];
+  let usedSafety=false;
+
+  // 1. Thunderstorm / severe — safety first, always leads if present.
+  if(code!=null && code>=95){
+    clauses.push("Storms in the forecast — keep an eye on the radar and get off the water at the first sign of lightning.");
+    usedSafety=true;
+  }
+
+  // 2. Blowout risk — heavy rain likely to bump flows and cloud the water.
+  const heavyRainCode = code===65||code===81||code===82||code===63;
+  if(!usedSafety && rain>=70 && heavyRainCode){
+    clauses.push("Heavy rain is likely — flows may rise and the water could cloud up, so fish early or have a backup plan.");
+  } else if(rain>=70 && heavyRainCode){
+    clauses.push("Heavy rain may bump flows and reduce clarity.");
+  }
+
+  // 3. Heat — the single thermal-stress read for this tab (subsumes old advisory).
+  if(hi!=null && hi>=85){
+    clauses.push("Warm day ahead — fish early and check water temps by midday; trout get stressed in warm water, so consider resting the fishery in the afternoon heat.");
+  }
+  // 4. Cold / sharp cooldown — fish sluggish, slow the presentation.
+  else if(hi!=null && hi<45){
+    clauses.push("Cold day — expect a slower bite; fish deeper and slower, and look for midday warmth.");
+  } else if(hi!=null && prevHi!=null && (prevHi-hi)>=18){
+    clauses.push("Sharp cooldown from yesterday — fish may be off; slow your presentation and don't expect a fast bite.");
+  }
+
+  // 5. Wind — casting difficulty.
+  if(gust!=null && gust>=25){
+    clauses.push("Gusty winds will make casting tough — look for sheltered runs and bring heavier flies.");
+  } else if(wind!=null && wind>=18){
+    clauses.push("Breezy day — casting may be a challenge in open water; sheltered banks will fish easier.");
+  }
+
+  // 6. & 7. Bite-quality reads — only if no heavier factor already dominates.
+  if(clauses.length===0){
+    const overcast = code===3||code===45||code===48||code===2;
+    const bluebird = code===0||code===1;
+    const presRising = pres!=null && prevPres!=null && (pres-prevPres)>1.5;
+    const cloudyPrior = prevCode!=null && (prevCode>=2);
+    if(overcast && hi!=null && hi>=50 && hi<85 && rain<50){
+      clauses.push("Overcast and mild — often good conditions for active fish; streamers and searching patterns are worth a try.");
+    } else if(bluebird && presRising && cloudyPrior){
+      clauses.push("Bright, high-pressure day following cloudier weather — fish can be spooky, so go lighter on tippet and smaller on flies.");
+    }
+  }
+
+  // Neutral baseline — box always shows something rather than looking broken.
+  if(clauses.length===0){
+    return "No major weather factors standing out — fairly typical conditions for the day.";
+  }
+  // Cap at two clauses so it stays a high-level summary, safety always kept first.
+  return clauses.slice(0,2).join(" ");
 }
 
 function getMoonPhase(date){
@@ -1238,8 +1305,16 @@ function WeekForecast({data, highlightDay}){
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Rain Chance</div>
             <div style={{fontSize:18,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
+            {d.weather_code?.[sel]!=null && d.weather_code[sel]>=95 && <div style={{fontSize:14,color:"#e8a13a",fontWeight:"bold",marginTop:4}}>⛈ Thunderstorms</div>}
           </div>
         </div>
+        {/* Plain-language fishing read for the selected day — deterministic, no AI */}
+        {(()=>{const read=weekWeatherRead(d,sel);return read?(
+          <div style={{background:"rgba(200,168,75,0.08)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:10,padding:"10px 12px",marginTop:10}}>
+            <div style={{fontSize:13,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Fishing Read</div>
+            <div style={{fontSize:14,color:"var(--foam)",lineHeight:1.55}}>{read}</div>
+          </div>
+        ):null;})()}
 
       </div>
     </div>
@@ -5192,7 +5267,7 @@ function App({user}){
     const{lat,lng}=newLoc;
     setWxLoading(true);setWxError(null);setCondReport(null);setGaugeLoading(true);setGaugeError(null);
     // Check localStorage for cached weather to show instantly
-    try{const cachedWx=localStorage.getItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2));if(cachedWx){const{data,ts}=JSON.parse(cachedWx);if(Date.now()-ts<30*60*1000){const c2=data.current;const pressureInHg=(c2.surface_pressure*0.02953).toFixed(2);const trend=pressureTrend(parseFloat(pressureInHg),null);setWeather({temp:Math.round(c2.temperature_2m),humidity:c2.relative_humidity_2m,wind:Math.round(c2.wind_speed_10m),windDir:windDir(c2.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c2.uv_index??0),desc:`${WX_EMOJI[c2.weather_code]||""} ${WX_DESC[c2.weather_code]||""}`.trim()});setWxForecast(data);setWxLoading(false);}}}catch{}
+    try{const cachedWx=localStorage.getItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2));if(cachedWx){const{data,ts}=JSON.parse(cachedWx);if(Date.now()-ts<30*60*1000){const c2=data.current;const pressureInHg=(c2.surface_pressure*0.02953).toFixed(2);const trend=pressureTrend(parseFloat(pressureInHg),null);setWeather({temp:Math.round(c2.temperature_2m),humidity:c2.relative_humidity_2m,wind:Math.round(c2.wind_speed_10m),windDir:windDir(c2.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,uv:Math.round(c2.uv_index??0),desc:`${WX_EMOJI[c2.weather_code]||""} ${WX_DESC[c2.weather_code]||""}`.trim()});setWxForecast(data);setWxLoading(false);}}}catch{}
     // GAUGE CACHE — show instantly if fresh (<30 min), refresh silently in background
     const gaugeKey="tl_gauges_"+lat.toFixed(2)+"_"+lng.toFixed(2);
     let gaugeFromCache=false;
@@ -5204,7 +5279,7 @@ function App({user}){
         const pressureInHg=(c.surface_pressure*0.02953).toFixed(2);
         const prevPressure=wxForecast?.current?.surface_pressure?(wxForecast.current.surface_pressure*0.02953):null;
         const trend=pressureTrend(parseFloat(pressureInHg), prevPressure);
-        setWeather({temp:Math.round(c.temperature_2m),humidity:c.relative_humidity_2m,wind:Math.round(c.wind_speed_10m),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,pressureNote:fishingPressureNote(pressureInHg),uv:Math.round(c.uv_index??0),desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()});
+        setWeather({temp:Math.round(c.temperature_2m),humidity:c.relative_humidity_2m,wind:Math.round(c.wind_speed_10m),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg,pressureTrend:trend,uv:Math.round(c.uv_index??0),desc:`${WX_EMOJI[c.weather_code]||""} ${WX_DESC[c.weather_code]||""}`.trim()});
         setWxForecast(d);try{localStorage.setItem("tl_wx_"+lat.toFixed(2)+"_"+lng.toFixed(2),JSON.stringify({data:d,ts:Date.now()}));}catch{}
       }catch{setWxError("Weather unavailable.");}finally{setWxLoading(false);}
     }).catch(()=>{setWxError("Weather unavailable.");setWxLoading(false);});
@@ -5512,10 +5587,11 @@ function App({user}){
                     <div className="wx-item">
                       <div className="wx-val">🌧 {wxForecast?.daily?.precipitation_probability_max?.[0]??0}%</div>
                       <div className="wx-lbl">Rain Chance</div>
+                      {wxForecast?.daily?.weather_code?.[0]!=null && wxForecast.daily.weather_code[0]>=95 && <div style={{fontSize:13,color:"#e8a13a",fontWeight:"bold",marginTop:2}}>⛈ Thunderstorms</div>}
                     </div>
                   </div>
 
-                  {(()=>{const m=getMoonPhase();const p=weather.pressure;const pNote=p?(parseFloat(p)>30.2?"High pressure — dry fly conditions good":parseFloat(p)>29.9?"Normal pressure — all techniques productive":parseFloat(p)>29.5?"Low pressure — nymphs & streamers best":"Very low pressure — fish feeding aggressively"):"";return(<>
+                  {(()=>{const m=getMoonPhase();return(<>
                   <div className="wx-grid" style={{marginTop:10}}>
                     <div className="wx-item">
                       <div className="wx-val">{m.emoji} {m.name}</div>
@@ -5524,7 +5600,6 @@ function App({user}){
                     <div className="wx-item">
                       <div className="wx-val" style={{color:weather.pressureTrend?.color}}>{weather.pressureTrend?.icon} {weather.pressure}&quot;</div>
                       <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
-                      {pNote&&<div style={{fontSize:14,color:"var(--sky)",fontStyle:"italic",marginTop:4}}>{pNote}</div>}
                     </div>
                   </div>
                 </>);})()}
