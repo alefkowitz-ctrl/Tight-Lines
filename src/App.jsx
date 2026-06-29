@@ -434,7 +434,7 @@ async function reverseGeocode(lat,lng){
   return r.json();
 }
 async function fetchWeather(lat,lng){
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean,uv_index_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
   try{
     const r=await fetch(url);
     if(r.ok) return r.json();
@@ -1252,6 +1252,9 @@ function WeekForecast({data, highlightDay}){
   const selWindDir = d.wind_direction_10m_dominant?.[sel];
   const selPres = d.surface_pressure_mean?.[sel];
   const selPresInHg = selPres ? (selPres*0.02953).toFixed(2) : null;
+  const selHumidity = d.relative_humidity_2m_mean?.[sel];
+  const selUV = d.uv_index_max?.[sel];
+  const selMoon = getMoonPhase(selDate);
 
   // Pressure trend vs previous day
   const prevPres = sel>0 && d.surface_pressure_mean?.[sel-1];
@@ -1285,6 +1288,13 @@ function WeekForecast({data, highlightDay}){
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
+        {/* Plain-language fishing read for the selected day — deterministic, no AI. Shown first. */}
+        {(()=>{const read=weekWeatherRead(d,sel);return read?(
+          <div style={{background:"rgba(200,168,75,0.08)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+            <div style={{fontSize:13,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Fishing Read</div>
+            <div style={{fontSize:14,color:"var(--foam)",lineHeight:1.55}}>{read}</div>
+          </div>
+        ):null;})()}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:13,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
@@ -1298,6 +1308,14 @@ function WeekForecast({data, highlightDay}){
             {selWindDir!=null&&<div style={{fontSize:15,color:"var(--sky)"}}>{windDir(selWindDir)}</div>}
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Humidity</div>
+            <div style={{fontSize:18,color:"var(--foam)"}}>💧 {selHumidity!=null?Math.round(selHumidity):"—"}%</div>
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>UV Index</div>
+            <div style={{fontSize:18,color:"var(--foam)"}}>☀️ {selUV!=null?Math.round(selUV):"—"}</div>
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Pressure</div>
             <div style={{fontSize:18,color:trend?.color||"var(--foam)",fontWeight:"bold"}}>{selPresInHg||"—"}"</div>
             {trend&&<div style={{fontSize:15,color:trend.color}}>{trend.icon} {trend.label}</div>}
@@ -1307,15 +1325,11 @@ function WeekForecast({data, highlightDay}){
             <div style={{fontSize:18,color:"var(--foam)"}}>🌧 {d.precipitation_probability_max?.[sel]??0}%</div>
             {d.weather_code?.[sel]!=null && d.weather_code[sel]>=95 && <div style={{fontSize:14,color:"#e8a13a",fontWeight:"bold",marginTop:4}}>⛈ Thunderstorms</div>}
           </div>
-        </div>
-        {/* Plain-language fishing read for the selected day — deterministic, no AI */}
-        {(()=>{const read=weekWeatherRead(d,sel);return read?(
-          <div style={{background:"rgba(200,168,75,0.08)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:10,padding:"10px 12px",marginTop:10}}>
-            <div style={{fontSize:13,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Fishing Read</div>
-            <div style={{fontSize:14,color:"var(--foam)",lineHeight:1.55}}>{read}</div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:15,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Moon Phase</div>
+            <div style={{fontSize:18,color:"var(--foam)"}}>{selMoon.emoji} {selMoon.name}</div>
           </div>
-        ):null;})()}
-
+        </div>
       </div>
     </div>
   );
@@ -5566,49 +5580,10 @@ function App({user}){
               </div>
               {intelTab==="weather"&&<>
               <div className="card">
-                <div className="ctitle">🌡 Current Weather<button className="rfsh" onClick={()=>loadConditions(loc)}>↻ Refresh</button></div>
+                <div className="ctitle">🌡 Weather & Fishing Read<button className="rfsh" onClick={()=>loadConditions(loc)}>↻ Refresh</button></div>
                 {wxLoading&&<div className="loading">Fetching weather…</div>}
                 {wxError&&<div className="err">{wxError}</div>}
-                {weather&&!wxLoading&&<>
-                  <div className="wx-main"><div><div className="wx-temp">{weather.temp}°F</div><div className="wx-desc">{weather.desc}</div></div></div>
-                  <div className="wx-grid">
-                    <div className="wx-item">
-                      <div className="wx-val">💨 {weather.wind} mph</div>
-                      <div className="wx-lbl">Wind {weather.windDir}</div>
-                    </div>
-                    <div className="wx-item">
-                      <div className="wx-val">💧 {weather.humidity}%</div>
-                      <div className="wx-lbl">Humidity</div>
-                    </div>
-                    <div className="wx-item">
-                      <div className="wx-val">☀️ {weather.uv}</div>
-                      <div className="wx-lbl">UV Index</div>
-                    </div>
-                    <div className="wx-item">
-                      <div className="wx-val">🌧 {wxForecast?.daily?.precipitation_probability_max?.[0]??0}%</div>
-                      <div className="wx-lbl">Rain Chance</div>
-                      {wxForecast?.daily?.weather_code?.[0]!=null && wxForecast.daily.weather_code[0]>=95 && <div style={{fontSize:13,color:"#e8a13a",fontWeight:"bold",marginTop:2}}>⛈ Thunderstorms</div>}
-                    </div>
-                  </div>
-
-                  {(()=>{const m=getMoonPhase();return(<>
-                  <div className="wx-grid" style={{marginTop:10}}>
-                    <div className="wx-item">
-                      <div className="wx-val">{m.emoji} {m.name}</div>
-                      <div className="wx-lbl">Moon Phase</div>
-                    </div>
-                    <div className="wx-item">
-                      <div className="wx-val" style={{color:weather.pressureTrend?.color}}>{weather.pressureTrend?.icon} {weather.pressure}&quot;</div>
-                      <div className="wx-lbl">Pressure · {weather.pressureTrend?.label}</div>
-                    </div>
-                  </div>
-                </>);})()}
-                  {wxForecast&&<>
-                    <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:14,paddingTop:14}}>
-                      <WeekForecast data={wxForecast}/>
-                    </div>
-                  </>}
-                </>}
+                {wxForecast&&!wxLoading&&<WeekForecast data={wxForecast}/>}
               </div>
               </>}
               {intelTab==="streams"&&<>
