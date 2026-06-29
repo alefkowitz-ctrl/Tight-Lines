@@ -295,60 +295,13 @@ const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Cu
 // null as "no historical baseline for this gauge," never substitute a guess.
 // In-memory cache (per page-load) so the same gauge isn't re-queried across
 // Conditions tab / Saved Gauges / Trip Planner within one session.
-var _medianCache=new Map();
-async function fetchUSGSDayOfYearMedian(siteNo,forDate){
-  if(!siteNo)return null;
-  var d0=forDate?new Date(forDate):new Date();
-  var mm=String(d0.getMonth()+1).padStart(2,"0"),dd=String(d0.getDate()).padStart(2,"0");
-  var cacheKey=siteNo+"_"+mm+"-"+dd;
-  if(_medianCache.has(cacheKey))return _medianCache.get(cacheKey);
-  var result=null;
-  try{
-    // /nwis/stat/ does NOT support format=json (confirmed via live test — returns
-    // HTTP 400 "unknown format: json"); it is RDB (tab-delimited text) only.
-    // Columns: agency_cd, site_no, parameter_cd, ts_id, loc_web_ds, month_nu,
-    // day_nu, begin_yr, end_yr, count_nu, p50_va (no header row once "#" comment
-    // lines are stripped).
-    var url="https://waterservices.usgs.gov/nwis/stat/?sites="+siteNo+"&parameterCd=00060&statReportType=daily&statTypeCd=p50";
-    var r=await fetch(url);
-    if(r.ok){
-      var txt=await r.text();
-      var lines=txt.split("\n").filter(function(ln){return ln&&ln[0]!=="#";});
-      var mmInt=String(parseInt(mm,10)),ddInt=String(parseInt(dd,10));
-      for(var i=0;i<lines.length;i++){
-        var cols=lines[i].split("\t");
-        if(cols.length<11)continue;
-        var lnMonth=cols[5],lnDay=cols[6],lnVal=cols[10];
-        if((lnMonth===mm||lnMonth===mmInt)&&(lnDay===dd||lnDay===ddInt)){
-          var n=parseFloat(lnVal);
-          if(!isNaN(n)&&n>0){result=n;break;}
-        }
-      }
-    }
-  }catch{}
-  _medianCache.set(cacheKey,result);
-  return result;
-}
-// Compare a live cfs reading to the historical day-of-year median for THIS
-// gauge. Within ±30% of the median = "About average"; outside = Above/Below.
-// Returns null (no qualifier) if no historical median is available — never
-// guess a comparison from an absolute cutoff that doesn't know this river's
-// normal scale.
-function flowVsAverage(cfs,median){
-  if(cfs==null||isNaN(cfs)||median==null||isNaN(median)||median<=0)return null;
-  var ratio=cfs/median;
-  if(ratio<0.7)return"Below average";
-  if(ratio>1.3)return"Above average";
-  return"About average";
-}
-function cfsLabel(cfs, qualifier){
+function cfsLabel(cfs){
   if(!cfs||isNaN(cfs))return{label:"No Data",cls:"fair"};
-  var num=Math.round(cfs).toLocaleString()+" CFS";
-  // qualifier is the flowVsAverage() string (or null/undefined if no historical
-  // median exists for this gauge) — no color-coded judgment tiers; just the
-  // number, plus a plain-language comparison to this river's own normal range
-  // when we actually have one.
-  return{label:qualifier?(num+" · "+qualifier):num,cls:"",qualifier:qualifier||null};
+  // Show the raw flow number only — no judgment label, no color tier. A fixed
+  // cfs cutoff can't tell a big river's normal flow from a small creek's flood,
+  // and a historical-average comparison was dropped as not worth the per-gauge
+  // network cost. Just the number.
+  return{label:Math.round(cfs).toLocaleString()+" CFS",cls:""};
 }
 function fmtCoord(lat,lng){return`${Math.abs(lat).toFixed(4)}°${lat>=0?"N":"S"}, ${Math.abs(lng).toFixed(4)}°${lng>=0?"E":"W"}`;}
 function extractJSON(text){
@@ -914,12 +867,8 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
         return{name:t.sourceInfo?.siteName??"",cfs,dist,siteNo};
       }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
       if(parsed.length){
-        // Median fetched only for the single nearest gauge, for the catch's
-        // actual date — this label gets persisted (streamCondition saved to
-        // trips/catches), not discarded.
-        const median=await fetchUSGSDayOfYearMedian(parsed[0].siteNo,dateStr);
         results.streamCFS=String(Math.round(parsed[0].cfs));
-        results.streamCondition=cfsLabel(parsed[0].cfs,flowVsAverage(parsed[0].cfs,median)).label;
+        results.streamCondition=cfsLabel(parsed[0].cfs).label;
         results.streamGaugeName=parsed[0].name;
       }
     }
@@ -1810,20 +1759,15 @@ function TripLocationWeather({tripForm, setTripForm}){
         if(ts.length>0){
           // Sort by distance and take top 5 — fetch real percentile baselines
           // only for the 5 we'll actually show (not every candidate in range).
-          const candidates = ts.map(t=>{
+          const gauges = ts.map(t=>{
             const raw=t.values?.[0]?.value?.[0]?.value;
             const cfs=raw!=null?parseFloat(raw):null;
             const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
             const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
             const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
-            return{name:t.sourceInfo?.siteName||"Unknown",cfs,dist,siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",lat:sLat,lng:sLng};
+            const {label}=cfsLabel(cfs);
+            return{name:t.sourceInfo?.siteName||"Unknown",cfs,label,dist,siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",lat:sLat,lng:sLng};
           }).filter(g=>g.cfs!=null&&g.cfs>=0&&g.cfs<500000).sort((a,b)=>a.dist-b.dist).slice(0,5);
-          const gauges = await Promise.all(candidates.map(async g=>{
-            const median=await fetchUSGSDayOfYearMedian(g.siteNo);
-            const qualifier=flowVsAverage(g.cfs,median);
-            const {label}=cfsLabel(g.cfs,qualifier);
-            return{...g,label};
-          }));
           setNearbyGauges(gauges);
           // Auto-select closest gauge
           if(gauges.length>0){
@@ -2048,9 +1992,8 @@ function GuideSavedGauges({user}){
         feats.forEach(f=>{var sn=nwSiteNo(f.properties.monitoring_location_id);var v=parseFloat(f.properties.value);if(sn&&!isNaN(v))nwMap[sn]=v;});
       }catch{}
       var rows=await Promise.all(savedGauges.map(async g=>{
-        const median=await fetchUSGSDayOfYearMedian(g.site_no);
-        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const qualifier=flowVsAverage(cfs,median);const{label,cls}=cfsLabel(cfs,qualifier);return{...g,cfs,label,cls};}
-        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const qualifier=flowVsAverage(cfs,median);const{label,cls}=cfsLabel(cfs,qualifier);return{...g,cfs,label,cls};}
+        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
       setSgData(rows);
@@ -2525,8 +2468,7 @@ function GuideBook({user, loc}){
               if(ts2.length){
                 const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
                 if(parsed2.length){
-                  const median2=await fetchUSGSDayOfYearMedian(parsed2[0].siteNo);
-                  conds.streamCFS=String(Math.round(parsed2[0].cfs));conds.streamCondition=cfsLabel(parsed2[0].cfs,flowVsAverage(parsed2[0].cfs,median2)).label;conds.streamGaugeName=parsed2[0].name;
+                  conds.streamCFS=String(Math.round(parsed2[0].cfs));conds.streamCondition=cfsLabel(parsed2[0].cfs).label;conds.streamGaugeName=parsed2[0].name;
                 }
               }
             }catch(le){void 0;}
@@ -3111,7 +3053,7 @@ function GuideBook({user, loc}){
                   const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
                   let cp={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
                   const ts2=(usgs.value?.timeSeries)??[];
-                  if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t3.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t3.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){const median3=await fetchUSGSDayOfYearMedian(p2[0].siteNo);cp.streamCFS=String(Math.round(p2[0].cfs));cp.streamCondition=cfsLabel(p2[0].cfs,flowVsAverage(p2[0].cfs,median3)).label;cp.streamGaugeName=p2[0].name;}}
+                  if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){cp.streamCFS=String(Math.round(p2[0].cfs));cp.streamCondition=p2[0].label;cp.streamGaugeName=p2[0].name;}}
                   return cp;
                 }catch(condErr){return null;}
               })();
@@ -4214,24 +4156,18 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         try{
           const usgs0=await fetchUSGSLive(lat,lng,2,true);
           const liveTS0=(usgs0?.value?.timeSeries)??[];
-          let candidates0=liveTS0.map(t=>{
+          pgScaled=liveTS0.map(t=>{
             const raw=t.values?.[0]?.value?.[0]?.value;
             const cfs=raw!=null?parseFloat(raw):null;
+            const{label,cls}=cfsLabel(cfs);
             const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
             const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
             const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
             const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-            return{name:t.sourceInfo?.siteName??"Unknown",cfs,siteNo,dist,lat:siteLat,lng:siteLng};
+            return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
           }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist);
           // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left
-          candidates0=[...candidates0.filter(s=>s.cfs>=15),...candidates0.filter(s=>s.cfs<15)].slice(0,40);
-          // Fetch real percentile baselines only for the 40 kept candidates, not every gauge in range
-          pgScaled=await Promise.all(candidates0.map(async s=>{
-            const median=await fetchUSGSDayOfYearMedian(s.siteNo);
-            const qualifier=flowVsAverage(s.cfs,median);
-            const{label,cls}=cfsLabel(s.cfs,qualifier);
-            return{...s,label,cls};
-          }));
+          pgScaled=[...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)].slice(0,40);
         }catch(ge2){void 0;}
       }
       setGauges(pgScaled);
@@ -4327,14 +4263,15 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const degRadius=Math.min((driveMinutes/60)*1.0,2.0);
           const liveD=await fetchUSGSLive(lat,lng,degRadius);
           const liveTS=liveD.value?.timeSeries??[];
-          let candidates=liveTS.map(t=>{
+          const pg=liveTS.map(t=>{
             const raw=t.values?.[0]?.value?.[0]?.value;
             const cfs=raw!=null?parseFloat(raw):null;
+            const{label,cls}=cfsLabel(cfs);
             const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
             const siteLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
             const siteLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
             const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
-            return{name:t.sourceInfo?.siteName??"Unknown",cfs,siteNo,dist,lat:siteLat,lng:siteLng};
+            return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
           }).filter(s=>{
             if(!s.cfs||s.cfs<0||s.cfs>=500000) return false;
             if(!isoPolygon) return true;
@@ -4345,13 +4282,6 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             }
             return inside;
           }).sort((a,b)=>a.dist-b.dist).slice(0,20);
-          // Real historical median fetched only for the 20 kept candidates, not every gauge in range
-          const pg=await Promise.all(candidates.map(async s=>{
-            const median=await fetchUSGSDayOfYearMedian(s.siteNo);
-            const qualifier=flowVsAverage(s.cfs,median);
-            const{label,cls}=cfsLabel(s.cfs,qualifier);
-            return{...s,label,cls};
-          }));
           const maxCFS2=Math.max(...pg.map(g=>g.cfs||0),1);
           finalGauges=pg.map(g=>({...g,pct:g.cfs?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
           setGauges(finalGauges);
@@ -5117,13 +5047,12 @@ function App({user}){
         if(m) siteNo=m[1];
       }
       if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      var median=await fetchUSGSDayOfYearMedian(siteNo);
       // New API first (stale-filtered); legacy fallback with 8s abort until decommission
       try{
         var nf=await nwLatest([siteNo],"00060");
         if(nf.length){
           var ncfs=parseFloat(nf[0].properties.value);
-          if(!isNaN(ncfs)){var nl=cfsLabel(ncfs,flowVsAverage(ncfs,median));return{...gauge,cfs:ncfs,label:nl.label,cls:nl.cls};}
+          if(!isNaN(ncfs)){var nl=cfsLabel(ncfs);return{...gauge,cfs:ncfs,label:nl.label,cls:nl.cls};}
         }
       }catch{}
       var controller=new AbortController();
@@ -5137,7 +5066,7 @@ function App({user}){
       var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
       var cfs=raw!=null?parseFloat(raw):null;
       var name=(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||gauge.name;
-      var lbl=cfsLabel(cfs,flowVsAverage(cfs,median));
+      var lbl=cfsLabel(cfs);
       return{...gauge,cfs,label:lbl.label,cls:lbl.cls,name};
     }catch(e){return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};}
   }
@@ -5306,13 +5235,11 @@ function App({user}){
         }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000&&s.distMi<=50)
           .sort((a,b)=>b.cfs-a.cfs).slice(0,25);
         const maxCFS=Math.max(...rawParsed.map(x=>x.cfs||0),1);
-        // Real historical median fetched only for the 25 kept candidates, not every gauge in range
-        const parsed=await Promise.all(rawParsed.map(async g=>{
+        const parsed=rawParsed.map(g=>{
           const pct=g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS)*95),100):0;
-          const median=await fetchUSGSDayOfYearMedian(g.siteNo);
-          const{label,cls}=cfsLabel(g.cfs,flowVsAverage(g.cfs,median));
+          const{label,cls}=cfsLabel(g.cfs);
           return{...g,pct,histMax:null,waterTempF:null,label,cls};
-        }));
+        });
         setGauges(parsed);window._loadedGauges=parsed;if(window._recomputeHatches)window._recomputeHatches();
         setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
         try{localStorage.setItem(gaugeKey,JSON.stringify({data:parsed,ts:Date.now()}));}catch{}
@@ -5399,7 +5326,7 @@ function App({user}){
               const ts2=(usgs.value?.timeSeries)??[];
               if(ts2.length){
                 const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-                if(parsed2.length){const median4=await fetchUSGSDayOfYearMedian(parsed2[0].siteNo);cd={...cd,stream_cfs:String(Math.round(parsed2[0].cfs)),stream_condition:cfsLabel(parsed2[0].cfs,flowVsAverage(parsed2[0].cfs,median4)).label,stream_gauge_name:parsed2[0].name};}
+                if(parsed2.length)cd={...cd,stream_cfs:String(Math.round(parsed2[0].cfs)),stream_condition:cfsLabel(parsed2[0].cfs).label,stream_gauge_name:parsed2[0].name};
               }
               return cd;
             }catch(condErr){return null;}
@@ -5477,8 +5404,7 @@ function App({user}){
           if(ts2.length){
             const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
             if(parsed.length){
-              const median5=await fetchUSGSDayOfYearMedian(parsed[0].siteNo);
-              const streamData={streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:cfsLabel(parsed[0].cfs,flowVsAverage(parsed[0].cfs,median5)).label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""};
+              const streamData={streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:cfsLabel(parsed[0].cfs).label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""};
               setForm(f=>({...f,...streamData}));
               if(lastCatchIdRef.current) updateCatch(lastCatchIdRef.current,streamData);
             }
