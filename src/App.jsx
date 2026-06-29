@@ -2169,6 +2169,397 @@ function GuideSeasonLog({guests}){
   );
 }
 
+// ── Guide Trends ────────────────────────────────────────────────────────────
+// ── Guide Trends ──────────────────────────────────────────────────────────────
+function GuideTrends({guests, loc}){
+  const [sortBy, setSortBy] = React.useState("catches");
+  const [filterSkill, setFilterSkill] = React.useState("All");
+  const [filterMonth, setFilterMonth] = React.useState("All");
+  const [filterStyle, setFilterStyle] = React.useState("All");
+  const [filterRiver, setFilterRiver] = React.useState("All");
+  const [trendsView, setTrendsView] = React.useState("rivers"); // rivers | conditions | flies | ai
+  const [aiInsight, setAiInsight] = React.useState(null);
+  const [aiLoading, setAiLoading] = React.useState(false);
+  const [aiError, setAiError] = React.useState(null);
+
+  const allTrips = React.useMemo(()=>
+    (guests||[]).flatMap(g=>(g.trips||[]).map(t=>({
+      ...t,
+      guestName:g.name,
+      guestSkill:g.skillLevel||g.skill_level||"",
+      guestHandedness:g.handedness||""
+    }))),
+  [guests]);
+
+  // Derived filter options
+  const rivers = React.useMemo(()=>{
+    const rs=[...new Set(allTrips.map(t=>t.streamGaugeName||t.location||"").filter(Boolean))].sort();
+    return ["All",...rs];
+  },[allTrips]);
+
+  const months = ["All","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const skills = ["All","Beginner","Intermediate","Expert"];
+  const styles = ["All",...FISHING_STYLES];
+
+  // Apply filters
+  const filtered = React.useMemo(()=>{
+    return allTrips.filter(t=>{
+      if(filterSkill!=="All" && t.guestSkill!==filterSkill) return false;
+      if(filterMonth!=="All"){
+        const m = t.date ? new Date(t.date+"T12:00:00").getMonth() : -1;
+        if(months[m+1]!==filterMonth) return false;
+      }
+      if(filterStyle!=="All" && !(t.styles||[]).includes(filterStyle)) return false;
+      if(filterRiver!=="All"){
+        const rv = t.streamGaugeName||t.location||"";
+        if(!rv.toLowerCase().includes(filterRiver.toLowerCase()) && rv!==filterRiver) return false;
+      }
+      return true;
+    });
+  },[allTrips, filterSkill, filterMonth, filterStyle, filterRiver]);
+
+  // River performance aggregation
+  const riverStats = React.useMemo(()=>{
+    const map={};
+    filtered.forEach(t=>{
+      const key = t.streamGaugeName || t.location || "Unknown";
+      if(!map[key]) map[key]={river:key, trips:0, totalCatches:0, cfsSamples:[], weatherDesc:[], flies:{}, months:[], skillBreakdown:{}, styles:[]};
+      const r=map[key];
+      r.trips++;
+      r.totalCatches+=(t.catches||0);
+      if(t.streamCFS) r.cfsSamples.push(parseFloat(t.streamCFS));
+      if(t.weatherConditions) r.weatherDesc.push(t.weatherConditions);
+      (t.flies||[]).forEach(f=>{ const k=f.trim(); r.flies[k]=(r.flies[k]||0)+1; });
+      if(t.date){ const mo=new Date(t.date+"T12:00:00").getMonth(); r.months.push(mo); }
+      if(t.guestSkill) r.skillBreakdown[t.guestSkill]=(r.skillBreakdown[t.guestSkill]||0)+1;
+      (t.styles||[]).forEach(s=>r.styles.push(s));
+    });
+    return Object.values(map).map(r=>({
+      ...r,
+      avgCatches: r.trips>0?(r.totalCatches/r.trips):0,
+      avgCFS: r.cfsSamples.length>0?(r.cfsSamples.reduce((a,b)=>a+b,0)/r.cfsSamples.length):null,
+      topFly: Object.entries(r.flies).sort((a,b)=>b[1]-a[1])[0]?.[0]||null,
+      topFlyCount: Object.entries(r.flies).sort((a,b)=>b[1]-a[1])[0]?.[1]||0,
+      peakMonth: r.months.length>0?(()=>{const mc={};r.months.forEach(m=>{mc[m]=(mc[m]||0)+1;});const best=Object.entries(mc).sort((a,b)=>b[1]-a[1])[0];return best?months[parseInt(best[0])+1]:null;})():null,
+      topStyle: (()=>{const sc={};r.styles.forEach(s=>{sc[s]=(sc[s]||0)+1;});return Object.entries(sc).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;})(),
+      topSkill: Object.entries(r.skillBreakdown).sort((a,b)=>b[1]-a[1])[0]?.[0]||null
+    })).sort((a,b)=>{
+      if(sortBy==="catches") return b.avgCatches-a.avgCatches;
+      if(sortBy==="trips") return b.trips-a.trips;
+      if(sortBy==="cfs") return (b.avgCFS||0)-(a.avgCFS||0);
+      if(sortBy==="totalCatches") return b.totalCatches-a.totalCatches;
+      return b.avgCatches-a.avgCatches;
+    });
+  },[filtered, sortBy]);
+
+  // Conditions analysis: what conditions correlate with high catches?
+  const conditionStats = React.useMemo(()=>{
+    // CFS buckets: Low(<200), Medium(200-1000), High(>1000)
+    const cfsBuckets={Low:{trips:0,catches:0},Medium:{trips:0,catches:0},High:{trips:0,catches:0}};
+    // Weather buckets
+    const wxBuckets={};
+    // Month performance
+    const monthPerf=Array(12).fill(null).map(()=>({trips:0,catches:0}));
+    // Skill performance
+    const skillPerf={Beginner:{trips:0,catches:0},Intermediate:{trips:0,catches:0},Expert:{trips:0,catches:0}};
+
+    filtered.forEach(t=>{
+      const c=t.catches||0;
+      // CFS
+      if(t.streamCFS){
+        const cfs=parseFloat(t.streamCFS);
+        const bucket=cfs<200?"Low":cfs<1000?"Medium":"High";
+        cfsBuckets[bucket].trips++;
+        cfsBuckets[bucket].catches+=c;
+      }
+      // Weather
+      if(t.weatherConditions){
+        const w=t.weatherConditions.trim();
+        if(!wxBuckets[w]) wxBuckets[w]={trips:0,catches:0};
+        wxBuckets[w].trips++;
+        wxBuckets[w].catches+=c;
+      }
+      // Month
+      if(t.date){
+        const mo=new Date(t.date+"T12:00:00").getMonth();
+        monthPerf[mo].trips++;
+        monthPerf[mo].catches+=c;
+      }
+      // Skill
+      if(t.guestSkill && skillPerf[t.guestSkill]){
+        skillPerf[t.guestSkill].trips++;
+        skillPerf[t.guestSkill].catches+=c;
+      }
+    });
+    return {cfsBuckets, wxBuckets, monthPerf, skillPerf};
+  },[filtered]);
+
+  // Top flies across all filtered trips
+  const flyStats = React.useMemo(()=>{
+    const fc={};
+    filtered.forEach(t=>(t.flies||[]).forEach(f=>{
+      const k=f.trim();
+      if(!fc[k]) fc[k]={fly:k,trips:0,totalCatches:0};
+      fc[k].trips++;
+      fc[k].totalCatches+=(t.catches||0);
+    }));
+    return Object.values(fc).sort((a,b)=>b.trips-a.trips).slice(0,12);
+  },[filtered]);
+
+  async function runAiInsight(){
+    if(aiLoading) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiInsight(null);
+    // Build a compact data summary for the AI
+    const tripSummary = filtered.slice(0,60).map(t=>({
+      date:t.date, location:t.streamGaugeName||t.location,
+      catches:t.catches, cfs:t.streamCFS, weather:t.weatherConditions,
+      airTemp:t.airTemp, waterTemp:t.waterTemp, flies:(t.flies||[]).slice(0,3),
+      styles:(t.styles||[]), guestSkill:t.guestSkill, type:t.type
+    }));
+    const riverSummary = riverStats.slice(0,8).map(r=>
+      `${r.river}: ${r.trips} trips, avg ${r.avgCatches.toFixed(1)} fish/trip, ${r.avgCFS?Math.round(r.avgCFS)+"CFS avg":""}, peak: ${r.peakMonth||"?"}, top fly: ${r.topFly||"?"}`
+    ).join("\n");
+    const prompt = `You are a fishing intelligence assistant for a professional fly fishing guide. Analyze this guide's trip history and provide HONEST, SPECIFIC recommendations.
+
+RIVER PERFORMANCE SUMMARY:
+${riverSummary}
+
+TRIP DATA (${filtered.length} trips${filterMonth!=="All"?" in "+filterMonth:""}${filterSkill!=="All"?" with "+filterSkill+" clients":""}):
+${JSON.stringify(tripSummary)}
+
+CURRENT CONDITIONS (guide's location: ${loc?.label||"unknown"}):
+- Date: ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric"})}
+- Season: ${["Winter","Winter","Spring","Spring","Spring","Summer","Summer","Summer","Fall","Fall","Fall","Winter"][new Date().getMonth()]}
+
+Based ONLY on this guide's actual logged data (not general fishing knowledge), provide:
+
+1. TOP WATER RIGHT NOW: Which 2-3 rivers/locations from their history would you put clients on TODAY given the season and their historical performance? Be specific about WHY based on their actual data.
+
+2. CONDITIONS INSIGHT: What flow/weather conditions have produced the best catches in their history? Cite actual data points.
+
+3. CLIENT MATCHING: Based on their data, where should they put beginners vs expert clients?
+
+4. TREND ALERT: One important pattern you see in their data that might not be obvious.
+
+Be direct, guide-to-guide. No hedging. If the data is too thin to conclude something, say so. 3-4 sentences per section max.`;
+
+    try{
+      const result = await askClaude(prompt, false, 1400, "search");
+      setAiInsight(result);
+    }catch(e){
+      setAiError("Could not load AI insights. Try again.");
+    }
+    setAiLoading(false);
+  }
+
+  if(!allTrips.length) return(
+    <div className="empty">
+      <div className="ei">📈</div>
+      <p>Trends will appear once you've logged trips with your clients.</p>
+    </div>
+  );
+
+  const CHIP_STYLE = (active)=>({
+    padding:"5px 11px",borderRadius:20,border:"1px solid "+(active?"var(--water)":"rgba(255,255,255,0.12)"),
+    background:active?"var(--water)":"rgba(0,0,0,0.25)",color:active?"var(--foam)":"var(--stone)",
+    fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",whiteSpace:"nowrap"
+  });
+
+  const BAR_MAX = Math.max(...riverStats.map(r=>r.avgCatches),0.1);
+
+  return(
+    <div>
+      {/* Sub-nav */}
+      <div style={{display:"flex",background:"rgba(0,0,0,0.25)",borderRadius:12,padding:3,gap:2,marginBottom:14}}>
+        {[{id:"rivers",icon:"🏞",label:"Rivers"},{id:"conditions",icon:"☀️",label:"Conditions"},{id:"flies",icon:"🪶",label:"Flies"},{id:"ai",icon:"✨",label:"AI Insights"}].map(s=>(
+          <button key={s.id} onClick={()=>setTrendsView(s.id)}
+            style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
+              background:trendsView===s.id?"rgba(44,95,110,0.6)":"transparent",
+              color:trendsView===s.id?"var(--foam)":"var(--sky)",
+              fontFamily:"'Crimson Pro',serif",fontSize:13,
+              display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+            <span style={{fontSize:14}}>{s.icon}</span>{s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:13,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Filter · {filtered.length} trips</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          {months.map(m=><button key={m} style={CHIP_STYLE(filterMonth===m)} onClick={()=>setFilterMonth(m)}>{m}</button>)}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          {skills.map(s=><button key={s} style={CHIP_STYLE(filterSkill===s)} onClick={()=>setFilterSkill(s)}>{s==="All"?"All Clients":s}</button>)}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {styles.slice(0,5).map(s=><button key={s} style={CHIP_STYLE(filterStyle===s)} onClick={()=>setFilterStyle(s)}>{s}</button>)}
+        </div>
+      </div>
+
+      {/* ── RIVERS VIEW ── */}
+      {trendsView==="rivers"&&(
+        <div>
+          <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+            <div style={{fontSize:13,color:"var(--stone)",alignSelf:"center"}}>Sort:</div>
+            {[{k:"catches",label:"Avg Fish"},{k:"totalCatches",label:"Total Fish"},{k:"trips",label:"Trip Count"},{k:"cfs",label:"Avg Flow"}].map(s=>(
+              <button key={s.k} style={CHIP_STYLE(sortBy===s.k)} onClick={()=>setSortBy(s.k)}>{s.label}</button>
+            ))}
+          </div>
+          {riverStats.length===0&&<div style={{color:"var(--stone)",fontSize:15,textAlign:"center",padding:24}}>No matching trips.</div>}
+          {riverStats.map((r,i)=>(
+            <div key={r.river} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{flex:1,marginRight:8}}>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic",marginBottom:2}}>
+                    {i<3?["🥇","🥈","🥉"][i]+" ":""}{r.river}
+                  </div>
+                  <div style={{fontSize:13,color:"var(--stone)"}}>{r.trips} trip{r.trips!==1?"s":""} · {r.totalCatches} fish total</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--sky)"}}>{r.avgCatches.toFixed(1)}</div>
+                  <div style={{fontSize:12,color:"var(--stone)"}}>avg/trip</div>
+                </div>
+              </div>
+              {/* Bar */}
+              <div style={{height:6,background:"rgba(255,255,255,0.08)",borderRadius:4,marginBottom:10,overflow:"hidden"}}>
+                <div style={{height:"100%",borderRadius:4,background:"var(--water)",width:`${Math.min(100,(r.avgCatches/BAR_MAX)*100)}%`,transition:"width 0.4s"}}/>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {r.avgCFS&&<span style={{fontSize:13,background:"rgba(44,95,110,0.3)",borderRadius:20,padding:"2px 9px",color:"var(--sky)"}}>💧 {Math.round(r.avgCFS)} CFS avg</span>}
+                {r.peakMonth&&<span style={{fontSize:13,background:"rgba(74,122,58,0.25)",borderRadius:20,padding:"2px 9px",color:"#9cd47a"}}>📅 Peak: {r.peakMonth}</span>}
+                {r.topFly&&<span style={{fontSize:13,background:"rgba(200,168,75,0.2)",borderRadius:20,padding:"2px 9px",color:"var(--gold)"}}>🪶 {r.topFly}</span>}
+                {r.topSkill&&<span style={{fontSize:13,background:"rgba(255,255,255,0.07)",borderRadius:20,padding:"2px 9px",color:"var(--stone)"}}>👤 {r.topSkill}</span>}
+                {r.topStyle&&<span style={{fontSize:13,background:"rgba(255,255,255,0.07)",borderRadius:20,padding:"2px 9px",color:"var(--stone)"}}>🎣 {r.topStyle}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── CONDITIONS VIEW ── */}
+      {trendsView==="conditions"&&(
+        <div>
+          {/* Month chart */}
+          <div className="card" style={{marginBottom:12,padding:"14px 16px"}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}}>Catches by Month</div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:3,height:70}}>
+              {conditionStats.monthPerf.map((m,i)=>{
+                const max=Math.max(...conditionStats.monthPerf.map(x=>x.trips>0?x.catches/x.trips:0),0.1);
+                const avg=m.trips>0?m.catches/m.trips:0;
+                const h=Math.max(4,Math.round((avg/max)*60));
+                return(
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                    <div style={{fontSize:10,color:"var(--stone)"}}>{m.trips>0?avg.toFixed(1):""}</div>
+                    <div style={{width:"100%",height:h,background:avg>0?"var(--water)":"rgba(255,255,255,0.06)",borderRadius:"3px 3px 0 0"}}/>
+                    <div style={{fontSize:10,color:"var(--stone)"}}>{months[i+1].slice(0,1)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {/* CFS buckets */}
+          <div className="card" style={{marginBottom:12,padding:"14px 16px"}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Flow Conditions</div>
+            {Object.entries(conditionStats.cfsBuckets).map(([label,data])=>(
+              data.trips>0&&<div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <span style={{fontSize:15,color:"var(--foam)"}}>{label==="Low"?"🟢 Low (<200 CFS)":label==="Medium"?"🟡 Medium (200–1000)":"🔴 High (>1000 CFS)"}</span>
+                  <span style={{fontSize:13,color:"var(--stone)",marginLeft:8}}>{data.trips} trips</span>
+                </div>
+                <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--sky)"}}>{data.trips>0?(data.catches/data.trips).toFixed(1):"-"}<span style={{fontSize:12,color:"var(--stone)"}}>  avg</span></span>
+              </div>
+            ))}
+          </div>
+          {/* Weather */}
+          {Object.keys(conditionStats.wxBuckets).length>0&&(
+            <div className="card" style={{marginBottom:12,padding:"14px 16px"}}>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Weather Performance</div>
+              {Object.entries(conditionStats.wxBuckets).sort((a,b)=>{
+                const avgA=a[1].trips>0?a[1].catches/a[1].trips:0;
+                const avgB=b[1].trips>0?b[1].catches/b[1].trips:0;
+                return avgB-avgA;
+              }).slice(0,6).map(([wx,data])=>(
+                <div key={wx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div>
+                    <span style={{fontSize:15,color:"var(--foam)"}}>{wx}</span>
+                    <span style={{fontSize:13,color:"var(--stone)",marginLeft:8}}>{data.trips} trips</span>
+                  </div>
+                  <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--sky)"}}>{(data.catches/data.trips).toFixed(1)}<span style={{fontSize:12,color:"var(--stone)"}}>  avg</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Skill level performance */}
+          <div className="card" style={{padding:"14px 16px"}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Catches by Client Level</div>
+            {Object.entries(conditionStats.skillPerf).map(([skill,data])=>(
+              data.trips>0&&<div key={skill} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <span style={{fontSize:15,color:"var(--foam)"}}>{skill==="Beginner"?"🌱":skill==="Intermediate"?"🎣":"🏆"} {skill}</span>
+                  <span style={{fontSize:13,color:"var(--stone)",marginLeft:8}}>{data.trips} trips</span>
+                </div>
+                <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--sky)"}}>{(data.catches/data.trips).toFixed(1)}<span style={{fontSize:12,color:"var(--stone)"}}>  avg</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── FLIES VIEW ── */}
+      {trendsView==="flies"&&(
+        <div>
+          {flyStats.length===0&&<div style={{color:"var(--stone)",fontSize:15,textAlign:"center",padding:24}}>No fly data in filtered trips.</div>}
+          {flyStats.map((f,i)=>(
+            <div key={f.fly} className="card" style={{marginBottom:8,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--foam)"}}>
+                  {i<3?["🥇","🥈","🥉"][i]+" ":"🪶 "}{f.fly}
+                </div>
+                <div style={{fontSize:13,color:"var(--stone)",marginTop:2}}>{f.trips} trip{f.trips!==1?"s":""} · {f.totalCatches} total catches</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:"var(--gold)"}}>{f.trips}</div>
+                <div style={{fontSize:12,color:"var(--stone)"}}>trips used</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── AI INSIGHTS VIEW ── */}
+      {trendsView==="ai"&&(
+        <div>
+          <div style={{background:"rgba(44,95,110,0.15)",border:"1px solid rgba(44,95,110,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14}}>
+            <div style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,marginBottom:10}}>
+              AI analyzes your <strong style={{color:"var(--foam)"}}>{filtered.length} logged trips</strong> and gives you guide-to-guide recommendations on where to put clients based on your actual data — combined with what's fishing right now.
+            </div>
+            {filterMonth!=="All"||filterSkill!=="All"||filterStyle!=="All"?(
+              <div style={{fontSize:13,color:"var(--stone)"}}>
+                Active filters: {[filterMonth!=="All"&&filterMonth,filterSkill!=="All"&&filterSkill,filterStyle!=="All"&&filterStyle].filter(Boolean).join(" · ")}
+              </div>
+            ):null}
+          </div>
+          <button className="btn btnp" onClick={runAiInsight} disabled={aiLoading}
+            style={{width:"100%",marginBottom:16,fontSize:16}}>
+            {aiLoading?"⏳ Analyzing your trips…":"✨ Get AI Recommendations"}
+          </button>
+          {aiError&&<div style={{color:"var(--red)",fontSize:15,marginBottom:12,padding:"10px 14px",background:"rgba(150,80,80,0.2)",borderRadius:10}}>{aiError}</div>}
+          {aiInsight&&(
+            <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:14,padding:"16px"}}>
+              <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}}>Guide Intelligence · {new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+              <div style={{fontSize:16,color:"var(--foam)",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{aiInsight}</div>
+              <div style={{marginTop:12,fontSize:13,color:"var(--stone)",fontStyle:"italic"}}>Based on your {filtered.length} logged trips. Adjust filters above to refine the analysis.</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Guide Saved Gauges ────────────────────────────────────────────────────────
 function GuideSavedGauges({user}){
   const [gaugeInput,setGaugeInput]=useState("");
@@ -2770,7 +3161,7 @@ function GuideBook({user, loc}){
   if(view==="list") return(
     <div>
       <div style={{display:"flex",background:"rgba(0,0,0,0.25)",borderRadius:12,padding:3,gap:2,marginBottom:14}}>
-        {[{id:"clients",icon:"👥",label:"Clients"},{id:"gauges",icon:"⭐",label:"My Gauges"}].map(s=>(
+        {[{id:"clients",icon:"👥",label:"Clients"},{id:"trends",icon:"📈",label:"Trends"},{id:"gauges",icon:"⭐",label:"My Gauges"}].map(s=>(
           <button key={s.id} onClick={()=>setGuideSection(s.id)}
             style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
               background:guideSection===s.id?"var(--water)":"transparent",
@@ -2781,7 +3172,7 @@ function GuideBook({user, loc}){
           </button>
         ))}
       </div>
-      {guideSection==="stats"?<GuideStats guests={guests}/>:guideSection==="seasonlog"?<GuideSeasonLog guests={guests}/>:guideSection==="gauges"?<GuideSavedGauges user={user}/>:null}
+      {guideSection==="stats"?<GuideStats guests={guests}/>:guideSection==="seasonlog"?<GuideSeasonLog guests={guests}/>:guideSection==="gauges"?<GuideSavedGauges user={user}/>:guideSection==="trends"?<GuideTrends guests={guests} loc={loc}/>:null}
       <div style={{display:guideSection==="clients"?"block":"none"}}>
       {String(user?.id).startsWith("local")&&(
         <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
