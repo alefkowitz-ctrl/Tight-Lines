@@ -2300,7 +2300,7 @@ function GuideBook({user, loc}){
     }catch{}
   },[view,selectedGuest?.id,selectedTrip?.id]);
 
-  const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:""};
+  const guestForm0 = {name:"",birthday:"",address:"",address2:"",city:"",state:"",zip:"",email:"",phone:"",notes:"",dietary:"",skillLevel:"",handedness:""};
 
   // Load guests + trips from Supabase
   useEffect(()=>{
@@ -2360,6 +2360,7 @@ function GuideBook({user, loc}){
       const guestsWithTrips=gData.map(g=>({
         ...g,
         skillLevel:g.skill_level,
+        handedness:g.handedness,
         trips:trips.filter(t=>t.guest_id===g.id).map(t=>({
           id:t.id,date:t.date,location:t.location,type:t.type,
           styles:t.styles||[],catches:t.catches||0,flies:t.flies||[],
@@ -2571,8 +2572,8 @@ function GuideBook({user, loc}){
 
   async function saveGuest(){
     if(!guestForm.name.trim()) return;
-    const {name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel}=guestForm;
-    const data=await saveGuestToDb({name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel});
+    const {name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel,handedness}=guestForm;
+    const data=await saveGuestToDb({name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel,handedness});
     // Use returned DB data or create local record as fallback
     const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
     setGuests(gs=>[...gs,{...guest,trips:[]}]);
@@ -2858,6 +2859,16 @@ function GuideBook({user, loc}){
             </button>
           ))}
         </div>
+
+        <label className="lbl">Handedness</label>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          {["Left","Right"].map(h=>(
+            <button key={h} onClick={()=>setGuestForm(f=>({...f,handedness:h}))}
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              {h==="Left"?"🤚 Left-Handed":"✋ Right-Handed"}
+            </button>
+          ))}
+        </div>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Fishing experience, preferences, anything to remember…" value={guestForm.notes} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={saveGuest}>Save Guest</button>
@@ -2907,12 +2918,22 @@ function GuideBook({user, loc}){
             </button>
           ))}
         </div>
+
+        <label className="lbl">Handedness</label>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          {["Left","Right"].map(h=>(
+            <button key={h} onClick={()=>setGuestForm(f=>({...f,handedness:h}))}
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              {h==="Left"?"🤚 Left-Handed":"✋ Right-Handed"}
+            </button>
+          ))}
+        </div>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} value={guestForm.notes||""} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
         <button className="btn btnp" onClick={async()=>{
-          const{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel}=guestForm;
-          await updateGuestInDb(selectedGuest.id,{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel});
-          const updated={...selectedGuest,name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel};
+          const{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel,handedness}=guestForm;
+          await updateGuestInDb(selectedGuest.id,{name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel,handedness});
+          const updated={...selectedGuest,name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel,handedness};
           setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?updated:g));
           setSelectedGuest(updated);
           setView("guest");
@@ -2945,11 +2966,12 @@ function GuideBook({user, loc}){
         {selectedGuest.email&&<div className="hr"><span className="hn">Email</span><span className="ha">{selectedGuest.email}</span></div>}
         {selectedGuest.phone&&<div className="hr"><span className="hn">Phone</span><span className="ha">{selectedGuest.phone}</span></div>}
         {(selectedGuest.skillLevel||selectedGuest.skill_level)&&(()=>{const sl=selectedGuest.skillLevel||selectedGuest.skill_level;return(<div className="hr"><span className="hn">Skill Level</span><span className="ha">{sl==="Beginner"?"🌱 Beginner":sl==="Intermediate"?"🎣 Intermediate":"🏆 Expert"}</span></div>);})()}
+        {selectedGuest.handedness&&<div className="hr"><span className="hn">Handedness</span><span className="ha">{selectedGuest.handedness==="Left"?"🤚 Left-Handed":"✋ Right-Handed"}</span></div>}
         {selectedGuest.dietary&&<div className="hr"><span className="hn">🥗 Dietary</span><span className="ha">{selectedGuest.dietary}</span></div>}
         {selectedGuest.notes&&<div style={{marginTop:10,fontSize:15,color:"var(--sky)",fontStyle:"italic",lineHeight:1.6}}>{selectedGuest.notes}</div>}
         <div style={{display:"flex",gap:8,marginTop:14}}>
           <button className="btn" style={{flex:2}} onClick={()=>{setTripForm({...tripForm0,date:new Date().toISOString().split("T")[0]});setView("addTrip");}}>+ Add Trip</button>
-          <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest, skillLevel:selectedGuest.skillLevel||selectedGuest.skill_level||""});setView("editGuest");}}>✏️ Edit</button>
+          <button className="btn" style={{flex:1,background:"rgba(44,95,110,0.5)"}} onClick={()=>{setGuestForm({...selectedGuest, skillLevel:selectedGuest.skillLevel||selectedGuest.skill_level||"",handedness:selectedGuest.handedness||""});setView("editGuest");}}>✏️ Edit</button>
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
@@ -4933,6 +4955,7 @@ function App({user}){
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
+  const [editCatchFlyInput,setEditCatchFlyInput]=useState("");
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
   useEffect(()=>{
@@ -5966,6 +5989,24 @@ ${shopPins}
                     <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes</div>
                     <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:15}}
                       value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Flies Used</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
+                      {(c.flies||[]).map((f,i)=>(
+                        <span key={i} style={{fontSize:14,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"2px 8px",color:"var(--gold)",display:"flex",alignItems:"center",gap:4}}>
+                          🪶 {f}
+                          <button onClick={e=>{e.stopPropagation();const next=(c.flies||[]).filter((_,j)=>j!==i);updateCatch(c.id,{flies:next});}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",padding:"0 2px",fontSize:13,lineHeight:1}}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <input className="inp" style={{marginBottom:0,fontSize:15,flex:1}} placeholder="e.g. Elk Hair Caddis #14"
+                        value={editCatchFlyInput}
+                        onChange={e=>setEditCatchFlyInput(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter"&&editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}/>  
+                      <button className="btn" style={{marginBottom:0,padding:"0 14px",fontSize:14}} onClick={e=>{e.stopPropagation();if(editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}>Add</button>
+                    </div>
                   </div>
                   <div style={{marginBottom:8}}>
                     <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
