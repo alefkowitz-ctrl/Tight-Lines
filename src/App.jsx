@@ -894,7 +894,7 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const idx=Math.min(hr,23);
   // Run weather and stream fetch in parallel with a single bbox
   const wxUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weathercode,windspeed_10m,winddirection_10m,surface_pressure&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto`;
-  const p=1.5;
+  const p=0.4;
   const histBbox=`${(lng-p).toFixed(2)},${(lat-p).toFixed(2)},${(lng+p).toFixed(2)},${(lat+p).toFixed(2)}`;
   const usgsPromise=(async()=>{
     var leg=await nwDailyBboxLegacy(histBbox,dateStr,dateStr);
@@ -932,11 +932,15 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
         const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
         const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
         return{name:t.sourceInfo?.siteName??"",cfs,dist,siteNo};
-      }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+      }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
       if(parsed.length){
-        results.streamCFS=String(Math.round(parsed[0].cfs));
-        results.streamCondition=cfsLabel(parsed[0].cfs).label;
-        results.streamGaugeName=parsed[0].name;
+        // Prefer higher-flow gauge when another is within 0.05° (tributary vs mainstem tiebreaker)
+        const nearDist=parsed[0].dist;
+        const candidates=parsed.filter(x=>x.dist-nearDist<=0.05);
+        const best=candidates.reduce((a,b)=>b.cfs>a.cfs?b:a,candidates[0]);
+        results.streamCFS=String(Math.round(best.cfs));
+        results.streamCondition=cfsLabel(best.cfs).label;
+        results.streamGaugeName=best.name;
       }
     }
   }catch{}
@@ -2663,9 +2667,10 @@ function GuideBook({user, loc}){
               conds={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg,streamCFS:"",streamCondition:"",streamGaugeName:""};
               const ts2=(usgs.value?.timeSeries)??[];
               if(ts2.length){
-                const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+                const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
                 if(parsed2.length){
-                  conds.streamCFS=String(Math.round(parsed2[0].cfs));conds.streamCondition=cfsLabel(parsed2[0].cfs).label;conds.streamGaugeName=parsed2[0].name;
+                  const _nd2=parsed2[0].dist;const _cb2=parsed2.filter(x=>x.dist-_nd2<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,parsed2[0]);
+                  conds.streamCFS=String(Math.round(_cb2.cfs));conds.streamCondition=cfsLabel(_cb2.cfs).label;conds.streamGaugeName=_cb2.name;
                 }
               }
             }catch(le){void 0;}
@@ -3271,7 +3276,7 @@ function GuideBook({user, loc}){
                   const wc=wx.current;const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
                   let cp={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
                   const ts2=(usgs.value?.timeSeries)??[];
-                  if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);if(p2.length){cp.streamCFS=String(Math.round(p2[0].cfs));cp.streamCondition=p2[0].label;cp.streamGaugeName=p2[0].name;}}
+                  if(ts2.length){const p2=ts2.map(t3=>{const raw=t3.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t3.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));return{name:t3.sourceInfo?.siteName??"",cfs,dist,label:cfsLabel(cfs).label};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);if(p2.length){const _ndp=p2[0].dist;const _cbp=p2.filter(x=>x.dist-_ndp<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,p2[0]);cp.streamCFS=String(Math.round(_cbp.cfs));cp.streamCondition=_cbp.label;cp.streamGaugeName=_cbp.name;}}
                   return cp;
                 }catch(condErr){return null;}
               })();
@@ -5544,8 +5549,8 @@ function App({user}){
               let cd={air_temp:String(Math.round(wc.temperature_2m)),weather_desc:WX_DESC[wc.weather_code]||"",wind_speed:String(Math.round(wc.wind_speed_10m)),wind_dir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
               const ts2=(usgs.value?.timeSeries)??[];
               if(ts2.length){
-                const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
-                if(parsed2.length)cd={...cd,stream_cfs:String(Math.round(parsed2[0].cfs)),stream_condition:cfsLabel(parsed2[0].cfs).label,stream_gauge_name:parsed2[0].name};
+                const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
+                if(parsed2.length){const nd2b=parsed2[0].dist;const cb2b=parsed2.filter(x=>x.dist-nd2b<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,parsed2[0]);cd={...cd,stream_cfs:String(Math.round(cb2b.cfs)),stream_condition:cfsLabel(cb2b.cfs).label,stream_gauge_name:cb2b.name};}
               }
               return cd;
             }catch(condErr){return null;}
@@ -5621,9 +5626,10 @@ function App({user}){
           setForm(f=>({...f,airTemp:String(Math.round(c.temperature_2m)),weatherDesc:WX_DESC[c.weather_code]||"",windSpeed:String(Math.round(c.wind_speed_10m)),windDir:windDir(c.wind_direction_10m),pressure:pressureInHg}));
           const ts2=(usgs.value?.timeSeries)??[];
           if(ts2.length){
-            const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000).sort((a,b)=>a.dist-b.dist);
+            const parsed=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
             if(parsed.length){
-              const streamData={streamCFS:String(Math.round(parsed[0].cfs)),streamCondition:cfsLabel(parsed[0].cfs).label,streamGaugeName:parsed[0].name,waterTemp:parsed[0].waterTempF?String(parsed[0].waterTempF):""};
+              const _ndc=parsed[0].dist;const _cbc=parsed.filter(x=>x.dist-_ndc<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,parsed[0]);
+              const streamData={streamCFS:String(Math.round(_cbc.cfs)),streamCondition:cfsLabel(_cbc.cfs).label,streamGaugeName:_cbc.name,waterTemp:_cbc.waterTempF?String(_cbc.waterTempF):""};
               setForm(f=>({...f,...streamData}));
               if(lastCatchIdRef.current) updateCatch(lastCatchIdRef.current,streamData);
             }
