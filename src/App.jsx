@@ -5350,7 +5350,11 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
         <div key={i} style={{borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div>
-            <div style={{fontSize:15,color:"var(--foam)"}}>{g.name||g.site_no}</div>
+            <div style={{fontSize:15,color:"var(--foam)"}}>
+              {g.lat&&g.lng
+                ?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name||g.site_no}</a>
+                :(g.name||g.site_no)}
+            </div>
             <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":"Loading…"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -5684,27 +5688,33 @@ function App({user}){
         if(m) siteNo=m[1];
       }
       if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      // New API first (stale-filtered); legacy fallback with 8s abort until decommission
-      try{
-        var nf=await nwLatest([siteNo],"00060");
-        if(nf.length){
-          var ncfs=parseFloat(nf[0].properties.value);
-          if(!isNaN(ncfs)){var nl=cfsLabel(ncfs);return{...gauge,cfs:ncfs,label:nl.label,cls:nl.cls};}
-        }
-      }catch{}
-      var controller=new AbortController();
-      var timer=setTimeout(()=>controller.abort(),8000);
-      var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060",{signal:controller.signal});
-      clearTimeout(timer);
-      if(!r.ok) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      var d=await r.json();
-      var ts=(d.value&&d.value.timeSeries)||[];
-      if(!ts.length) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
-      var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
-      var cfs=raw!=null?parseFloat(raw):null;
-      var name=(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||gauge.name;
-      var lbl=cfsLabel(cfs);
-      return{...gauge,cfs,label:lbl.label,cls:lbl.cls,name};
+      // Fetch CFS and location in parallel
+      var [cfsResult,locResult]=await Promise.allSettled([
+        (async()=>{
+          try{
+            var nf=await nwLatest([siteNo],"00060");
+            if(nf.length){var ncfs=parseFloat(nf[0].properties.value);if(!isNaN(ncfs))return{cfs:ncfs,name:null};}
+          }catch{}
+          var controller=new AbortController();
+          var timer=setTimeout(()=>controller.abort(),8000);
+          var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060",{signal:controller.signal});
+          clearTimeout(timer);
+          if(!r.ok)return{cfs:null,name:null};
+          var d=await r.json();
+          var ts=(d.value&&d.value.timeSeries)||[];
+          if(!ts.length)return{cfs:null,name:null};
+          var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
+          return{cfs:raw!=null?parseFloat(raw):null,name:(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||null};
+        })(),
+        nwLocation(siteNo)
+      ]);
+      var cfsVal=(cfsResult.status==="fulfilled"?cfsResult.value?.cfs:null);
+      var nameFromCfs=(cfsResult.status==="fulfilled"?cfsResult.value?.name:null);
+      var loc2=(locResult.status==="fulfilled"?locResult.value:null);
+      var lat=loc2?.lat||null,lng=loc2?.lng||null;
+      var name=nameFromCfs||loc2?.name||gauge.name;
+      var lbl=cfsLabel(cfsVal);
+      return{...gauge,cfs:cfsVal,label:lbl.label,cls:lbl.cls,name,lat,lng};
     }catch(e){return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};}
   }
 
