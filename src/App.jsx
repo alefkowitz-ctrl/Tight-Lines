@@ -1612,13 +1612,12 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
         <div className="gi" key={i} style={{cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div className="grow">
             <div style={{flex:1}}>{g.lat&&g.lng?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" className="gname" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name}</a>:<span className="gname">{g.name}</span>}{g.distMi!=null&&<div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{g.distMi} miles away</div>}</div>
-            <span className={`gbadge ${g.cls}`}>{g.label}</span>
             {toggleStar&&<button onClick={e=>{e.stopPropagation();toggleStar(g);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px",color:isStarred&&isStarred(g.siteNo)?"var(--gold)":"var(--stone)"}}>
               {isStarred&&isStarred(g.siteNo)?"⭐":"☆"}
             </button>}
           </div>
           <div className="grow">
-            <span className="gval">{g.cfs!=null?`${Number(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
+            <span className="gval">{g.cfs!=null?`${Math.round(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
             {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
             {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
@@ -4517,8 +4516,36 @@ function labSplitFused(rivers){
   });
 }
 
+// Geocode a river name via the Places proxy; returns {lat,lng} or null.
+async function geocodeRiver(name,regionHint){
+  try{
+    const query=name+(regionHint?", "+regionHint:"")+" river fishing";
+    const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geocode:true,query})});
+    const d=await r.json();
+    if(d.geocodeError||d.lat==null)return null;
+    return{lat:d.lat,lng:d.lng};
+  }catch{return null;}
+}
+
 async function finalizeLabRivers(rivers,gaugeList,loc,ground){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
+
+  // For any pick that didn't snap to a gauge, try Places geocoding.
+  // Keep only if the result is within 50 miles of the trip location.
+  // Drop the pick entirely if Places fails or the result is too far.
+  const MAX_MI=50;
+  const degDist=(a,b)=>Math.hypot(a.lat-b.lat,a.lng-b.lng)*69; // rough miles
+  const regionHint=loc&&loc.label?loc.label.split(",").slice(-1)[0].trim():"";
+  const geocoded=await Promise.all(out.map(async r=>{
+    if(r.gaugeSnap)return r; // already pinned to a surveyed gauge — leave it
+    const g=await geocodeRiver(String(r.name||""),regionHint);
+    if(!g)return null; // Places found nothing — drop
+    if(loc&&loc.lat!=null&&loc.lng!=null&&degDist(g,loc)>MAX_MI)return null; // too far — drop
+    return{...r,lat:g.lat,lng:g.lng,geocodePinned:true};
+  }));
+  out=geocoded.filter(Boolean);
+  if(!out.length&&rivers.length)out=rivers.slice(0,1); // last resort: never return empty
+
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
   out=labSplitFused(out);                          // split fused two-dam tailwater entries
   out=dropWarmwaterByText(out);                     // drop picks the model itself calls warmwater/bass (backstop to deep-read)
@@ -5324,10 +5351,9 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
           <div>
             <div style={{fontSize:15,color:"var(--foam)"}}>{g.name||g.site_no}</div>
-            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?g.cfs.toLocaleString()+" CFS":"Loading…"}</div>
+            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":"Loading…"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {g.cfs!=null&&<span className={"gbadge "+g.cls}>{g.label}</span>}
             <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
           </div>
