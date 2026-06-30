@@ -1569,9 +1569,6 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           return <polyline points={hpts} fill="none" stroke="rgba(200,168,75,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
         })()}
         <circle cx={dotX} cy={dotY} r="3" fill="#c8a84b"/>
-        <text x={dotX+4} y={dotY+4} fontSize="9" fill="#c8a84b">
-          {lastPt.v>=1000?`${(lastPt.v/1000).toFixed(1)}k`:Math.round(lastPt.v)}
-        </text>
       </svg>
     );
   }
