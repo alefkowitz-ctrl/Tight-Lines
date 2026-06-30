@@ -89,6 +89,30 @@ export default async function handler(req, res) {
     } catch (e) { return res.status(200).json({ shops: [], placesError: e.message }); }
   }
   
+  // River geocode — Places text search used by finalizeLabRivers fallback.
+  // No auth gate: no AI cost. Returns {lat, lng} or {geocodeError}.
+  if (req.body?.geocode) {
+    try {
+      const { query } = req.body;
+      const key = process.env.GOOGLE_PLACES_API_KEY;
+      if (!key) return res.status(200).json({ geocodeError: "GOOGLE_PLACES_API_KEY not set" });
+      const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location"
+        },
+        body: JSON.stringify({ textQuery: query, maxResultCount: 1 })
+      });
+      const d = await r.json();
+      if (d.error) return res.status(200).json({ geocodeError: (d.error.message || "Places error").slice(0, 200) });
+      const p = (d.places || [])[0];
+      if (!p?.location) return res.status(200).json({ geocodeError: "No result" });
+      return res.status(200).json({ lat: p.location.latitude, lng: p.location.longitude });
+    } catch (e) { return res.status(200).json({ geocodeError: e.message }); }
+  }
+
   // Isochrone proxy
   if (req.body?.isochrone) {
     try {
