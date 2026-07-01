@@ -165,13 +165,28 @@ const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) :
 function useAuth(){
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [demoError, setDemoError] = useState("");
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
     // Add timeout in case Supabase is slow on mobile
     const timeout = setTimeout(()=>setLoading(false), 5000);
-    sb.auth.getSession().then(({data:{session}})=>{
+    sb.auth.getSession().then(async ({data:{session}})=>{
       clearTimeout(timeout);
-      setUser(session?.user ?? null);
+      if(session?.user){ setUser(session.user); setLoading(false); return; }
+      // Public demo link: ?demo=1 with no existing session logs into a single
+      // shared demo account (cloned from the real account's data) rather than
+      // provisioning a fresh anonymous account per visitor. Only fires once
+      // per browser — a returning demo visitor reuses their existing session.
+      const isDemo = new URLSearchParams(window.location.search).get("demo")==="1";
+      if(isDemo){
+        try{
+          const {data,error} = await sb.auth.signInWithPassword({email:"demo@guideschoicefishing.com", password:"password1"});
+          if(error) throw error;
+          setUser(data?.user ?? null);
+        }catch(e){
+          setDemoError(e.message||"Demo sign-in failed.");
+        }
+      }
       setLoading(false);
     }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
     const {data:{subscription}} = sb.auth.onAuthStateChange((_,session)=>{
@@ -179,15 +194,16 @@ function useAuth(){
     });
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
-  return {user, loading};
+  return {user, loading, demoError};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
-function AuthScreen(){
+function AuthScreen({demoError}){
   const [mode, setMode] = useState("login"); // login | signup | reset
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [tempPoints, setTempPoints] = useState([]);
   const [error, setError] = useState("");
@@ -198,6 +214,11 @@ function AuthScreen(){
     try{
       if(!sb){ setError("Supabase not configured. Add your project URL and anon key to the app."); setLoading(false); return; }
       if(mode==="signup"){
+        const code = inviteCode.trim();
+        if(!code){ setError("Invite code is required."); setLoading(false); return; }
+        const {data:codeRow, error:codeErr} = await sb.from("invite_codes").select("active").eq("code", code).maybeSingle();
+        if(codeErr){ setError("Couldn't verify invite code. Please try again."); setLoading(false); return; }
+        if(!codeRow || codeRow.active===false){ setError("Invalid or inactive invite code."); setLoading(false); return; }
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
         if(e) throw e;
         setSuccess("Check your email to confirm your account, then log in.");
@@ -222,12 +243,15 @@ function AuthScreen(){
           <Logo layout="stacked" scale={1} />
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
+          {demoError&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>Demo link couldn't sign you in automatically ({demoError}). Please contact support.</div>}
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
             {mode==="login"?"Welcome Back":mode==="signup"?"Create Account":"Reset Password"}
           </div>
           {mode==="signup"&&<>
             <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
             <input className="inp" placeholder="John Smith" value={name} onChange={e=>setName(e.target.value)}/>
+            <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
+            <input className="inp" placeholder="Enter your invite code" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
           </>}
           <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Email</label>
           <input className="inp" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
@@ -6852,7 +6876,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading} = useAuth();
+  const {user, loading, demoError} = useAuth();
   if(showSplash) return <SplashScreen onDone={()=>{localStorage.setItem("gc_onboarded","1");setShowSplash(false);}}/>;
   if(loading) return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -6865,7 +6889,7 @@ function Root(){
   // Only bypass auth if Supabase is genuinely not configured
   if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}}/>;
   // Supabase IS configured - require login
-  if(!user) return <AuthScreen/>;
+  if(!user) return <AuthScreen demoError={demoError}/>;
   return <App user={user}/>;
 }
 export default Root;
