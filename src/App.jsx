@@ -4697,16 +4697,24 @@ async function finalizeLabRivers(rivers,gaugeList,loc,ground){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
 
   // For any pick that didn't snap to a gauge, try Places geocoding.
-  // Keep only if the result is within 50 miles of the trip location.
-  // Drop the pick entirely if Places fails or the result is too far.
-  const MAX_MI=50;
-  const degDist=(a,b)=>Math.hypot(a.lat-b.lat,a.lng-b.lng)*69; // rough miles
+  // Drop the pick ONLY if Places found nothing at all — a flat straight-line-
+  // mile cutoff used to live here (MAX_MI=50) and was removed (App Dev 23
+  // follow-up): it fired BEFORE labGovernor's own terrain-aware drive-time
+  // check further down this function, so a legitimate mountain/canyon day
+  // trip (e.g. Cheesman Canyon, ~54 straight-line mi but a normal 60-90 min
+  // drive) could get silently dropped here even though labGovernor's more
+  // generous, circuity-adjusted CAP_MIN=150 would have kept it. labGovernor
+  // is now the SINGLE distance authority for "too far" — it runs on every
+  // pick that reaches it (using the same lat/lng geocoding attaches here) and
+  // already handles the case of a badly wrong geocode result (e.g. an
+  // ambiguous bare river name resolving hundreds of miles away): the
+  // resulting drive-time estimate is huge and gets excluded there, same as
+  // any other out-of-range pick, terrain-aware rather than a flat mileage cut.
   const regionHint=loc&&loc.label?loc.label.split(",").slice(-1)[0].trim():"";
   const geocoded=await Promise.all(out.map(async r=>{
     if(r.gaugeSnap)return r; // already pinned to a surveyed gauge — leave it
     const g=await geocodeRiver(String(r.name||""),regionHint);
     if(!g)return null; // Places found nothing — drop
-    if(loc&&loc.lat!=null&&loc.lng!=null&&degDist(g,loc)>MAX_MI)return null; // too far — drop
     return{...r,lat:g.lat,lng:g.lng,geocodePinned:true};
   }));
   out=geocoded.filter(Boolean);
