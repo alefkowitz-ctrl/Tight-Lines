@@ -303,6 +303,24 @@ function cfsLabel(cfs){
   // network cost. Just the number.
   return{label:Math.round(cfs).toLocaleString()+" CFS",cls:""};
 }
+// Deterministic flow-vs-average comparison for the planner synth prompt (added
+// after the App Dev 23 St. Vrain incident: the AI had no grounded signal for
+// whether a flow reading was normal or a drought low, and guessed "moderate"
+// for a river running well below its typical level). "avgCfs" is a last-year-
+// same-period baseline (see fetchFlowAvgBatch) — a proxy, not a true multi-year
+// median, but a real number rather than a guess. Returns null (no claim) if
+// either value is missing/invalid — never guesses a label with no baseline.
+function flowVsAverage(cfs,avgCfs){
+  if(cfs==null||isNaN(cfs)||avgCfs==null||isNaN(avgCfs)||avgCfs<=0)return null;
+  const pct=(cfs-avgCfs)/avgCfs;
+  let label;
+  if(pct<=-0.6)label="well below average";
+  else if(pct<=-0.3)label="below average";
+  else if(pct<0.3)label="about average";
+  else if(pct<0.6)label="above average";
+  else label="well above average";
+  return{label,pct:Math.round(pct*100),avgCfs:Math.round(avgCfs)};
+}
 function fmtCoord(lat,lng){return`${Math.abs(lat).toFixed(4)}°${lat>=0?"N":"S"}, ${Math.abs(lng).toFixed(4)}°${lng>=0?"E":"W"}`;}
 function extractJSON(text){
   const c=text.replace(/```json|```/g,"").trim();
@@ -886,6 +904,38 @@ async function fetchUSGSTempBatch(siteNos){
     });
     return out;
   }catch{ return {}; }
+}
+
+// Batched last-year-same-period flow average, for the planner's flowVsAverage
+// grounding (App Dev 23 follow-up — see SPEC_flow_average_grounding.md). One
+// call for up to 100 sites via the OGC API's comma-joined monitoring_location_id
+// (same pattern as fetchUSGSTempBatch/nwLatest), a 10-day window centered on
+// today's date one year ago. This is a last-year-same-period proxy, NOT a true
+// multi-year climatological median — good enough for a directional "below/about/
+// above average" call at zero extra per-gauge cost beyond what's already paid
+// for the temp batch. Fails open to {} on any error; callers must treat a
+// missing siteNo as "no baseline," never substitute a guess.
+async function fetchFlowAvgBatch(siteNos){
+  if(!siteNos||!siteNos.length) return {};
+  var e=new Date();e.setFullYear(e.getFullYear()-1);e.setDate(e.getDate()+5);
+  var s=new Date(e);s.setDate(s.getDate()-10);
+  function iso(d){return d.toISOString().split("T")[0]+"T00:00:00Z";}
+  var out={};
+  try{
+    var chunks=chunkArr(siteNos.map(function(sn){return "USGS-"+nwSiteNo(sn);}),100);
+    for(var i=0;i<chunks.length;i++){
+      var d=await nwGet(USGS_NW+"/daily/items?f=json&limit=10000&monitoring_location_id="+chunks[i].join(",")+"&parameter_code=00060&statistic_id=00003&time="+iso(s)+"/"+iso(e));
+      var sums={},counts={};
+      (d?.features||[]).forEach(function(f){
+        var p=f.properties||{};
+        var sn=nwSiteNo(p.monitoring_location_id);
+        var v=parseFloat(p.value);
+        if(sn&&!isNaN(v)&&v>=0&&v<500000){sums[sn]=(sums[sn]||0)+v;counts[sn]=(counts[sn]||0)+1;}
+      });
+      Object.keys(sums).forEach(function(sn){out[sn]=sums[sn]/counts[sn];});
+    }
+  }catch{}
+  return out;
 }
 
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
@@ -4353,15 +4403,20 @@ function cleanFlyList(arr){
 // Search-driven synthesis prompt: candidates come from the RETRIEVED REPORTS,
 // gauges are a live-flow + reality-check layer (not the candidate list).
 function buildLabSynth(a){
-  const loc=a.loc,ds=a.ds,wx=a.wx,fishableGauges=a.fishableGauges,pTempMap=a.pTempMap||{},savedInRadius=a.savedInRadius||[],thermalRisk=a.thermalRisk,airF=a.airF,maxWaterF=a.maxWaterF,searchTxt=a.searchTxt||"";
+  const loc=a.loc,ds=a.ds,wx=a.wx,fishableGauges=a.fishableGauges,pTempMap=a.pTempMap||{},flowAvgMap=a.flowAvgMap||{},savedInRadius=a.savedInRadius||[],thermalRisk=a.thermalRisk,airF=a.airF,maxWaterF=a.maxWaterF,searchTxt=a.searchTxt||"";
   const wxF=wx?Math.round((wx.current&&wx.current.temperature_2m)||0)+"F":"unknown";
-  const gaugeBlock=fishableGauges.length?[...fishableGauges].sort((a,b)=>((a.dist!=null?a.dist:9)-(b.dist!=null?b.dist:9))).map(g=>g.name+" ("+Math.round(g.cfs||0)+" CFS"+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi":"")+")").join("; "):"none";
+  const gaugeBlock=fishableGauges.length?[...fishableGauges].sort((a,b)=>((a.dist!=null?a.dist:9)-(b.dist!=null?b.dist:9))).map(g=>{
+    const fva=flowVsAverage(g.cfs,flowAvgMap[g.siteNo]);
+    const avgNote=fva?(", "+fva.label+" vs. ~"+fva.avgCfs+" CFS typical for this time of year"):"";
+    return g.name+" ("+Math.round(g.cfs||0)+" CFS"+(g.dist!=null?" - ~"+Math.round(g.dist*69)+" mi":"")+avgNote+")";
+  }).join("; "):"none";
   const home=savedInRadius.length?(" User home waters: "+savedInRadius.map(s=>s.site_name||s.name||"").filter(Boolean).join(", ")+"."):"";
   const heat=thermalRisk?(" WARM-DAY NOTE"+(airF!=null?" (air "+airF+"F)":"")+": suggest an early start and carrying a stream thermometer; note that if a stream warms past about 65F it is kindest to rest the fish and head home, but do NOT state this as an absolute ban - base any afternoon caution on each water's own elevation and likely temperature, since cold high-country and tailwater can fish well into the day."):"";
   return [
     "You are a fly fishing guide planning a trout day for a client near "+loc.label+". Date: "+ds+". Weather: "+wxF+".",
     "RETRIEVED REPORTS (current intel synthesized from multiple independent public sources - fishing reports, guide services, state wildlife agencies, tourism and reference sites): "+(String(searchTxt).slice(0,5000)||"none")+".",
     "USGS live gauges within range (these are REAL local streams with live flow - use them BOTH to attach live flow AND as a candidate source: include any gauged stream that is genuine trout water near here, but SKIP warmwater or bass streams. They do not replace the reports - combine the two): "+gaugeBlock+"."+home+heat,
+    "FLOW LANGUAGE RULE: when a gauge above includes a 'vs. ~X CFS typical' note, that is the ONLY basis for describing how the flow compares to normal (e.g. 'well below average', 'about average') - use that exact phrasing or a close paraphrase, never invent your own characterization of whether a flow is low, moderate, or high. When a gauge has NO such note, describe the raw CFS number and what it suits for wading/technique WITHOUT any comparative judgment (do not say 'moderate' or 'good flows' with no baseline to support it) - stick to what the number itself supports.",
     "TASK: Like a real guide, name the BEST trout fisheries within about a 2-hour drive of "+loc.label+", ranked best to worst (maximum 6; return fewer if fewer truly deserve it - never pad).",
     "SELECTION RULES: (1) Build the candidate list from TWO sources combined: (a) the trout fisheries the RETRIEVED REPORTS establish near here - this catches tailwaters and famous water that may have no nearby gauge or a gauge named for a dam or lake; and (b) the gauged streams above that are genuine trout water. Do NOT silently drop a close gauged trout stream just because the reports did not mention it, and do NOT include a gauged stream that is warmwater or bass water. Corroborate report-only picks across more than one source where possible.",
     "(2) TAILWATERS: cold water below a dam is often the premier trout fishery in a region; include the relevant tailwater even when no gauge is named like a trout stream. When the reports clearly establish a water is a below-dam tailwater, set its \"verified\" field to \"tailwater\".",
@@ -4959,14 +5014,21 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           const savedInRadius=(savedGauges||[]).filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-lat,2)+Math.pow((sg.lng||0)-lng,2))*69;return d<=140;});
           // Thermal-stress check: one batched water-temp call; deterministic trigger, never the AI's call
           const airF=(wx&&wx.current&&wx.current.temperature_2m!=null)?Math.round(wx.current.temperature_2m):null;
-          let pTempMap={};
-          try{pTempMap=await fetchUSGSTempBatch(fishableGauges.map(g=>g.siteNo));}catch{pTempMap={};}
+          let pTempMap={},flowAvgMap={};
+          try{
+            const gSiteNos=fishableGauges.map(g=>g.siteNo);
+            const [ptm,fam]=await Promise.all([
+              fetchUSGSTempBatch(gSiteNos).catch(()=>({})),
+              fetchFlowAvgBatch(gSiteNos).catch(()=>({}))
+            ]);
+            pTempMap=ptm;flowAvgMap=fam;
+          }catch{pTempMap={};flowAvgMap={};}
           const maxWaterF=Object.values(pTempMap).reduce((m,v)=>(v>m?v:m),0);
           const thermalRisk=(airF!=null&&airF>=85)||maxWaterF>=65;
           // Heat advisory: shop reports flag it, or the air is genuinely hot (>=85F). No gauge water temps (unreliable on the Front Range).
           const shopHeat=HEAT_SHOP_RE.test(searchTxt);
           const eThermal=shopHeat||(airF!=null&&airF>=85);
-          const synthPrompt=buildLabSynth({loc,ds,wx,fishableGauges,pTempMap,savedInRadius,thermalRisk:eThermal,airF,maxWaterF,searchTxt});
+          const synthPrompt=buildLabSynth({loc,ds,wx,fishableGauges,pTempMap,flowAvgMap,savedInRadius,thermalRisk:eThermal,airF,maxWaterF,searchTxt});
           let reportTxt;
           try{
             reportTxt=await askClaude(synthPrompt,false,8000,"planner");
