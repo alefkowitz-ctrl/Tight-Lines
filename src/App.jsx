@@ -4482,8 +4482,28 @@ function parseAvoidList(ground){
   }
   return out;
 }
-function coreNorm(s){return String(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\b(the|creek|river|stream|fork|north|south|east|west|middle|upper|lower)\b/g," ").replace(/\s+/g," ").trim();}
-function avoidHit(name,avoid){const n=coreNorm(name);if(!n)return false;return avoid.some(a=>{const c=coreNorm(a);return c.length>=3&&(n.includes(c)||c.includes(n));});}
+// Two normalizations: "full" keeps directional/positional qualifiers (they can be
+// part of a stream's actual distinguishing name, e.g. "South Boulder Creek" is a
+// DIFFERENT real stream from "Boulder Creek", not a phrasing variant of it); "bare"
+// strips them for flexible matching when BOTH sides agree on having no qualifier.
+function coreNormBase(s){return String(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\b(the|creek|river|stream|fork)\b/g," ").replace(/\s+/g," ").trim();}
+function coreNormBare(s){return coreNormBase(s).replace(/\b(north|south|east|west|middle|upper|lower)\b/g," ").replace(/\s+/g," ").trim();}
+function avoidHit(name,avoid){
+  const nFull=coreNormBase(name),nBare=coreNormBare(name);
+  if(!nBare)return false;
+  const nHasDir=nFull!==nBare;
+  return avoid.some(a=>{
+    const aFull=coreNormBase(a),aBare=coreNormBare(a);
+    if(aBare.length<3)return false;
+    if(nHasDir||aFull!==aBare){
+      // a directional/positional qualifier is present on either side — these can name a
+      // genuinely different stream (e.g. "South Boulder Creek" vs "Boulder Creek"), so
+      // require an exact full-name match rather than loose substring containment.
+      return nFull===aFull;
+    }
+    return nBare.includes(aBare)||aBare.includes(nBare);
+  });
+}
 // Skeptical verification pass: one batched Sonnet search asks, for each pick, coldwater
 // trout vs warmwater/bass. DROP only on a direct contradiction (deep-read AVOID-list match,
 // or a 'warmwater' verdict). LABEL 'unsure' picks; never penalize on silence; never empty
@@ -4492,6 +4512,7 @@ async function labVerifyPicks(rivers,loc,ground){
   if(!Array.isArray(rivers)||!rivers.length)return rivers;
   const avoid=parseAvoidList(ground);
   const flags=rivers.map(r=>({avoid:avoidHit(r.name,avoid)}));
+  if(avoid.length)flags.forEach((f,i)=>{if(f.avoid)console.warn("[labVerifyPicks] dropping \""+(rivers[i]&&rivers[i].name)+"\" — matched AVOID list entry among:",avoid);});
   let verdicts=[];
   try{
     const items=rivers.map((r,i)=>(i+1)+") "+String(r.name||"?")+(r.type?" ["+r.type+"]":"")+(r.gaugeSnap?" (gauge: "+r.gaugeSnap+")":"")).join("  ");
