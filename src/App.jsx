@@ -1647,8 +1647,8 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         {tempPoints.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(255,100,100,0.7)",verticalAlign:"middle",marginLeft:8}}></span>Water Temp (°F)</>}
       </div>
       {loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
-      {!loading&&points.length>0&&renderChart()}
-      {!loading&&points.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>USGS history unavailable for this gauge{siteNo?` (site ${siteNo})`:""} — live flow shown above is current</div>}
+      {!loading&&points.length>0&&points.some(p=>p.v>0)&&renderChart()}
+      {!loading&&(points.length===0||!points.some(p=>p.v>0))&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>USGS history unavailable for this gauge{siteNo?` (site ${siteNo})`:""} — live flow shown above is current</div>}
     </div>
   );
 }
