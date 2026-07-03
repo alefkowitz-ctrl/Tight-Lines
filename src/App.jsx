@@ -166,13 +166,27 @@ function useAuth(){
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [demoError, setDemoError] = useState("");
+  const [tier, setTier] = useState("free");
+  // Reads the caller's subscription tier. Accepts an explicit uid (used right after
+  // sign-in, before `user` state has committed) and falls back to current `user`.
+  // Fails open to "free" on any error/missing row — a Supabase hiccup must never
+  // read as a paywall lockout for someone who's actually paying.
+  const refreshTier = useCallback(async (uid)=>{
+    const id = uid || (user && user.id);
+    if(!sb || !id){ setTier("free"); return; }
+    try{
+      const {data, error} = await sb.from("subscriptions").select("tier,status").eq("user_id", id).maybeSingle();
+      if(error || !data || data.status==="canceled"){ setTier("free"); return; }
+      setTier(data.tier || "free");
+    }catch(e){ setTier("free"); }
+  }, [user]);
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
     // Add timeout in case Supabase is slow on mobile
     const timeout = setTimeout(()=>setLoading(false), 5000);
     sb.auth.getSession().then(async ({data:{session}})=>{
       clearTimeout(timeout);
-      if(session?.user){ setUser(session.user); setLoading(false); return; }
+      if(session?.user){ setUser(session.user); refreshTier(session.user.id); setLoading(false); return; }
       // Public demo link: ?demo=1 with no existing session logs into a single
       // shared demo account (cloned from the real account's data) rather than
       // provisioning a fresh anonymous account per visitor. Only fires once
@@ -183,6 +197,7 @@ function useAuth(){
           const {data,error} = await sb.auth.signInWithPassword({email:"demo@guideschoicefishing.com", password:"password1"});
           if(error) throw error;
           setUser(data?.user ?? null);
+          if(data?.user) refreshTier(data.user.id);
         }catch(e){
           setDemoError(e.message||"Demo sign-in failed.");
         }
@@ -191,10 +206,11 @@ function useAuth(){
     }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
     const {data:{subscription}} = sb.auth.onAuthStateChange((_,session)=>{
       setUser(session?.user ?? null);
+      if(session?.user) refreshTier(session.user.id); else setTier("free");
     });
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
-  return {user, loading, demoError};
+  return {user, loading, demoError, tier, refreshTier};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -434,6 +450,49 @@ async function aiFetch(body, kind="cheap", opts={}){
   if(d.error)throw new Error(d.error.message||(typeof d.error==="string"?d.error:"API error"));
   return d;
 }
+// ── Subscription tiers ───────────────────────────────────────────────────────
+// Display info for paid tiers, and which tiers unlock which tabs. Guide Pro is a
+// superset (includes AI trip planning + the CRM tools) — a guide paying more should
+// never end up with less than a Consumer Pro angler.
+const TIER_INFO = {
+  consumer_pro: { name:"Consumer Pro", price:"$4.99/mo", blurb:"Full AI trip predictions — hatch windows, best times, fly recommendations, and more for any river." },
+  guide_pro: { name:"Guide Pro", price:"$19.99/mo", blurb:"Everything in Consumer Pro, plus the full Guide CRM — client logs, trip history, and season trends." }
+};
+const PLAN_TIERS = new Set(["consumer_pro","guide_pro","fly_shop_basic","fly_shop_pro"]);
+const GUIDE_TIERS = new Set(["guide_pro"]);
+
+// Starts a Stripe Checkout session for the given tier and redirects to it.
+// Same session-token gateway pattern as aiFetch, so auth handling stays in one place.
+async function startCheckout(tier){
+  let auth={};
+  try{
+    if(sb){const {data}=await sb.auth.getSession();const t=data&&data.session&&data.session.access_token;if(t)auth={Authorization:"Bearer "+t};}
+  }catch(e){void 0;}
+  const res=await fetch("/api/create-checkout-session",{method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({tier})});
+  let d;try{d=await res.json();}catch(e){throw new Error("Could not start checkout.");}
+  if(d.error) throw new Error(d.error.message||"Could not start checkout.");
+  if(d.url) window.location.href=d.url; else throw new Error("Checkout session did not return a URL.");
+}
+
+// Locked-tab paywall — shown in place of a feature the user's current tier doesn't include.
+function UpgradeLock({tierKey, featureLabel}){
+  const info = TIER_INFO[tierKey];
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  return(
+    <div style={{textAlign:"center",padding:"60px 24px",maxWidth:420,margin:"0 auto"}}>
+      <div style={{fontSize:40,marginBottom:14}}>🔒</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:"var(--gold)",marginBottom:10}}>{featureLabel} is a {info.name} feature</div>
+      <div style={{fontSize:15,color:"var(--stone)",lineHeight:1.6,marginBottom:20}}>{info.blurb}</div>
+      {err&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>{err}</div>}
+      <button disabled={busy} onClick={async()=>{setBusy(true);setErr("");try{await startCheckout(tierKey);}catch(e){setErr(e.message);setBusy(false);}}}
+        style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"12px 28px",color:"#0c1e25",fontSize:16,fontWeight:600,cursor:busy?"default":"pointer",opacity:busy?0.7:1,fontFamily:"'Crimson Pro',serif"}}>
+        {busy?"Starting checkout…":`Upgrade to ${info.name} — ${info.price}`}
+      </button>
+    </div>
+  );
+}
+
 async function askClaude(prompt, useSearch=false, maxTokens=1200, kind="cheap", useFetch=false){
   const body={model:useSearch?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",max_tokens:maxTokens,messages:[{role:"user",content:prompt}]};
   if(useSearch){body.tools=[{type:"web_search_20250305",name:"web_search",max_uses:2}];if(useFetch)body.tools.push({type:"web_fetch_20250910",name:"web_fetch",max_uses:3});}
@@ -5574,11 +5633,13 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user}){
+function App({user, tier, refreshTier}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
   const [showSettings,setShowSettings]=useState(false);
+  const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
+  const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
@@ -6304,6 +6365,21 @@ function App({user}){
             {showSettings&&(
               <div style={{position:"absolute",top:44,right:0,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left"}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
+                <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Plan</div>
+                <div style={{fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",marginBottom:8}}>
+                  Current: {tier==="free"?"Free":(TIER_INFO[tier]?TIER_INFO[tier].name:tier)}
+                </div>
+                {tier!=="guide_pro"&&<>
+                  {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
+                  {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                    {settingsUpgradeBusy==="consumer_pro"?"Starting…":"Upgrade to Consumer Pro — $4.99/mo"}
+                  </button>}
+                  <button disabled={settingsUpgradeBusy==="guide_pro"} onClick={async()=>{setSettingsUpgradeBusy("guide_pro");setSettingsUpgradeErr("");try{await startCheckout("guide_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                    {settingsUpgradeBusy==="guide_pro"?"Starting…":"Upgrade to Guide Pro — $19.99/mo"}
+                  </button>
+                </>}
                 <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif"}}>
                   <span>🧭 Guide tab</span>
                   <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#c8a84b",cursor:"pointer"}}/>
@@ -6663,8 +6739,8 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>}
-          {tab==="guide"&&!hideGuide&&<GuideBook user={user} loc={loc}/>}
+          {tab==="plan"&&(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>)}
+          {tab==="guide"&&!hideGuide&&(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>)}
         </div>
 
         {batchProgress&&(
@@ -6876,7 +6952,31 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError} = useAuth();
+  const {user, loading, demoError, tier, refreshTier} = useAuth();
+  const [checkoutNotice,setCheckoutNotice]=useState("");
+  // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
+  // webhook that actually activates the tier in Supabase runs async on Stripe's side,
+  // so on success we poll refreshTier briefly rather than assuming it's already there.
+  // Gated on [user,loading] (not []) so it only fires once auth has actually resolved —
+  // otherwise refreshTier would close over a not-yet-set user and silently no-op.
+  useEffect(()=>{
+    if(loading || !user) return;
+    const params=new URLSearchParams(window.location.search);
+    const status=params.get("checkout");
+    if(!status) return;
+    window.history.replaceState({},"",window.location.pathname);
+    if(status==="success"){
+      setCheckoutNotice("Activating your subscription…");
+      let tries=0;
+      const poll=setInterval(async()=>{
+        tries++;
+        await refreshTier();
+        if(tries>=6) clearInterval(poll);
+      },1500);
+      const clearNotice=setTimeout(()=>setCheckoutNotice(""),9000);
+      return ()=>{clearInterval(poll);clearTimeout(clearNotice);};
+    }
+  },[user,loading]);
   if(showSplash) return <SplashScreen onDone={()=>{localStorage.setItem("gc_onboarded","1");setShowSplash(false);}}/>;
   if(loading) return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -6887,9 +6987,12 @@ function Root(){
     </div>
   );
   // Only bypass auth if Supabase is genuinely not configured
-  if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}}/>;
+  if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}}/>;
   // Supabase IS configured - require login
   if(!user) return <AuthScreen demoError={demoError}/>;
-  return <App user={user}/>;
+  return <>
+    {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"'Crimson Pro',serif"}}>✓ {checkoutNotice}</div>}
+    <App user={user} tier={tier} refreshTier={refreshTier}/>
+  </>;
 }
 export default Root;
