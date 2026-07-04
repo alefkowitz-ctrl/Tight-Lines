@@ -1,4 +1,5 @@
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-drag:none;}
+*:not(input):not(textarea){-webkit-user-select:none;user-select:none;}
 :root{--water:#1e5c4a;--deep:#0f2d1f;--foam:#e8dfc8;--moss:#4a7a3a;--stone:#7a8a72;--sky:#a8c8b4;--gold:#c8a84b;--red:#e07070;}
 html,body{height:100%;overflow:hidden;background:#0a1a10;}
 #root{height:100%;display:flex;justify-content:center;}
