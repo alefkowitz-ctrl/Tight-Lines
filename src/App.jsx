@@ -3,6 +3,20 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
+// iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
+// height:100% (and vh units) resolving against a stale notion of the viewport — most
+// visibly as a blank gap at the bottom right after returning from an external page like
+// Stripe checkout. Measuring the real pixel height via JS and feeding it back in as a CSS
+// variable is the standard, deterministic fix (vh/dvh alone don't reliably cover this).
+function setAppHeight(){
+  try{ document.documentElement.style.setProperty("--app-height", window.innerHeight+"px"); }catch(e){ void 0; }
+}
+if(typeof window!=="undefined"){
+  setAppHeight();
+  window.addEventListener("resize", setAppHeight);
+  window.addEventListener("pageshow", setAppHeight);
+}
+
 // Brand Logo: icon mark + live-text wordmark, built for dark backgrounds.
 function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true }) {
   const px = (n) => Math.round(n * scale);
