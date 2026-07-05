@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
@@ -2030,6 +2031,138 @@ ${reportText?`
       win.focus();
     }, 300);
   };
+}
+
+// ── Trip Planner report: Share/Copy text + PDF export ───────────────────────
+// Kept separate from generateTripReportPDF (Guide tab) rather than refactored into
+// a shared function — the Guide tab's PDF is client/CRM-shaped (guest, catches,
+// photos) and the Planner's report is a different shape (hatch/best-times/per-river).
+// Same branded print-to-PDF mechanism and CSS look, so the two report types feel
+// consistent, but the working Guide-tab export is never touched.
+function plannerReportToText(loc, date, report){
+  const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  const strip=(s)=>String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
+  const lines=["GUIDE'S CHOICE — Fishing Report",loc?.label||"",ds,""];
+  if(report.searchNote) lines.push("("+report.searchNote+")","");
+  if(report.overview) lines.push(strip(report.overview),"");
+  if(report.hatches) lines.push("HATCH ACTIVITY",strip(report.hatches),"");
+  if(report.bestTimes) lines.push("BEST TIMES",strip(report.bestTimes),"");
+  if(report.tips) lines.push("INSIDER TIPS",strip(report.tips),"");
+  if(report.flyBoxEssentials?.length) lines.push("FLY BOX ESSENTIALS",report.flyBoxEssentials.join(", "),"");
+  if(report.recommendation) lines.push("BEST BET TODAY",strip(report.recommendation),"");
+  if(report.bestFor){
+    const bf=report.bestFor;
+    const items=[["mostFish","Most Fish"],["bestScenery","Best Scenery"],["mostSolitude","Most Solitude"],["beginners","Beginners"]].filter(([k])=>bf[k]);
+    if(items.length){lines.push("BEST FOR");items.forEach(([k,label])=>lines.push(label+": "+bf[k]));lines.push("");}
+  }
+  if(report.rivers?.length){
+    lines.push("STREAM-BY-STREAM","");
+    report.rivers.forEach(r=>{
+      lines.push("— "+r.name+(r.type?" ("+r.type+")":""));
+      const tags=[];
+      if(r.cfs&&r.cfs!=="unknown") tags.push(r.cfs+" CFS"+(r.condition?" · "+r.condition:""));
+      if(r.crowdLevel) tags.push(r.crowdLevel+" crowds");
+      if(r.bestTime) tags.push(strip(r.bestTime));
+      if(tags.length) lines.push(tags.join(" | "));
+      if(r.why) lines.push("Why: "+strip(r.why));
+      if(r.accessPoints?.length) lines.push("Access: "+r.accessPoints.join("; "));
+      if(r.conditions) lines.push(strip(r.conditions));
+      if(r.techniques) lines.push("Techniques: "+strip(r.techniques).replace(/\s*\(\d+-?\d*%\)/g,"").trim());
+      if(r.flies?.length) lines.push("Flies: "+r.flies.join(", "));
+      lines.push("");
+    });
+  }
+  lines.push("— Guide's Choice · guideschoicefishing.com");
+  return lines.join("\n");
+}
+
+function generatePlannerReportPDF(loc, date, report){
+  const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  const strip=(s)=>String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").trim();
+  const bf=report.bestFor||{};
+  const bestForItems=[["mostFish","🐟 Most Fish"],["bestScenery","🏔 Best Scenery"],["mostSolitude","🧘 Most Solitude"],["beginners","🎣 Beginners"]].filter(([k])=>bf[k]);
+
+  const riverBlocks=(report.rivers||[]).map(r=>{
+    const tags=[];
+    if(r.type) tags.push(strip(r.type));
+    if(r.cfs&&r.cfs!=="unknown") tags.push(`${strip(String(r.cfs))} CFS${r.condition?" · "+strip(r.condition):""}`);
+    if(r.crowdLevel) tags.push(`${strip(r.crowdLevel)} crowds`);
+    if(r.bestTime) tags.push(strip(r.bestTime));
+    return `
+      <div class="section">
+        <div class="stream-bar"><span class="stream-name">🏞 ${strip(r.name)}</span></div>
+        ${tags.length?`<div class="flies-row" style="margin-top:10px;">${tags.map(t=>`<span class="fly-tag">${t}</span>`).join("")}</div>`:""}
+        ${r.why?`<p style="margin-top:10px;color:#4a7a3a;font-style:italic;">✓ ${strip(r.why)}</p>`:""}
+        ${r.accessPoints?.length?`<p style="margin-top:10px;font-size:11px;color:#6a8a94;text-transform:uppercase;letter-spacing:1px;">Access Points</p><p style="font-size:14px;">${r.accessPoints.map(strip).join(" · ")}</p>`:""}
+        ${r.conditions?`<p class="report-text" style="margin-top:10px;">${strip(r.conditions)}</p>`:""}
+        ${r.techniques?`<p class="report-text" style="margin-top:6px;color:#2c5f6e;">${strip(r.techniques).replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</p>`:""}
+        ${r.flies?.length?`<div class="flies-row" style="margin-top:10px;">${r.flies.map(f=>`<span class="fly-tag">🪶 ${strip(f)}</span>`).join("")}</div>`:""}
+      </div>
+      <div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`;
+  }).join("");
+
+  const html=`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>Fishing Report — ${strip(loc?.label||"")}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Crimson Pro',serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
+  @media print{body{width:100%;}@page{margin:0;size:letter;}}
+  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#e8dfc8;padding:32px 40px 24px;position:relative;}
+  .brand{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
+  .report-title{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#e8dfc8;margin-bottom:4px;}
+  .report-title span{color:#c8a84b;font-style:italic;}
+  .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
+  .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#c8a84b,transparent);margin:0;}
+  .section{padding:24px 40px;}
+  .section-title{font-family:'Playfair Display',serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
+  .stream-bar{background:#e8f0f3;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;border-left:4px solid #2c5f6e;}
+  .stream-name{font-family:'Playfair Display',serif;font-size:16px;color:#1a3a45;font-style:italic;}
+  .flies-row{display:flex;flex-wrap:wrap;gap:8px;}
+  .fly-tag{background:#e8f0f3;border:1px solid #b8d4dc;border-radius:20px;padding:4px 12px;font-size:12px;color:#2c5f6e;}
+  .report-text{font-size:15px;line-height:1.9;color:#1a2e35;}
+  .footer{background:#f0f5f7;border-top:1px solid #d0dfe3;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;}
+  .footer-brand{font-family:'Playfair Display',serif;font-size:14px;color:#2c5f6e;}
+  .footer-brand span{color:#c8a84b;font-style:italic;}
+  .footer-note{font-size:11px;color:#8a9a9e;font-style:italic;}
+  .section-bg{background:#f8fbfc;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand">Guide's Choice · Find the Pattern</div>
+  <div class="report-title">Fishing <span>Report</span></div>
+  <div class="report-meta">📍 ${strip(loc?.label||"")} &nbsp;·&nbsp; 📅 ${ds}</div>
+  <div class="header-accent">🎣</div>
+</div>
+<div class="divider-gold"></div>
+${report.overview?`<div class="section"><p class="report-text">${strip(report.overview)}</p></div>`:""}
+${report.hatches?`<div class="section section-bg"><div class="section-title">Hatch Activity</div><p class="report-text">${strip(report.hatches)}</p></div>`:""}
+${report.bestTimes?`<div class="section"><div class="section-title">Best Times</div><p class="report-text">${strip(report.bestTimes)}</p></div>`:""}
+${report.tips?`<div class="section section-bg"><div class="section-title">Insider Tips</div><p class="report-text">${strip(report.tips)}</p></div>`:""}
+${report.flyBoxEssentials?.length?`<div class="section"><div class="section-title">Fly Box Essentials</div><div class="flies-row">${report.flyBoxEssentials.map(f=>`<span class="fly-tag">🪶 ${strip(f)}</span>`).join("")}</div></div>`:""}
+${report.recommendation?`<div class="section section-bg"><div class="section-title">🏆 Best Bet Today</div><p class="report-text">${strip(report.recommendation)}</p></div>`:""}
+${bestForItems.length?`<div class="section"><div class="section-title">🎯 Best For</div><p class="report-text">${bestForItems.map(([k,label])=>`<strong>${label}:</strong> ${strip(bf[k])}`).join("<br/>")}</p></div>`:""}
+<div class="divider-gold"></div>
+${riverBlocks}
+<div class="footer">
+  <div class="footer-brand">Guide's <span>Choice</span> · guideschoicefishing.com</div>
+  <div class="footer-note">Generated ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+</div>
+</body>
+</html>`;
+
+  const win=window.open("","_blank","width=900,height=700");
+  if(!win){alert("Your browser blocked the PDF window — please allow pop-ups for this site and try again.");return;}
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#c8a84b;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#e8dfc8;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  win.document.write(html);
+  win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
+  win.document.close();
+  win.onload=()=>{setTimeout(()=>{win.focus();},300);};
 }
 
 // ── Trip Location + Weather Auto-Fetch ───────────────────────────────────────
@@ -4906,7 +5039,11 @@ function TripPlannerLoading({steps,onCancel,destination}){
     },10000);
     return()=>clearInterval(t);
   },[]);
-  return(
+  // Rendered via a portal straight to <body>: .hdr and .content both set their own
+  // z-index (App.css), which traps a normally-nested fixed overlay inside their local
+  // stacking order and let the header's Settings/Sign Out corner visually collide with
+  // this panel's Cancel button. A portal sidesteps that regardless of ancestor z-index.
+  return createPortal(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:9000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
       <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>✕ Cancel</button>
       <div style={{fontSize:56,marginBottom:20}}>🪶</div>
@@ -4924,7 +5061,8 @@ function TripPlannerLoading({steps,onCancel,destination}){
           <div style={{height:"100%",width:prog+"%",background:"linear-gradient(90deg,var(--gold),#e3c873)",borderRadius:3,transition:"width 0.4s ease"}}/>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -4944,6 +5082,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   const [report,setReport]=useState(null);
   const [savedReports,setSavedReports]=useState([]); // today's reports saved in Supabase — reopening is free
   const [saveNote,setSaveNote]=useState(null);
+  const pendingSaveRef=useRef(null); // last report payload that failed to save — kept so a regained connection can retry without re-running the whole report
 
   useEffect(()=>{if(defaultLocation)setLoc(l=>({...l,label:defaultLocation}));},[defaultLocation]);
 
@@ -4969,6 +5108,37 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       applySavedReport(data.payload);
     }catch(e){setError("Couldn't load that report: "+(e.message||"unknown error"));}
   }
+
+  // Save (or retry-save) a finished report row. Factored out so the initial save in generate()
+  // and a later retry hit the exact same path — no separate retry logic to drift out of sync.
+  // "Load failed" / a thrown network error here is most often the phone's screen locking or the
+  // app being backgrounded mid-generation, which suspends the in-flight save request (App Dev 26).
+  async function saveReportRow(payload){
+    if(!sb||!payload)return;
+    try{
+      setSaveNote(null);
+      const {data:savedRow,error:saveErr}=await sb.from("planner_reports").insert({report_date:new Date().toISOString().split("T")[0],loc_label:payload.loc?.label,lat:payload.loc?.lat,lng:payload.loc?.lng,payload}).select("id,created_at,loc_label").single();
+      if(saveErr){pendingSaveRef.current=payload;setSaveNote("This report is shown but couldn't be saved for later: "+saveErr.message);}
+      else if(savedRow){pendingSaveRef.current=null;setSaveNote(null);setSavedReports(prev=>[savedRow,...prev].slice(0,10));}
+    }catch(sve){
+      pendingSaveRef.current=payload;
+      setSaveNote("This report is shown but couldn't be saved for later: "+(sve.message||"unknown error"));
+    }
+  }
+  // Manual retry (tapped) or automatic retry (tab regains focus) — same payload, same path.
+  async function retrySave(){
+    const payload=pendingSaveRef.current;
+    if(!payload)return;
+    pendingSaveRef.current=null; // clears the pending flag; saveReportRow restores it if this attempt also fails
+    await saveReportRow(payload);
+  }
+  // The most common real-world trigger for the save failure is the app being backgrounded
+  // (screen lock, app switch) mid-generation. Retry automatically the moment it's foregrounded.
+  useEffect(()=>{
+    const onVis=()=>{if(document.visibilityState==="visible"&&pendingSaveRef.current)retrySave();};
+    document.addEventListener("visibilitychange",onVis);
+    return()=>document.removeEventListener("visibilitychange",onVis);
+  },[]);
 
   // Load today's saved reports (specific columns only — payload is fetched on tap)
   useEffect(()=>{(async()=>{
@@ -5227,14 +5397,8 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify(payload));}catch(se){void 0;}
           // Save to Supabase: lets the user reopen today's reports for free, and the row
           // is the planner usage-ledger entry the server counts against the daily limit.
-          if(sb){
-            try{
-              setSaveNote(null);
-              const {data:savedRow,error:saveErr}=await sb.from("planner_reports").insert({report_date:new Date().toISOString().split("T")[0],loc_label:loc.label,lat,lng,payload}).select("id,created_at,loc_label").single();
-              if(saveErr){setSaveNote("This report is shown but couldn't be saved for later: "+saveErr.message);}
-              else if(savedRow){setSavedReports(prev=>[savedRow,...prev].slice(0,10));}
-            }catch(sve){setSaveNote("This report is shown but couldn't be saved for later: "+(sve.message||"unknown error"));}
-          }
+          // Auto-retries on regained visibility, or manually via the Retry tap, if this fails.
+          await saveReportRow(payload);
         }
       }
     }catch(e){
@@ -5267,7 +5431,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div className="card">
           <div className="ctitle">🕐 Earlier Today</div>
           <div className="csub">Reports you already ran today — reopening one is free and instant</div>
-          {saveNote&&<div style={{fontSize:14,color:"var(--red)",marginBottom:8}}>{saveNote}</div>}
+          {saveNote&&<div style={{fontSize:14,color:"var(--red)",marginBottom:8}}>{saveNote}{pendingSaveRef.current&&<button onClick={retrySave} style={{marginLeft:8,background:"none",border:"none",color:"var(--gold)",textDecoration:"underline",cursor:"pointer",fontSize:14,padding:0}}>Retry</button>}</div>}
           {savedReports.map(r=>(
             <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,168,75,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"'Crimson Pro',serif"}}>
               <span style={{color:"var(--gold)"}}>{r.loc_label||"Saved report"}</span>
@@ -5317,6 +5481,14 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — "+(report.searchNote||"no current local reports found"):"Synthesized from live USGS flows, weather & current conditions"}</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <button className="btn" style={{flex:1,padding:"8px 10px",fontSize:13,background:"rgba(0,0,0,0.2)",cursor:"pointer"}} onClick={()=>{
+              const txt=plannerReportToText(loc,date,report);
+              if(navigator.share){navigator.share({title:"Fishing Report — "+(loc.label||""),text:txt}).catch(()=>{});}
+              else{navigator.clipboard.writeText(txt).then(()=>alert("Copied to clipboard!")).catch(()=>alert("Couldn't copy — try again."));}
+            }}>📤 Share / Copy</button>
+            <button className="btn" style={{flex:1,padding:"8px 10px",fontSize:13,background:"linear-gradient(135deg,#2c5f6e,#5a7a4a)",cursor:"pointer"}} onClick={()=>generatePlannerReportPDF(loc,date,report)}>📄 Save PDF</button>
+          </div>
           <p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{(report.overview||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</p>
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
