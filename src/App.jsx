@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
@@ -5652,6 +5653,15 @@ function App({user, tier, refreshTier}){
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
   const [showSettings,setShowSettings]=useState(false);
+  const settingsWrapRef=useRef(null);
+  const [settingsPos,setSettingsPos]=useState(null);
+  const openSettings=()=>{
+    if(settingsWrapRef.current){
+      const r=settingsWrapRef.current.getBoundingClientRect();
+      setSettingsPos({top:r.bottom+8,right:window.innerWidth-r.right});
+    }
+    setShowSettings(s=>!s);
+  };
   const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
   const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
@@ -6367,8 +6377,8 @@ function App({user, tier, refreshTier}){
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
-          <div style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
-            <button onClick={()=>setShowSettings(s=>!s)} aria-label="Settings"
+          <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
+            <button onClick={openSettings} aria-label="Settings"
               style={{background:showSettings?"rgba(200,168,75,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               ⚙
             </button>
@@ -6376,8 +6386,9 @@ function App({user, tier, refreshTier}){
               style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
               Sign Out
             </button>
-            {showSettings&&(
-              <div style={{position:"absolute",top:44,right:0,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left"}}>
+          </div>
+          {showSettings&&settingsPos&&createPortal(
+              <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Plan</div>
                 <div style={{fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",marginBottom:8}}>
@@ -6403,9 +6414,9 @@ function App({user, tier, refreshTier}){
                   <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#c8a84b",cursor:"pointer"}}/>
                 </label>
                 <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
-              </div>
+              </div>,
+              document.body
             )}
-          </div>
           <Logo layout="horizontal" scale={0.95} />
         </div>
 
