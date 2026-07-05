@@ -494,6 +494,14 @@ function UpgradeLock({tierKey, featureLabel}){
   const info = TIER_INFO[tierKey];
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
+  // Returning from Stripe via the browser's back button often restores this page from
+  // the back-forward cache rather than reloading it — React state (including "busy")
+  // stays frozen exactly as it was when the redirect happened. Reset it on restore.
+  useEffect(()=>{
+    const onPageShow=(e)=>{ if(e.persisted) setBusy(false); };
+    window.addEventListener("pageshow",onPageShow);
+    return ()=>window.removeEventListener("pageshow",onPageShow);
+  },[]);
   return(
     <div style={{textAlign:"center",padding:"60px 24px",maxWidth:420,margin:"0 auto"}}>
       <div style={{fontSize:40,marginBottom:14}}>🔒</div>
@@ -5664,6 +5672,11 @@ function App({user, tier, refreshTier}){
   };
   const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
   const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
+  useEffect(()=>{
+    const onPageShow=(e)=>{ if(e.persisted) setSettingsUpgradeBusy(null); };
+    window.addEventListener("pageshow",onPageShow);
+    return ()=>window.removeEventListener("pageshow",onPageShow);
+  },[]);
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
