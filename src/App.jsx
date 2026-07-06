@@ -51,7 +51,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   if (stacked) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-        <div style={{ marginBottom: px(2) }}>{title}</div>
+        <div style={{ marginBottom: px(14) }}>{title}</div>
         {emblemRow && <div style={{ marginBottom: px(14) }}>{emblemRow}</div>}
         {tag}
       </div>
