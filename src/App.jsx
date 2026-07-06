@@ -26,12 +26,12 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
       style={{ height: px(stacked ? 96 : 46), width: px(stacked ? 96 : 46), objectFit: "contain", display: "block" }} />
   ) : null;
   const title = (
-    <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 600, fontSize: px(stacked ? 34 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 34 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
       {"GUIDE'S CHOICE"}
     </div>
   );
   const tag = tagline ? (
-    <div style={{ fontFamily: "'Crimson Pro',serif", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(4), whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-body)", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(4), whiteSpace: "nowrap" }}>
       Find the Pattern
     </div>
   ) : null;
@@ -277,7 +277,7 @@ function AuthScreen({demoError}){
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
           {demoError&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>Demo link couldn't sign you in automatically ({demoError}). Please contact support.</div>}
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
+          <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
             {mode==="login"?"Welcome Back":mode==="signup"?"Create Account":"Reset Password"}
           </div>
           {mode==="signup"&&<>
@@ -286,7 +286,7 @@ function AuthScreen({demoError}){
             <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
             <input className="inp" placeholder="Enter your invite code" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
             <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:"var(--stone)",margin:"10px 0",cursor:"pointer",lineHeight:1.4}}>
-              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#c8a84b",cursor:"pointer",flexShrink:0}}/>
+              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#8b6a3d",cursor:"pointer",flexShrink:0}}/>
               <span>I agree to the <a href="/terms.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Terms</a> and <a href="/privacy.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Privacy Policy</a></span>
             </label>
           </>}
@@ -303,10 +303,10 @@ function AuthScreen({demoError}){
           </button>
           <div style={{display:"flex",justifyContent:"space-between",marginTop:16,flexWrap:"wrap",gap:8}}>
             {mode==="login"&&<>
-              <button onClick={()=>{setMode("signup");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Create account</button>
-              <button onClick={()=>{setMode("reset");setError("");}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Forgot password?</button>
+              <button onClick={()=>{setMode("signup");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Create account</button>
+              <button onClick={()=>{setMode("reset");setError("");}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Forgot password?</button>
             </>}
-            {mode!=="login"&&<button onClick={()=>{setMode("login");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>← Back to sign in</button>}
+            {mode!=="login"&&<button onClick={()=>{setMode("login");setError("");}} style={{background:"none",border:"none",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>← Back to sign in</button>}
           </div>
         </div>
       </div>
@@ -525,11 +525,11 @@ function UpgradeLock({tierKey, featureLabel}){
   return(
     <div style={{textAlign:"center",padding:"60px 24px",maxWidth:420,margin:"0 auto"}}>
       <div style={{fontSize:40,marginBottom:14}}>🔒</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:"var(--gold)",marginBottom:10}}>{featureLabel} is a {info.name} feature</div>
+      <div style={{fontFamily:"var(--font-head)",fontSize:20,color:"var(--gold)",marginBottom:10}}>{featureLabel} is a {info.name} feature</div>
       <div style={{fontSize:15,color:"var(--stone)",lineHeight:1.6,marginBottom:20}}>{info.blurb}</div>
       {err&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>{err}</div>}
       <button disabled={busy} onClick={async()=>{setBusy(true);setErr("");try{await startCheckout(tierKey);}catch(e){setErr(e.message);setBusy(false);}}}
-        style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"12px 28px",color:"#0c1e25",fontSize:16,fontWeight:600,cursor:busy?"default":"pointer",opacity:busy?0.7:1,fontFamily:"'Crimson Pro',serif"}}>
+        style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"12px 28px",color:"#0c1e25",fontSize:16,fontWeight:600,cursor:busy?"default":"pointer",opacity:busy?0.7:1,fontFamily:"var(--font-body)"}}>
         {busy?"Starting checkout…":`Upgrade to ${info.name} — ${info.price}`}
       </button>
     </div>
@@ -1209,7 +1209,7 @@ function FlowChart({points,label}){
         {xi.map((idx,i)=>{const d=new Date(points[idx].t);return<text key={i} x={px(idx)} y={H-4} textAnchor="middle" fontSize="9" fill="#8a8a7a">{`${d.getMonth()+1}/${d.getDate()}`}</text>;})}
         <polygon points={ap} fill="url(#fg)"/>
         <polyline points={lp} fill="none" stroke="#b8d4dc" strokeWidth="2" strokeLinejoin="round"/>
-        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#c8a84b"/>
+        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#8b6a3d"/>
       </svg>
     </div>
   );
@@ -1251,7 +1251,7 @@ function MoonCard(){
       <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:8}}>
         <span style={{fontSize:42}}>{m.emoji}</span>
         <div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
+          <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)"}}>{m.name}</div>
           <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{Math.round(m.pct*100)}% illuminated</div>
         </div>
       </div>
@@ -1462,7 +1462,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
       open&&!loading&&result&&result.map((h,i)=>
         React.createElement('div',{key:i,style:{padding:"10px 0",borderBottom:i<result.length-1?"1px solid rgba(255,255,255,0.06)":"none"}},
           React.createElement('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
-            React.createElement('span',{style:{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}},h.name),
+            React.createElement('span',{style:{fontSize:14,color:"var(--foam)",fontFamily:"var(--font-body)",fontWeight:600}},h.name),
             React.createElement('span',{style:{fontSize:14,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(200,168,75,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
           ),
           React.createElement('div',{style:{fontSize:14,color:"var(--stone)",marginBottom:6}},"Water: "+h.waterTempRange+" · "+h.timing),
@@ -1502,7 +1502,7 @@ function HatchModal({hatch, onClose}){
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
       <div style={{background:"var(--deep)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:430}} onClick={e=>e.stopPropagation()}>
         <div style={{width:36,height:4,background:"rgba(255,255,255,0.2)",borderRadius:2,margin:"0 auto 20px"}}/>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--gold)",marginBottom:4}}>{hatch.name}</div>
+        <div style={{fontFamily:"var(--font-head)",fontSize:22,color:"var(--gold)",marginBottom:4}}>{hatch.name}</div>
         {d.latin&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",marginBottom:16}}>{d.latin}</div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
           {[["Hook Size",d.sizes||"Varies"],["Activity",hatch.a],["Timing",d.timing||"Seasonal"],["Depth",d.depth||"Surface"]].map(([l,v])=>(
@@ -1562,7 +1562,7 @@ function WeekForecast({data, highlightDay}){
                 borderRadius:10,padding:"8px 4px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
               <div style={{fontSize:13,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
               <div style={{fontSize:22,margin:"4px 0"}}>{WX_EMOJI[d.weather_code?.[i]]||"🌡"}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
+              <div style={{fontFamily:"var(--font-head)",fontSize:16,color:isSel?"var(--foam)":"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[i])}°</div>
               <div style={{fontSize:14,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[i])}°</div>
               {(d.precipitation_probability_max?.[i]??0)>0&&<div style={{fontSize:15,color:"#7ec8c8"}}>💧{d.precipitation_probability_max[i]}%</div>}
             </div>
@@ -1571,7 +1571,7 @@ function WeekForecast({data, highlightDay}){
       </div>
       {/* Selected day detail */}
       <div style={{background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"12px 14px"}}>
-        <div style={{fontSize:17,color:"var(--gold)",fontFamily:"'Playfair Display',serif",marginBottom:10}}>
+        <div style={{fontSize:17,color:"var(--gold)",fontFamily:"var(--font-head)",marginBottom:10}}>
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
@@ -1585,7 +1585,7 @@ function WeekForecast({data, highlightDay}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
             <div style={{fontSize:13,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>High / Low</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
+            <div style={{fontFamily:"var(--font-head)",fontSize:22,color:"var(--foam)"}}>{Math.round(d.temperature_2m_max?.[sel])}°</div>
             <div style={{fontSize:16,color:"var(--stone)"}}>{Math.round(d.temperature_2m_min?.[sel])}°</div>
           </div>
           <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
@@ -1744,7 +1744,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           const hpts=histAvg.map((p,i)=>`${hpx(i)},${hpy(p.v)}`).join(" ");
           return <polyline points={hpts} fill="none" stroke="rgba(200,168,75,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
         })()}
-        <circle cx={dotX} cy={dotY} r="3" fill="#c8a84b"/>
+        <circle cx={dotX} cy={dotY} r="3" fill="#8b6a3d"/>
       </svg>
     );
   }
@@ -1760,7 +1760,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
               background:days===tf.days?"var(--water)":"rgba(0,0,0,0.3)",
               border:"1px solid "+(days===tf.days?"var(--water)":"rgba(255,255,255,0.12)"),
               borderRadius:6, padding:"3px 10px", color:days===tf.days?"var(--foam)":"var(--stone)",
-              fontSize:14, cursor:"pointer", fontFamily:"'Crimson Pro',serif",
+              fontSize:14, cursor:"pointer", fontFamily:"var(--font-body)",
               transition:"all .15s"
             }}>
             {tf.label}
@@ -1939,36 +1939,36 @@ function generateTripReportPDF(guest, trip, reportText){
 <meta charset="UTF-8"/>
 <title>Trip Report — ${guest.name}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Montserrat:ital,wght@0,300;0,400;0,600;1,400&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Crimson Pro',serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
+  body{font-family:'Montserrat',sans-serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
   @media print{body{width:100%;}@page{margin:0;size:letter;}}
 
   /* Header band */
-  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#e8dfc8;padding:32px 40px 24px;position:relative;}
-  .brand{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
-  .report-title{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#e8dfc8;margin-bottom:4px;}
-  .report-title span{color:#c8a84b;font-style:italic;}
+  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#f2efe6;padding:32px 40px 24px;position:relative;}
+  .brand{font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
+  .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
+  .report-title span{color:#8b6a3d;font-style:italic;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#c8a84b,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#8b6a3d,transparent);margin:0;}
 
   /* Conditions section */
   .section{padding:24px 40px;}
-  .section-title{font-family:'Playfair Display',serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
+  .section-title{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
   .conditions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;}
   .cond-item{background:#f0f5f7;border-radius:10px;padding:12px 8px;text-align:center;border:1px solid #d0dfe3;}
   .cond-icon{display:block;font-size:20px;margin-bottom:4px;}
-  .cond-val{display:block;font-family:'Playfair Display',serif;font-size:15px;color:#1a3a45;font-weight:700;}
+  .cond-val{display:block;font-family:'Oswald',sans-serif;font-size:15px;color:#1a3a45;font-weight:700;}
   .cond-lbl{display:block;font-size:10px;color:#6a8a94;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
   .stream-bar{background:#e8f0f3;border-radius:10px;padding:12px 16px;margin-top:12px;display:flex;align-items:center;gap:12px;border-left:4px solid #2c5f6e;}
-  .stream-name{font-family:'Playfair Display',serif;font-size:14px;color:#1a3a45;font-style:italic;}
+  .stream-name{font-family:'Oswald',sans-serif;font-size:14px;color:#1a3a45;font-style:italic;}
   .stream-stats{font-size:13px;color:#2c5f6e;margin-left:auto;}
 
   /* Trip stats bar */
   .stats-bar{background:#1a3a45;padding:14px 40px;display:flex;gap:32px;align-items:center;}
   .stat{text-align:center;}
-  .stat-val{font-family:'Playfair Display',serif;font-size:20px;color:#c8a84b;}
+  .stat-val{font-family:'Oswald',sans-serif;font-size:20px;color:#8b6a3d;}
   .stat-lbl{font-size:10px;color:#b8d4dc;text-transform:uppercase;letter-spacing:1px;}
   .stat-div{width:1px;height:32px;background:rgba(255,255,255,0.15);}
 
@@ -1983,12 +1983,12 @@ function generateTripReportPDF(guest, trip, reportText){
   .fly-tag{background:#e8f0f3;border:1px solid #b8d4dc;border-radius:20px;padding:4px 12px;font-size:12px;color:#2c5f6e;}
 
   /* Report text */
-  .report-text{font-size:15px;line-height:1.9;color:#1a2e35;} .report-text h2{font-size:17px;font-weight:600;color:#1a2e35;margin:20px 0 8px;font-family:'Playfair Display',serif;} .report-text h3{font-size:15px;font-weight:600;color:#2c5f6e;margin:16px 0 6px;} .report-text p{margin:0 0 14px;} .report-text strong{color:#1a2e35;}
+  .report-text{font-size:15px;line-height:1.9;color:#1a2e35;} .report-text h2{font-size:17px;font-weight:600;color:#1a2e35;margin:20px 0 8px;font-family:'Oswald',sans-serif;} .report-text h3{font-size:15px;font-weight:600;color:#2c5f6e;margin:16px 0 6px;} .report-text p{margin:0 0 14px;} .report-text strong{color:#1a2e35;}
 
   /* Footer */
   .footer{background:#f0f5f7;border-top:1px solid #d0dfe3;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;}
-  .footer-brand{font-family:'Playfair Display',serif;font-size:14px;color:#2c5f6e;}
-  .footer-brand span{color:#c8a84b;font-style:italic;}
+  .footer-brand{font-family:'Oswald',sans-serif;font-size:14px;color:#2c5f6e;}
+  .footer-brand span{color:#8b6a3d;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9a9e;font-style:italic;}
 
   .section-bg{background:#f8fbfc;}
@@ -2064,7 +2064,7 @@ ${reportText?`
   // Open in new window and trigger print to PDF
   const win = window.open("","_blank","width=900,height=700");
   // Add close button to PDF window
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#c8a84b;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#e8dfc8;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#8b6a3d;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html.replace("</body>","</body>"));
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -2146,7 +2146,7 @@ function generatePlannerReportPDF(loc, date, report){
     <div class="section">
       <div class="section-title">${strip(r.name)}</div>
       ${meta.length?`<div style="font-size:13px;color:#2c5f6e;margin-bottom:8px;">${meta.join(" &nbsp;·&nbsp; ")}</div>`:""}
-      ${r.why?`<div style="font-size:14px;color:#4a7a3a;font-style:italic;margin-bottom:8px;">✓ ${strip(r.why)}</div>`:""}
+      ${r.why?`<div style="font-size:14px;color:#4a5a3f;font-style:italic;margin-bottom:8px;">✓ ${strip(r.why)}</div>`:""}
       ${r.conditions?`<div class="report-text" style="margin-bottom:8px;"><p>${paragraph(r.conditions)}</p></div>`:""}
       ${r.techniques?`<div style="font-size:13px;color:#555;margin-bottom:8px;">${strip(r.techniques).replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>`:""}
       ${r.accessPoints?.length?`<div style="font-size:12px;color:#6a8a94;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Access Points</div><div style="font-size:13px;color:#2c5f6e;margin-bottom:8px;">${r.accessPoints.map(strip).join(" · ")}</div>`:""}
@@ -2161,29 +2161,29 @@ function generatePlannerReportPDF(loc, date, report){
 <meta charset="UTF-8"/>
 <title>Fishing Report — ${strip(loc?.label||"Trip Report")}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Montserrat:ital,wght@0,300;0,400;0,600;1,400&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Crimson Pro',serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
+  body{font-family:'Montserrat',sans-serif;background:#fff;color:#1a2e35;width:210mm;margin:0 auto;}
   @media print{body{width:100%;}@page{margin:0;size:letter;}}
-  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#e8dfc8;padding:32px 40px 24px;position:relative;}
-  .brand{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
-  .report-title{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#e8dfc8;margin-bottom:4px;}
+  .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#f2efe6;padding:32px 40px 24px;position:relative;}
+  .brand{font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
+  .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#c8a84b,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#8b6a3d,transparent);margin:0;}
   .section{padding:24px 40px;}
-  .section-title{font-family:'Playfair Display',serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
+  .section-title{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
   .conditions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;}
   .cond-item{background:#f0f5f7;border-radius:10px;padding:12px 8px;text-align:center;border:1px solid #d0dfe3;}
   .cond-icon{display:block;font-size:20px;margin-bottom:4px;}
-  .cond-val{display:block;font-family:'Playfair Display',serif;font-size:15px;color:#1a3a45;font-weight:700;}
+  .cond-val{display:block;font-family:'Oswald',sans-serif;font-size:15px;color:#1a3a45;font-weight:700;}
   .cond-lbl{display:block;font-size:10px;color:#6a8a94;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
   .flies-row{display:flex;flex-wrap:wrap;gap:8px;}
   .fly-tag{background:#f0f5f7;border:1px solid #d0dfe3;border-radius:14px;padding:4px 12px;font-size:13px;color:#2c5f6e;}
   .report-text{font-size:14px;line-height:1.7;color:#333;}
   .footer{padding:20px 40px;text-align:center;border-top:1px solid #e0ebee;}
-  .footer-brand{font-family:'Playfair Display',serif;font-size:13px;color:#2c5f6e;letter-spacing:1px;}
-  .footer-brand span{color:#c8a84b;font-style:italic;}
+  .footer-brand{font-family:'Oswald',sans-serif;font-size:13px;color:#2c5f6e;letter-spacing:1px;}
+  .footer-brand span{color:#8b6a3d;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9ea4;margin-top:4px;}
 </style>
 </head>
@@ -2214,7 +2214,7 @@ ${riversHtml}
 </html>`;
 
   const win = window.open("","_blank","width=900,height=700");
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#c8a84b;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#e8dfc8;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#8b6a3d;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html);
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -2320,7 +2320,7 @@ function TripLocationWeather({tripForm, setTripForm}){
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {nearbyGauges.map((g,i)=>(
               <button key={i} onClick={()=>setTripForm(f=>({...f,streamCFS:String(Math.round(g.cfs)),streamCondition:g.label,streamGaugeName:g.name}))}
-                style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+(tripForm.streamGaugeName===g.name?"var(--water)":"rgba(255,255,255,0.1)"),background:tripForm.streamGaugeName===g.name?"rgba(44,95,110,0.5)":"rgba(0,0,0,0.2)",color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+(tripForm.streamGaugeName===g.name?"var(--water)":"rgba(255,255,255,0.1)"),background:tripForm.streamGaugeName===g.name?"rgba(44,95,110,0.5)":"rgba(0,0,0,0.2)",color:"var(--foam)",fontFamily:"var(--font-body)",fontSize:15,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span>{g.name}</span>
                 <span style={{fontSize:14,color:"var(--sky)"}}>{Number(g.cfs).toLocaleString()} CFS · {g.label}</span>
               </button>
@@ -2383,7 +2383,7 @@ function TripLocationWeather({tripForm, setTripForm}){
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
             <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
-              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               {c}
             </button>
           ))}
@@ -2420,7 +2420,7 @@ function GuideStats({guests}){
         {[{label:"Total Trips",val:totalTrips,icon:"🗓"},{label:"Total Catches",val:totalCatches,icon:"🐟"},{label:"Revenue",val:"$"+totalRevenue.toLocaleString(),icon:"💵"},{label:"Tips",val:"$"+totalTips.toLocaleString(),icon:"🤝"},{label:"Avg Catches/Trip",val:avgCatches,icon:"📊"},{label:thisYear+" Trips",val:yearTrips.length,icon:"📅"}].map(s=>(
           <div key={s.label} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
             <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--foam)"}}>{s.val}</div>
+            <div style={{fontFamily:"var(--font-head)",fontSize:22,color:"var(--foam)"}}>{s.val}</div>
             <div style={{fontSize:14,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginTop:2}}>{s.label}</div>
           </div>
         ))}
@@ -2458,14 +2458,14 @@ function GuideSeasonLog({guests}){
   if(!show.length) return <div className="empty"><div className="ei">📅</div><p>No trips logged yet.</p></div>;
   return(
     <div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
+      <div style={{fontFamily:"var(--font-head)",fontSize:15,color:"var(--stone)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>
         {display.length?thisYear+" Season — "+display.length+" trips":"All Trips"} · {show.reduce((s,t)=>s+(t.catches||0),0)} fish
       </div>
       {show.map(t=>(
         <div key={t.id} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
             <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Unnamed Location"}</div>
+              <div style={{fontFamily:"var(--font-head)",fontSize:15,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Unnamed Location"}</div>
               <div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{t.guestName} · {new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
@@ -2627,7 +2627,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
     <div className="empty"><div className="ei">📈</div><p>Trends will appear once you've logged trips with your clients.</p></div>
   );
 
-  const CS=(active)=>({padding:"5px 11px",borderRadius:20,border:"1px solid "+(active?"var(--water)":"rgba(255,255,255,0.12)"),background:active?"var(--water)":"rgba(0,0,0,0.25)",color:active?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",whiteSpace:"nowrap"});
+  const CS=(active)=>({padding:"5px 11px",borderRadius:20,border:"1px solid "+(active?"var(--water)":"rgba(255,255,255,0.12)"),background:active?"var(--water)":"rgba(0,0,0,0.25)",color:active?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer",whiteSpace:"nowrap"});
   const BAR_MAX=Math.max(...riverStats.map(r=>r.avgCatches),0.1);
   const FLY_MAX=Math.max(...flyStats.map(f=>f.trips),1);
   const years=Object.keys(conditionStats.yearPerf).sort();
@@ -2648,7 +2648,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
             style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
               background:trendsView===s.id?"rgba(44,95,110,0.6)":"transparent",
               color:trendsView===s.id?"var(--foam)":"var(--sky)",
-              fontFamily:"'Crimson Pro',serif",fontSize:13,
+              fontFamily:"var(--font-body)",fontSize:13,
               display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
             <span style={{fontSize:14}}>{s.icon}</span>{s.label}
           </button>
@@ -2686,7 +2686,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
               <div key={r.river} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                   <div style={{fontSize:13,color:i<3?"var(--foam)":"var(--stone)",fontStyle:"italic"}}>{i<3?["🥇","🥈","🥉"][i]+" ":""}{r.river.replace("South Platte River — ","SP ").replace("Cache la Poudre River — ","Poudre ").replace("Big Thompson River — ","Big T ").replace("Boulder Creek — ","Boulder ")}</div>
-                  <div style={{fontSize:13,color:"var(--sky)",fontFamily:"'Playfair Display',serif"}}>{r.avgCatches.toFixed(1)}</div>
+                  <div style={{fontSize:13,color:"var(--sky)",fontFamily:"var(--font-head)"}}>{r.avgCatches.toFixed(1)}</div>
                 </div>
                 <HBar value={r.avgCatches} max={BAR_MAX} color={i===0?"var(--gold)":i===1?"var(--water)":i===2?"rgba(44,95,110,0.7)":"rgba(255,255,255,0.2)"}/>
               </div>
@@ -2722,14 +2722,14 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}
                 onClick={()=>setExpandedRiver(expandedRiver===r.river?null:r.river)}>
                 <div style={{flex:1,marginRight:8}}>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:"var(--foam)",fontStyle:"italic",marginBottom:2}}>
+                  <div style={{fontFamily:"var(--font-head)",fontSize:15,color:"var(--foam)",fontStyle:"italic",marginBottom:2}}>
                     {i<3?["🥇","🥈","🥉"][i]+" ":""}{r.river}
                   </div>
                   <div style={{fontSize:13,color:"var(--stone)"}}>{r.tripCount} trip{r.tripCount!==1?"s":""} · {r.totalCatches} fish total</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"var(--sky)"}}>{r.avgCatches.toFixed(1)}</div>
+                    <div style={{fontFamily:"var(--font-head)",fontSize:22,color:"var(--sky)"}}>{r.avgCatches.toFixed(1)}</div>
                     <div style={{fontSize:12,color:"var(--stone)"}}>avg/trip</div>
                   </div>
                   <div style={{color:"var(--stone)",fontSize:14}}>{expandedRiver===r.river?"▲":"▼"}</div>
@@ -2754,7 +2754,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
                         <div style={{fontSize:12,color:"var(--stone)"}}>{t.date?new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):""} · {(t.styles||[]).join(", ")||t.type}</div>
                       </div>
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--sky)"}}>{t.catches||0}</div>
+                        <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)"}}>{t.catches||0}</div>
                         <div style={{fontSize:11,color:"var(--stone)"}}>fish</div>
                       </div>
                     </div>
@@ -2803,7 +2803,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
                   return(
                     <div key={yr} style={{marginBottom:12}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                        <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Playfair Display',serif"}}>{yr}</div>
+                        <div style={{fontSize:14,color:"var(--foam)",fontFamily:"var(--font-head)"}}>{yr}</div>
                         <div style={{fontSize:13,color:"var(--stone)"}}>{d.trips} trips · {d.catches} fish · {avg.toFixed(1)} avg</div>
                       </div>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -2916,7 +2916,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
               <div key={f.fly} className="card" style={{marginBottom:8,padding:"12px 16px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,cursor:"pointer"}} onClick={()=>setExpandedRiver(expandedRiver===f.fly?null:f.fly)}>
                   <div>
-                    <div style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--foam)"}}>{i<3?["🥇","🥈","🥉"][i]+" ":"🪶 "}{f.fly}</div>
+                    <div style={{fontFamily:"var(--font-body)",fontSize:16,color:"var(--foam)"}}>{i<3?["🥇","🥈","🥉"][i]+" ":"🪶 "}{f.fly}</div>
                     <div style={{fontSize:13,color:"var(--stone)",marginTop:2}}>{f.trips} trip{f.trips!==1?"s":""} · {f.totalCatches} total catches</div>
                   </div>
                   <div style={{color:"var(--stone)",fontSize:14}}>{expandedRiver===f.fly?"▲":"▼"}</div>
@@ -2930,7 +2930,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
                           <div style={{fontSize:13,color:"var(--foam)"}}>{t.guestName}</div>
                           <div style={{fontSize:11,color:"var(--stone)"}}>{t.date?new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):""} · {(t.location||"").replace("South Platte River — ","SP ").replace("Cache la Poudre River — ","Poudre ").replace("Big Thompson River — ","Big T ")}</div>
                         </div>
-                        <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"var(--sky)"}}>{t.catches||0}</div>
+                        <div style={{fontFamily:"var(--font-head)",fontSize:16,color:"var(--sky)"}}>{t.catches||0}</div>
                       </div>
                     ))}
                   </div>
@@ -3022,14 +3022,14 @@ function GuideSavedGauges({user}){
       {sgData.map((g,i)=>(
         <div key={g.id||i} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
-            <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
+            <div><div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10}}>
             <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
-            <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",padding:0,fontFamily:"'Crimson Pro',serif"}}>✕ Remove</button>
+            <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",padding:0,fontFamily:"var(--font-body)"}}>✕ Remove</button>
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:8}}>{expanded===i?"▲ hide":"▼ chart"}</span>
           </div>
           {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
@@ -3577,7 +3577,7 @@ function GuideBook({user, loc}){
             style={{flex:1,padding:"7px 4px",border:"none",borderRadius:9,cursor:"pointer",
               background:guideSection===s.id?"var(--water)":"transparent",
               color:guideSection===s.id?"var(--foam)":"var(--sky)",
-              fontFamily:"'Crimson Pro',serif",fontSize:14,
+              fontFamily:"var(--font-body)",fontSize:14,
               display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
             <span style={{fontSize:15}}>{s.icon}</span>{s.label}
           </button>
@@ -3592,12 +3592,12 @@ function GuideBook({user, loc}){
       )}
       
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:15,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)"}}>My Guests · {guests.length}</span>
         <button className="btn" onClick={()=>{setGuestForm(guestForm0);setView("addGuest");}}>+ Add Guest</button>
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
         <button onClick={runPhotoMigration} disabled={!!migrationStatus}
-          style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+          style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
           {migrationStatus||"🔄 Migrate Photos to Storage"}
         </button>
       </div>
@@ -3629,7 +3629,7 @@ function GuideBook({user, loc}){
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>setView("list")}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Guest</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Guest</span>
       </div>
       <div className="card">
         <label className="lbl">Full Name *</label>
@@ -3661,7 +3661,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {["Beginner","Intermediate","Expert"].map(lvl=>(
             <button key={lvl} onClick={()=>setGuestForm(f=>({...f,skillLevel:lvl}))}
-              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer",textAlign:"center"}}>
               {lvl==="Beginner"?"🌱":lvl==="Intermediate"?"🎣":"🏆"} {lvl}
             </button>
           ))}
@@ -3671,7 +3671,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:8}}>
           {["Left","Right"].map(h=>(
             <button key={h} onClick={()=>setGuestForm(f=>({...f,handedness:h}))}
-              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer",textAlign:"center"}}>
               {h==="Left"?"🤚 Left-Handed":"✋ Right-Handed"}
             </button>
           ))}
@@ -3688,7 +3688,7 @@ function GuideBook({user, loc}){
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>setView("guest")}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Guest</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Guest</span>
       </div>
       <div className="card">
         <label className="lbl">Full Name *</label>
@@ -3720,7 +3720,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {["Beginner","Intermediate","Expert"].map(lvl=>(
             <button key={lvl} onClick={()=>setGuestForm(f=>({...f,skillLevel:lvl}))}
-              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.skillLevel===lvl?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.skillLevel===lvl?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.skillLevel===lvl?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer",textAlign:"center"}}>
               {lvl==="Beginner"?"🌱":lvl==="Intermediate"?"🎣":"🏆"} {lvl}
             </button>
           ))}
@@ -3730,7 +3730,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:8}}>
           {["Left","Right"].map(h=>(
             <button key={h} onClick={()=>setGuestForm(f=>({...f,handedness:h}))}
-              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer",textAlign:"center"}}>
+              style={{flex:1,padding:"10px 8px",borderRadius:10,border:"1px solid "+(guestForm.handedness===h?"var(--water)":"rgba(255,255,255,0.12)"),background:guestForm.handedness===h?"var(--water)":"rgba(0,0,0,0.3)",color:guestForm.handedness===h?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer",textAlign:"center"}}>
               {h==="Left"?"🤚 Left-Handed":"✋ Right-Handed"}
             </button>
           ))}
@@ -3754,7 +3754,7 @@ function GuideBook({user, loc}){
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>setView("list")}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>{selectedGuest.name}</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>{selectedGuest.name}</span>
       </div>
       <div className="card">
         <div className="ctitle">👤 Guest Info</div>
@@ -3782,11 +3782,11 @@ function GuideBook({user, loc}){
           <button className="btn" style={{background:"rgba(150,80,80,0.4)",border:"1px solid rgba(150,80,80,0.5)"}} onClick={()=>deleteGuest(selectedGuest.id)}>🗑</button>
         </div>
       </div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
+      <div style={{fontFamily:"var(--font-head)",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:10}}>Trip History · {(selectedGuest.trips||[]).length}</div>
       {(selectedGuest.trips||[]).length===0&&<div className="info-box">No trips recorded yet. Tap "+ Add Trip" to log your first outing.</div>}
       {(selectedGuest.trips||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(trip=>(
         <div className="card" key={trip.id} style={{cursor:"pointer"}} onClick={()=>{setView("tripDetail");loadTripPhotos(trip.id,trip);}}>
-          <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:15,color:"var(--stone)",fontFamily:"'Crimson Pro',serif",fontStyle:"normal"}}>·</span> {trip.type}</div>
+          <div className="ctitle" style={{marginBottom:6}}>{new Date(trip.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})} <span style={{fontSize:15,color:"var(--stone)",fontFamily:"var(--font-body)",fontStyle:"normal"}}>·</span> {trip.type}</div>
           {trip.location&&<div style={{fontSize:15,color:"var(--sky)",marginBottom:6}}>📍 {trip.location}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:15,color:"var(--stone)"}}>
             <span>🐟 ~{trip.catches} catches</span>
@@ -3804,7 +3804,7 @@ function GuideBook({user, loc}){
       <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleTripPhoto}/>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>setView("guest")}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Trip</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>New Trip</span>
       </div>
       <div className="card">
         <label className="lbl">Date</label>
@@ -3815,7 +3815,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {TRIP_TYPES.map(t=>(
             <button key={t} onClick={()=>setTripForm(f=>({...f,type:t}))}
-              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer"}}>
+              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer"}}>
               {t}
             </button>
           ))}
@@ -3824,7 +3824,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {FISHING_STYLES.map(s=>(
             <button key={s} onClick={()=>toggleStyle(s)}
-              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer"}}>
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"var(--font-body)",fontSize:15,cursor:"pointer"}}>
               {s}
             </button>
           ))}
@@ -3878,7 +3878,7 @@ function GuideBook({user, loc}){
       <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleTripPhoto}/>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>setView("tripDetail")}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Trip</span>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>Edit Trip</span>
       </div>
       <div className="card">
         <label className="lbl">Date</label>
@@ -3889,7 +3889,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {TRIP_TYPES.map(t=>(
             <button key={t} onClick={()=>setTripForm(f=>({...f,type:t}))}
-              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:14,cursor:"pointer"}}>
+              style={{padding:"8px 14px",borderRadius:10,border:"1px solid "+(tripForm.type===t?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.type===t?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.type===t?"var(--foam)":"var(--stone)",fontFamily:"var(--font-body)",fontSize:14,cursor:"pointer"}}>
               {t}
             </button>
           ))}
@@ -3898,7 +3898,7 @@ function GuideBook({user, loc}){
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           {FISHING_STYLES.map(s=>(
             <button key={s} onClick={()=>toggleStyle(s)}
-              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles?.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles?.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles?.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"'Crimson Pro',serif",fontSize:15,cursor:"pointer"}}>
+              style={{padding:"6px 12px",borderRadius:10,border:"1px solid "+(tripForm.styles?.includes(s)?"var(--moss)":"rgba(255,255,255,0.12)"),background:tripForm.styles?.includes(s)?"rgba(90,122,74,0.4)":"rgba(0,0,0,0.3)",color:tripForm.styles?.includes(s)?"#9cd47a":"var(--stone)",fontFamily:"var(--font-body)",fontSize:15,cursor:"pointer"}}>
               {s}
             </button>
           ))}
@@ -3976,7 +3976,7 @@ function GuideBook({user, loc}){
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <button className="back" onClick={()=>{setView("guest");setReport(null);}}>← Back</button>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>
+        <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>
           {new Date(selectedTrip.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
         </span>
       </div>
@@ -4158,7 +4158,7 @@ function GuideBook({user, loc}){
                   if(sb) sb.from("trips").update({catch_details:details.map(d=>({...d,analyzing:false}))}).eq("id",selectedTrip.id);
                 }catch(outerErr){void 0;}
                 finally{reset();}
-              }} style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              }} style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
                 ✦ Identify Fish
               </button>
             </div>
@@ -4228,9 +4228,9 @@ function GuideBook({user, loc}){
                           }
                         }catch(err){void 0;}
                         btn.textContent="🔍 Identify";btn.disabled=false;
-                      }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>🔍 Identify</button>}
+                      }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>🔍 Identify</button>}
                       <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
-                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                         ✏️ Edit
                       </button>
                       <button onClick={async e=>{e.stopPropagation();if(!window.confirm("Remove this photo and catch data?"))return;
@@ -4257,7 +4257,7 @@ function GuideBook({user, loc}){
                           return next;
                         });
                       }}
-                        style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                        style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"7px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                         🗑 Remove
                       </button>
                     </div>
@@ -4343,7 +4343,7 @@ function GuideBook({user, loc}){
                               }else{alert("No historical conditions found for this date/location.");}
                             }catch(err){alert("Conditions fetch failed: "+err.message);}
                             finally{e.currentTarget.textContent="📍 Fetch";e.currentTarget.disabled=false;}
-                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:15,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Crimson Pro',serif"}}>
+                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:15,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"var(--font-body)"}}>
                             📍 Fetch
                           </button>
                         </div>
@@ -4465,14 +4465,14 @@ function UpcomingTrips({user}){
 
   return(
     <div style={{marginBottom:16}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"var(--gold)",marginBottom:10,letterSpacing:0.5}}>
+      <div style={{fontFamily:"var(--font-head)",fontSize:16,color:"var(--gold)",marginBottom:10,letterSpacing:0.5}}>
         📅 Upcoming Trips
       </div>
       {trips.map(t=>(
         <div key={t.id} className="card" style={{marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Location TBD"}</div>
+              <div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{t.location||"Location TBD"}</div>
               <div style={{fontSize:15,color:"var(--gold)",marginTop:2,fontWeight:"bold"}}>{new Date(t.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</div>
               <div style={{fontSize:14,color:"var(--stone)",marginTop:2}}>{t.type}{t.styles?.length?" · "+t.styles.join(", "):""}</div>
             </div>
@@ -4482,7 +4482,7 @@ function UpcomingTrips({user}){
           {t.report_text&&(
             <div style={{marginTop:8,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:8}}>
               <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Guide Notes</div>
-              <div style={{fontSize:15,color:"var(--foam)",lineHeight:1.6,fontFamily:"'Crimson Pro',serif"}}>{t.report_text}</div>
+              <div style={{fontSize:15,color:"var(--foam)",lineHeight:1.6,fontFamily:"var(--font-body)"}}>{t.report_text}</div>
             </div>
           )}
         </div>
@@ -5101,9 +5101,9 @@ function TripPlannerLoading({steps,onCancel,destination}){
   },[]);
   return(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:9000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
-      <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>✕ Cancel</button>
+      <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>✕ Cancel</button>
       <div style={{fontSize:56,marginBottom:20}}>🪶</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
+      <div style={{fontFamily:"var(--font-head)",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
       <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near {destination||"you"}<br/>and finding where they're moving…</div>
       <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
@@ -5498,7 +5498,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             </button>}
           </div>}
           {savedReports.map(r=>(
-            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,168,75,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"'Crimson Pro',serif"}}>
+            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,168,75,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"var(--font-body)"}}>
               <span style={{color:"var(--gold)"}}>{r.loc_label||"Saved report"}</span>
               <span style={{color:"var(--stone)",marginLeft:8,fontSize:13}}>{new Date(r.created_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
             </button>
@@ -5713,7 +5713,7 @@ function PhotoJournal({catches,onPhotoClick}){
       <div style={{fontSize:15,color:"var(--stone)",marginBottom:12}}>{withPhotos.length} photos · {Object.keys(groups).length} locations</div>
       {filtered.map(([loc,lc])=>(
         <div key={loc} style={{marginBottom:20}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--gold)",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+          <div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--gold)",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
             <span>🏞 {loc}</span>
             <span style={{fontSize:14,color:"var(--stone)",fontFamily:"sans-serif"}}>{lc.length} photo{lc.length>1?"s":""}</span>
           </div>
@@ -5722,7 +5722,7 @@ function PhotoJournal({catches,onPhotoClick}){
               <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo)}>
                 <img src={c2.photo} alt={c2.species} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px"}}>
-                  <div style={{fontSize:14,color:"white",fontFamily:"'Crimson Pro',serif"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
+                  <div style={{fontSize:14,color:"white",fontFamily:"var(--font-body)"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
                 </div>
               </div>
             ))}
@@ -5845,7 +5845,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   return(
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>⭐ My Gauges</span>
+        <span style={{fontSize:15,color:"var(--gold)",fontFamily:"var(--font-head)"}}>⭐ My Gauges</span>
         <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:14,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
       </div>
       {showAddGauge&&(
@@ -6602,7 +6602,7 @@ function App({user, tier, refreshTier}){
   return(
     <div className="app">
       <div className="bgbar"/>
-      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"'Crimson Pro',serif"}}>
+      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
         📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
       </div>}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
@@ -6612,11 +6612,11 @@ function App({user, tier, refreshTier}){
         <div className="hdr">
           <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
             <button onClick={openSettings} aria-label="Settings"
-              style={{background:showSettings?"rgba(200,168,75,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              style={{background:showSettings?"rgba(200,168,75,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               ⚙
             </button>
             <button onClick={()=>sb?sb.auth.signOut():null}
-              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               Sign Out
             </button>
           </div>
@@ -6624,27 +6624,27 @@ function App({user, tier, refreshTier}){
               <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Plan</div>
-                <div style={{fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",marginBottom:8}}>
+                <div style={{fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)",marginBottom:8}}>
                   Current: {tier==="free"?"Free":(TIER_INFO[tier]?TIER_INFO[tier].name:tier)}
                 </div>
                 {tier!=="free"&&<button disabled={settingsUpgradeBusy==="portal"} onClick={async()=>{setSettingsUpgradeBusy("portal");setSettingsUpgradeErr("");try{await startPortal();}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
-                  style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                  style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                   {settingsUpgradeBusy==="portal"?"Opening…":"⚙ Manage Subscription"}
                 </button>}
                 {tier!=="guide_pro"&&<>
                   {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
                   {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
-                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                     {settingsUpgradeBusy==="consumer_pro"?"Starting…":"Upgrade to Consumer Pro — $4.99/mo"}
                   </button>}
                   <button disabled={settingsUpgradeBusy==="guide_pro"} onClick={async()=>{setSettingsUpgradeBusy("guide_pro");setSettingsUpgradeErr("");try{await startCheckout("guide_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
-                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                     {settingsUpgradeBusy==="guide_pro"?"Starting…":"Upgrade to Guide Pro — $19.99/mo"}
                   </button>
                 </>}
-                <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"'Crimson Pro',serif"}}>
+                <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)"}}>
                   <span>🧭 Guide tab</span>
-                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#c8a84b",cursor:"pointer"}}/>
+                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#8b6a3d",cursor:"pointer"}}/>
                 </label>
                 <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
                 <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:12,paddingTop:10,display:"flex",gap:14}}>
@@ -6708,7 +6708,7 @@ function App({user, tier, refreshTier}){
               <div style={{marginBottom:12}}>
                 {showAddGauge?(
                   <div className="card">
-                    <div style={{fontSize:15,color:"var(--gold)",marginBottom:8,fontFamily:"'Playfair Display',serif"}}>⭐ Add a Gauge</div>
+                    <div style={{fontSize:15,color:"var(--gold)",marginBottom:8,fontFamily:"var(--font-head)"}}>⭐ Add a Gauge</div>
                     <div style={{fontSize:15,color:"var(--stone)",marginBottom:8}}>Search by river name or paste a USGS site number.</div>
                     <GaugeSearch loc={loc} onAdd={addSavedGauge} gaugeInput={gaugeInput} setGaugeInput={setGaugeInput} gaugeAdding={gaugeAdding}/>
                     <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:14,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
@@ -6722,7 +6722,7 @@ function App({user, tier, refreshTier}){
               <GaugeCard gauges={gauges} gaugeLoading={gaugeLoading} gaugeError={gaugeError} lastUpd={lastUpd} onRefresh={()=>loadConditions(loc)} isStarred={isStarred} toggleStar={toggleStar} showStarredOnly={showStarredOnly} setShowStarredOnly={setShowStarredOnly}/>
               <div className="card" style={{padding:0,overflow:"hidden",marginBottom:12}}>
                 <div style={{padding:"10px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
+                  <span style={{fontSize:15,color:"var(--gold)",fontFamily:"var(--font-head)"}}>🗺 Nearby Waters{gauges.length>0&&" · "+gauges.length+" gauges"}</span>
                   <a href={"https://www.openstreetmap.org/?mlat="+loc.lat+"&mlon="+loc.lng+"#map=10/"+loc.lat+"/"+loc.lng} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none"}}>open larger ↗</a>
                 </div>
                 {(()=>{
@@ -6758,7 +6758,7 @@ ${shopPins}
                 {!condShopsLoading&&condShops.length===0&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>Loading nearby shops…</div>}
                 {condShops.map((s,i)=>(
                   <div key={i} style={{padding:"10px 0",borderBottom:i<condShops.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-                    <div style={{fontSize:14,color:"var(--foam)",fontFamily:"'Crimson Pro',serif",fontWeight:600}}>{s.name}</div>
+                    <div style={{fontSize:14,color:"var(--foam)",fontFamily:"var(--font-body)",fontWeight:600}}>{s.name}</div>
                     {s.address&&<div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{s.address}</div>}
                     {s.specialty&&<div style={{fontSize:15,color:"var(--sky)",marginTop:2,fontStyle:"italic"}}>{s.specialty}</div>}
                     {s.website&&<a href={s.website.startsWith("http")?s.website:"https://"+s.website} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--gold)",textDecoration:"none",marginTop:4,display:"block"}}>{s.website.replace(/^https?:\/\//,"")}</a>}
@@ -6788,7 +6788,7 @@ ${shopPins}
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
               </div>
-              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>{enriching?"⏳ Updating catch data…":"🔄 Update Catch Data"}</button>
+              <button onClick={enrichCatches} disabled={enriching} style={{width:"100%",marginTop:6,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:10,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>{enriching?"⏳ Updating catch data…":"🔄 Update Catch Data"}</button>
               {catches.length>0&&(()=>{
                 const counts={};catches.forEach(c=>{if(c.species)counts[c.species]=(counts[c.species]||0)+1;});
                 const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
@@ -6844,7 +6844,7 @@ ${shopPins}
               const markers=cr.map((co,i)=>{
                 const c=wg[i];
                 const tip=(c.species||"Catch")+(c.length?' '+c.length+'"':'')+(c.time?' | '+c.time:'');
-                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#c8a84b',color:'#8a6a1a',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
+                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#8b6a3d',color:'#8a6a1a',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
               }).join('\n');
               const mapHtml=`<!DOCTYPE html><html><head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -6861,7 +6861,7 @@ ${shopPins}
               return(
                 <div className="card" style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"10px 14px 6px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:15,color:"var(--gold)",fontFamily:"'Playfair Display',serif"}}>📍 Catch Locations · {wg.length} mapped</span>
+                    <span style={{fontSize:15,color:"var(--gold)",fontFamily:"var(--font-head)"}}>📍 Catch Locations · {wg.length} mapped</span>
                   </div>
                   <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin allow-popups"/>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
@@ -6913,11 +6913,11 @@ ${shopPins}
 
                   <div style={{display:"flex",gap:8,marginTop:8}}>
                     <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
-                      style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                       ✏️ Edit
                     </button>
                     <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
-                      style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>
+                      style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                       🗑 Delete
                     </button>
                   </div>
@@ -7013,7 +7013,7 @@ ${shopPins}
           <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center"}}>
             <div style={{background:"var(--water)",borderRadius:16,padding:"28px 32px",textAlign:"center",maxWidth:300}}>
               <div style={{fontSize:32,marginBottom:12}}>📷</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--foam)",marginBottom:8}}>Adding Catches</div>
+              <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",marginBottom:8}}>Adding Catches</div>
               <div style={{fontSize:15,color:"var(--stone)",marginBottom:16}}>{batchProgress.done} of {batchProgress.total} photos processed</div>
               <div style={{background:"rgba(0,0,0,0.3)",borderRadius:8,height:8,overflow:"hidden"}}>
                 <div style={{height:"100%",background:"var(--gold)",borderRadius:8,width:`${(batchProgress.done/batchProgress.total)*100}%`,transition:"width 0.3s"}}/>
@@ -7149,7 +7149,7 @@ function SplashScreen({onDone}){
               <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:64,height:64,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"2px solid var(--gold)",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <div style={{width:0,height:0,borderTop:"13px solid transparent",borderBottom:"13px solid transparent",borderLeft:"22px solid var(--gold)",marginLeft:5}}/>
               </div>
-              <div style={{position:"absolute",bottom:10,left:0,right:0,textAlign:"center",fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--foam)",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>Watch the quick tour</div>
+              <div style={{position:"absolute",bottom:10,left:0,right:0,textAlign:"center",fontFamily:"var(--font-body)",fontSize:14,color:"var(--foam)",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>Watch the quick tour</div>
             </button>
           )}
           {vidOpen&&(
@@ -7161,7 +7161,7 @@ function SplashScreen({onDone}){
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
               />
-              <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"'Crimson Pro',serif",zIndex:10001}}>✕ Close</button>
+              <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"var(--font-body)",zIndex:10001}}>✕ Close</button>
             </div>
           )}
           {!vidOk&&(
@@ -7172,7 +7172,7 @@ function SplashScreen({onDone}){
             </defs>
             <rect width="340" height="180" fill="url(#skg)"/>
             {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
-            <circle cx="290" cy="25" r="14" fill="#c8a84b" opacity="0.9"/>
+            <circle cx="290" cy="25" r="14" fill="#8b6a3d" opacity="0.9"/>
             <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
             <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
             <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
@@ -7184,32 +7184,32 @@ function SplashScreen({onDone}){
               <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
               <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
               <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
-              <line x1="6" y1="10" x2="50" y2="-15" stroke="#c8a84b" strokeWidth="1.5"/>
-              <path d="M50,-15 Q80,-5 95,20" stroke="#c8a84b" strokeWidth="0.8" fill="none" opacity="0.8"/>
+              <line x1="6" y1="10" x2="50" y2="-15" stroke="#8b6a3d" strokeWidth="1.5"/>
+              <path d="M50,-15 Q80,-5 95,20" stroke="#8b6a3d" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
           )}
           <div style={{marginBottom:8}}><Logo layout="stacked" mark={false} scale={1} /></div>
-          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
+          <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
-            <p style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
+            <p style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
           </div>
-          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Get Started →</button>
-          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip intro</button>
+          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Get Started →</button>
+          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip intro</button>
         </>
       ):(
         <>
           <div style={{fontSize:64,marginBottom:16}}>{s.icon}</div>
-          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:"var(--foam)",marginBottom:16,textAlign:"center"}}>{s.title}</div>
+          <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
+          <div style={{fontFamily:"var(--font-head)",fontSize:28,color:"var(--foam)",marginBottom:16,textAlign:"center"}}>{s.title}</div>
           <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:16,padding:"20px 24px",maxWidth:320,textAlign:"center",marginBottom:24}}>
-            <p style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--foam)",lineHeight:1.7,margin:0,marginBottom:12}}>{s.body}</p>
+            <p style={{fontFamily:"var(--font-body)",fontSize:16,color:"var(--foam)",lineHeight:1.7,margin:0,marginBottom:12}}>{s.body}</p>
             <div style={{fontSize:15,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
           </div>
-          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
-          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:15,color:"var(--stone)",fontFamily:"'Crimson Pro',serif"}}>Don't show again</span></label>}
-          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"'Crimson Pro',serif"}}>Skip</button>
+          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
+          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:15,color:"var(--stone)",fontFamily:"var(--font-body)"}}>Don't show again</span></label>}
+          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip</button>
         </>
       )}
     </div>
@@ -7248,7 +7248,7 @@ function Root(){
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:48,marginBottom:12}}>🎣</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
+        <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
       </div>
     </div>
   );
@@ -7257,7 +7257,7 @@ function Root(){
   // Supabase IS configured - require login
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
-    {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"'Crimson Pro',serif"}}>✓ {checkoutNotice}</div>}
+    {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
     <App user={user} tier={tier} refreshTier={refreshTier}/>
   </>;
 }
