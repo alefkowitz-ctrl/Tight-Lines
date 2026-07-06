@@ -38,8 +38,9 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   if (stacked) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+        <div style={{ marginBottom: px(12) }}>{title}</div>
         {emblem && <div style={{ marginBottom: px(12) }}>{emblem}</div>}
-        {title}{tag}
+        {tag}
       </div>
     );
   }
