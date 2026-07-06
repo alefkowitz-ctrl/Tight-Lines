@@ -23,7 +23,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   const stacked = layout === "stacked";
   const emblem = mark ? (
     <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(stacked ? 96 : 46), width: px(stacked ? 96 : 46), objectFit: "contain", display: "block" }} />
+      style={{ height: px(stacked ? 42 : 46), width: px(stacked ? 42 : 46), objectFit: "contain", display: "block" }} />
   ) : null;
   const title = (
     <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 34 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
@@ -31,15 +31,15 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
     </div>
   );
   const tag = tagline ? (
-    <div style={{ fontFamily: "var(--font-body)", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(4), whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-body)", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(1), whiteSpace: "nowrap" }}>
       Find the Pattern
     </div>
   ) : null;
   if (stacked) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-        <div style={{ marginBottom: px(12) }}>{title}</div>
-        {emblem && <div style={{ marginBottom: px(12) }}>{emblem}</div>}
+        <div style={{ marginBottom: px(1) }}>{title}</div>
+        {emblem && <div style={{ marginBottom: px(1) }}>{emblem}</div>}
         {tag}
       </div>
     );
