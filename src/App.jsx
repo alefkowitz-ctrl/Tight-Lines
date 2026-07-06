@@ -23,7 +23,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   const stacked = layout === "stacked";
   const emblem = mark ? (
     <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(stacked ? 130 : 46), width: px(stacked ? 130 : 46), objectFit: "contain", display: "block" }} />
+      style={{ height: px(stacked ? 260 : 46), width: px(stacked ? 260 : 46), objectFit: "contain", display: "block" }} />
   ) : null;
   const emblemRow = mark ? (
     stacked ? (
