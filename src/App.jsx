@@ -23,32 +23,36 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   const stacked = layout === "stacked";
   const emblem = mark ? (
     <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(stacked ? 260 : 46), width: px(stacked ? 260 : 46), objectFit: "contain", display: "block" }} />
+      style={{ height: px(46), width: px(46), objectFit: "contain", display: "block" }} />
+  ) : null;
+  const emblemLarge = mark ? (
+    <img src="/logo-mark-large.png" alt="Guide's Choice" aria-hidden="true"
+      style={{ height: px(80), width: px(240), objectFit: "contain", display: "block" }} />
   ) : null;
   const emblemRow = mark ? (
     stacked ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: px(10) }}>
-        <div style={{ width: px(36), height: 1, background: "var(--gold)", opacity: 0.7 }} />
-        {emblem}
-        <div style={{ width: px(36), height: 1, background: "var(--gold)", opacity: 0.7 }} />
+        <div style={{ width: px(30), height: 1, background: "var(--gold)", opacity: 0.7 }} />
+        {emblemLarge}
+        <div style={{ width: px(30), height: 1, background: "var(--gold)", opacity: 0.7 }} />
       </div>
     ) : emblem
   ) : null;
   const title = (
-    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 30 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 32 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
       {"GUIDE'S CHOICE"}
     </div>
   );
   const tag = tagline ? (
-    <div style={{ fontFamily: "var(--font-body)", fontSize: px(stacked ? 12 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(1), whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-body)", fontSize: px(stacked ? 13 : 10), letterSpacing: px(3), textTransform: "uppercase", color: "var(--gold)", marginTop: px(1), whiteSpace: "nowrap" }}>
       Find the Pattern
     </div>
   ) : null;
   if (stacked) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-        <div style={{ marginBottom: px(1) }}>{title}</div>
-        {emblemRow && <div style={{ marginBottom: px(1) }}>{emblemRow}</div>}
+        <div style={{ marginBottom: px(2) }}>{title}</div>
+        {emblemRow && <div style={{ marginBottom: px(2) }}>{emblemRow}</div>}
         {tag}
       </div>
     );
