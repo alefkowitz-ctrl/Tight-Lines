@@ -23,10 +23,19 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   const stacked = layout === "stacked";
   const emblem = mark ? (
     <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(stacked ? 90 : 46), width: px(stacked ? 90 : 46), objectFit: "contain", display: "block" }} />
+      style={{ height: px(stacked ? 130 : 46), width: px(stacked ? 130 : 46), objectFit: "contain", display: "block" }} />
+  ) : null;
+  const emblemRow = mark ? (
+    stacked ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: px(10) }}>
+        <div style={{ width: px(36), height: 1, background: "var(--gold)", opacity: 0.7 }} />
+        {emblem}
+        <div style={{ width: px(36), height: 1, background: "var(--gold)", opacity: 0.7 }} />
+      </div>
+    ) : emblem
   ) : null;
   const title = (
-    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 34 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
+    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 30 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
       {"GUIDE'S CHOICE"}
     </div>
   );
@@ -39,7 +48,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
         <div style={{ marginBottom: px(1) }}>{title}</div>
-        {emblem && <div style={{ marginBottom: px(1) }}>{emblem}</div>}
+        {emblemRow && <div style={{ marginBottom: px(1) }}>{emblemRow}</div>}
         {tag}
       </div>
     );
