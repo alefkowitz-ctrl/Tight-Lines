@@ -52,7 +52,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
         <div style={{ marginBottom: px(2) }}>{title}</div>
-        {emblemRow && <div style={{ marginBottom: px(2) }}>{emblemRow}</div>}
+        {emblemRow && <div style={{ marginBottom: px(14) }}>{emblemRow}</div>}
         {tag}
       </div>
     );
@@ -300,7 +300,7 @@ function AuthScreen({demoError}){
             <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
             <input className="inp" placeholder="Enter your invite code" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
             <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:"var(--stone)",margin:"10px 0",cursor:"pointer",lineHeight:1.4}}>
-              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#8b6a3d",cursor:"pointer",flexShrink:0}}/>
+              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#d4b877",cursor:"pointer",flexShrink:0}}/>
               <span>I agree to the <a href="/terms.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Terms</a> and <a href="/privacy.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Privacy Policy</a></span>
             </label>
           </>}
@@ -1223,7 +1223,7 @@ function FlowChart({points,label}){
         {xi.map((idx,i)=>{const d=new Date(points[idx].t);return<text key={i} x={px(idx)} y={H-4} textAnchor="middle" fontSize="9" fill="#8a8a7a">{`${d.getMonth()+1}/${d.getDate()}`}</text>;})}
         <polygon points={ap} fill="url(#fg)"/>
         <polyline points={lp} fill="none" stroke="#b8d4dc" strokeWidth="2" strokeLinejoin="round"/>
-        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#8b6a3d"/>
+        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#d4b877"/>
       </svg>
     </div>
   );
@@ -1758,7 +1758,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           const hpts=histAvg.map((p,i)=>`${hpx(i)},${hpy(p.v)}`).join(" ");
           return <polyline points={hpts} fill="none" stroke="rgba(200,168,75,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
         })()}
-        <circle cx={dotX} cy={dotY} r="3" fill="#8b6a3d"/>
+        <circle cx={dotX} cy={dotY} r="3" fill="#d4b877"/>
       </svg>
     );
   }
@@ -1962,10 +1962,10 @@ function generateTripReportPDF(guest, trip, reportText){
   .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#f2efe6;padding:32px 40px 24px;position:relative;}
   .brand{font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
   .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
-  .report-title span{color:#8b6a3d;font-style:italic;}
+  .report-title span{color:#d4b877;font-style:italic;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#8b6a3d,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#d4b877,transparent);margin:0;}
 
   /* Conditions section */
   .section{padding:24px 40px;}
@@ -1982,7 +1982,7 @@ function generateTripReportPDF(guest, trip, reportText){
   /* Trip stats bar */
   .stats-bar{background:#1a3a45;padding:14px 40px;display:flex;gap:32px;align-items:center;}
   .stat{text-align:center;}
-  .stat-val{font-family:'Oswald',sans-serif;font-size:20px;color:#8b6a3d;}
+  .stat-val{font-family:'Oswald',sans-serif;font-size:20px;color:#d4b877;}
   .stat-lbl{font-size:10px;color:#b8d4dc;text-transform:uppercase;letter-spacing:1px;}
   .stat-div{width:1px;height:32px;background:rgba(255,255,255,0.15);}
 
@@ -2002,7 +2002,7 @@ function generateTripReportPDF(guest, trip, reportText){
   /* Footer */
   .footer{background:#f0f5f7;border-top:1px solid #d0dfe3;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;}
   .footer-brand{font-family:'Oswald',sans-serif;font-size:14px;color:#2c5f6e;}
-  .footer-brand span{color:#8b6a3d;font-style:italic;}
+  .footer-brand span{color:#d4b877;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9a9e;font-style:italic;}
 
   .section-bg{background:#f8fbfc;}
@@ -2078,7 +2078,7 @@ ${reportText?`
   // Open in new window and trigger print to PDF
   const win = window.open("","_blank","width=900,height=700");
   // Add close button to PDF window
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#8b6a3d;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d4b877;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html.replace("</body>","</body>"));
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -2184,7 +2184,7 @@ function generatePlannerReportPDF(loc, date, report){
   .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#8b6a3d,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#d4b877,transparent);margin:0;}
   .section{padding:24px 40px;}
   .section-title{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
   .conditions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;}
@@ -2197,7 +2197,7 @@ function generatePlannerReportPDF(loc, date, report){
   .report-text{font-size:14px;line-height:1.7;color:#333;}
   .footer{padding:20px 40px;text-align:center;border-top:1px solid #e0ebee;}
   .footer-brand{font-family:'Oswald',sans-serif;font-size:13px;color:#2c5f6e;letter-spacing:1px;}
-  .footer-brand span{color:#8b6a3d;font-style:italic;}
+  .footer-brand span{color:#d4b877;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9ea4;margin-top:4px;}
 </style>
 </head>
@@ -2228,7 +2228,7 @@ ${riversHtml}
 </html>`;
 
   const win = window.open("","_blank","width=900,height=700");
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#8b6a3d;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d4b877;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html);
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -6658,7 +6658,7 @@ function App({user, tier, refreshTier}){
                 </>}
                 <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)"}}>
                   <span>🧭 Guide tab</span>
-                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#8b6a3d",cursor:"pointer"}}/>
+                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#d4b877",cursor:"pointer"}}/>
                 </label>
                 <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
                 <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:12,paddingTop:10,display:"flex",gap:14}}>
@@ -6858,7 +6858,7 @@ ${shopPins}
               const markers=cr.map((co,i)=>{
                 const c=wg[i];
                 const tip=(c.species||"Catch")+(c.length?' '+c.length+'"':'')+(c.time?' | '+c.time:'');
-                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#8b6a3d',color:'#8a6a1a',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
+                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#d4b877',color:'#8a6a1a',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
               }).join('\n');
               const mapHtml=`<!DOCTYPE html><html><head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -7186,7 +7186,7 @@ function SplashScreen({onDone}){
             </defs>
             <rect width="340" height="180" fill="url(#skg)"/>
             {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
-            <circle cx="290" cy="25" r="14" fill="#8b6a3d" opacity="0.9"/>
+            <circle cx="290" cy="25" r="14" fill="#d4b877" opacity="0.9"/>
             <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
             <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
             <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
@@ -7198,8 +7198,8 @@ function SplashScreen({onDone}){
               <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
               <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
               <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
-              <line x1="6" y1="10" x2="50" y2="-15" stroke="#8b6a3d" strokeWidth="1.5"/>
-              <path d="M50,-15 Q80,-5 95,20" stroke="#8b6a3d" strokeWidth="0.8" fill="none" opacity="0.8"/>
+              <line x1="6" y1="10" x2="50" y2="-15" stroke="#d4b877" strokeWidth="1.5"/>
+              <path d="M50,-15 Q80,-5 95,20" stroke="#d4b877" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
           )}
