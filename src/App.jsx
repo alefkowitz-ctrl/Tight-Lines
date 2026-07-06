@@ -6655,7 +6655,7 @@ function App({user, tier, refreshTier}){
               </div>,
               document.body
             )}
-          <Logo layout="horizontal" scale={0.95} />
+          <Logo layout="stacked" scale={0.95} />
         </div>
 
         {tab==="conditions"&&<>
