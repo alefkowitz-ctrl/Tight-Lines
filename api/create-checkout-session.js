@@ -2,13 +2,12 @@ export const maxDuration = 30;
 
 // Server-side tier -> Stripe Price ID map. The client only ever sends a tier NAME —
 // never a price ID directly — so a tampered request can't downgrade what someone is charged.
-// TEST MODE (Sandbox) price IDs below. Before going live: recreate these 4 products under
-// "Switch to live account" in Stripe, then swap in the new price_... IDs here.
+// LIVE MODE price IDs (switched over 2026-07-07). Prior test-mode IDs retired.
 const TIER_PRICE = {
-  consumer_pro: "price_1Tp9rl2M3KJcCoD6JGhx0KSG",
-  guide_pro: "price_1Tp9sr2M3KJcCoD6H1hwWZYy",
-  fly_shop_basic: "price_1Tp9tF2M3KJcCoD6hbTgo1Mh",
-  fly_shop_pro: "price_1Tp9te2M3KJcCoD6wHZlTdaN"
+  consumer_pro: "price_1TqZPC2O6YqV9kpISV9ZLeDk",
+  guide_pro: "price_1TqZPB2O6YqV9kpI26JPl1t0",
+  fly_shop_basic: "price_1TqZP92O6YqV9kpIK3aoORio",
+  fly_shop_pro: "price_1TqZPD2O6YqV9kpIDYK1dHqB"
 };
 
 function jwtClaims(jwt) {
