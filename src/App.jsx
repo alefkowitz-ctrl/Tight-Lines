@@ -261,11 +261,12 @@ function AuthScreen({demoError}){
       if(!sb){ setError("Supabase not configured. Add your project URL and anon key to the app."); setLoading(false); return; }
       if(mode==="signup"){
         const code = inviteCode.trim();
-        if(!code){ setError("Invite code is required."); setLoading(false); return; }
         if(!agreed){ setError("Please agree to the Terms and Privacy Policy to continue."); setLoading(false); return; }
-        const {data:codeRow, error:codeErr} = await sb.from("invite_codes").select("active").eq("code", code).maybeSingle();
-        if(codeErr){ setError("Couldn't verify invite code. Please try again."); setLoading(false); return; }
-        if(!codeRow || codeRow.active===false){ setError("Invalid or inactive invite code."); setLoading(false); return; }
+        if(code){
+          const {data:codeRow, error:codeErr} = await sb.from("invite_codes").select("active").eq("code", code).maybeSingle();
+          if(codeErr){ setError("Couldn't verify invite code. Please try again."); setLoading(false); return; }
+          if(!codeRow || codeRow.active===false){ setError("Invalid or inactive invite code."); setLoading(false); return; }
+        }
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
         if(e) throw e;
         setSuccess("Check your email to confirm your account, then log in.");
@@ -297,8 +298,8 @@ function AuthScreen({demoError}){
           {mode==="signup"&&<>
             <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Full Name</label>
             <input className="inp" placeholder="John Smith" value={name} onChange={e=>setName(e.target.value)}/>
-            <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code</label>
-            <input className="inp" placeholder="Enter your invite code" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
+            <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code (optional)</label>
+            <input className="inp" placeholder="Have a code? Enter it here" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
             <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:"var(--stone)",margin:"10px 0",cursor:"pointer",lineHeight:1.4}}>
               <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#d4b877",cursor:"pointer",flexShrink:0}}/>
               <span>I agree to the <a href="/terms.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Terms</a> and <a href="/privacy.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Privacy Policy</a></span>
