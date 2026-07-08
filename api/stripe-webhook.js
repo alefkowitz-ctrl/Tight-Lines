@@ -88,6 +88,7 @@ export async function POST(request) {
           status: "active",
           stripe_customer_id: obj.customer || null,
           stripe_subscription_id: obj.subscription || null,
+          is_comped: false, // a real Stripe checkout means this is no longer a complimentary account
           updated_at: new Date().toISOString()
         });
       }
