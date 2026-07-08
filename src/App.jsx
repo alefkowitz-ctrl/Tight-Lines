@@ -202,20 +202,44 @@ function useAuth(){
   // read as a paywall lockout for someone who's actually paying.
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
-    if(!sb || !id){ setTier("free"); return; }
+    if(!sb || !id){ setTier("free"); return "free"; }
     try{
       const {data, error} = await sb.from("subscriptions").select("tier,status").eq("user_id", id).maybeSingle();
-      if(error || !data || data.status==="canceled"){ setTier("free"); return; }
-      setTier(data.tier || "free");
-    }catch(e){ setTier("free"); }
+      if(error || !data || data.status==="canceled"){ setTier("free"); return "free"; }
+      const t = data.tier || "free";
+      setTier(t);
+      return t;
+    }catch(e){ setTier("free"); return "free"; }
   }, [user]);
+  // One-time complimentary-access redemption for a code stored on the auth user at
+  // signup (see AuthScreen). Only fires while the caller is still on the free tier —
+  // once comped/subscribed, refreshTier will no longer report "free" so this becomes
+  // a permanent no-op. Best-effort: a failure here just leaves the user on free tier
+  // (same as never having had a code), it never blocks sign-in.
+  async function maybeRedeemInvite(session, currentTier){
+    try{
+      const code = session?.user?.user_metadata?.invite_code;
+      if(!code || currentTier!=="free" || !sb) return;
+      const {data:{session:fresh}} = await sb.auth.getSession();
+      const token = fresh?.access_token;
+      if(!token) return;
+      const res = await fetch("/api/redeem-invite", {
+        method:"POST",
+        headers:{"Content-Type":"application/json", Authorization:"Bearer "+token},
+        body: JSON.stringify({code})
+      });
+      const d = await res.json().catch(()=>null);
+      if(d && d.ok && d.tier) setTier(d.tier);
+      else if(!res.ok) console.error("Invite redemption failed:", d?.error?.message||res.status);
+    }catch(e){ console.error("Invite redemption error:", e.message); }
+  }
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
     // Add timeout in case Supabase is slow on mobile
     const timeout = setTimeout(()=>setLoading(false), 5000);
     sb.auth.getSession().then(async ({data:{session}})=>{
       clearTimeout(timeout);
-      if(session?.user){ setUser(session.user); refreshTier(session.user.id); setLoading(false); return; }
+      if(session?.user){ setUser(session.user); const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0); setLoading(false); return; }
       // Public demo link: ?demo=1 with no existing session logs into a single
       // shared demo account (cloned from the real account's data) rather than
       // provisioning a fresh anonymous account per visitor. Only fires once
@@ -226,16 +250,16 @@ function useAuth(){
           const {data,error} = await sb.auth.signInWithPassword({email:"demo@guideschoicefishing.com", password:"password1"});
           if(error) throw error;
           setUser(data?.user ?? null);
-          if(data?.user) refreshTier(data.user.id);
+          if(data?.user){ const t0=await refreshTier(data.user.id); maybeRedeemInvite({user:data.user}, t0); }
         }catch(e){
           setDemoError(e.message||"Demo sign-in failed.");
         }
       }
       setLoading(false);
     }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
-    const {data:{subscription}} = sb.auth.onAuthStateChange((_,session)=>{
+    const {data:{subscription}} = sb.auth.onAuthStateChange(async (_,session)=>{
       setUser(session?.user ?? null);
-      if(session?.user) refreshTier(session.user.id); else setTier("free");
+      if(session?.user){ const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0); } else setTier("free");
     });
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
@@ -267,7 +291,11 @@ function AuthScreen({demoError}){
           if(codeErr){ setError("Couldn't verify invite code. Please try again."); setLoading(false); return; }
           if(!codeRow || codeRow.active===false){ setError("Invalid or inactive invite code."); setLoading(false); return; }
         }
-        const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
+        // invite_code is stashed in user metadata (not redeemed here) because signUp()
+        // does not return an authenticated session while email confirmation is required —
+        // there's no valid JWT yet to call a comp-granting endpoint with. It's redeemed
+        // later in useAuth's maybeRedeemInvite, the first time this user has a real session.
+        const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name, invite_code:code||null}}});
         if(e) throw e;
         setSuccess("Check your email to confirm your account, then log in.");
         setMode("login");
