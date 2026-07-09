@@ -2,13 +2,27 @@
 //
 // GUARDRAIL (do not weaken): this app's trust principle is that data shown
 // to the user is real and current — never a stale fact presented as fresh.
-// That rule applies here too. This worker ONLY caches static, content-hashed
-// build assets (JS/CSS/icons/fonts) so repeat loads are fast and the app
+// That rule applies here too. This worker ONLY caches static build assets
+// (content-hashed JS/CSS cache-first; fixed-filename icons stale-while-
+// revalidate — see patterns below) so repeat loads are fast and the app
 // shell works offline. It NEVER caches planner reports, gauge readings,
 // weather, auth, or any Supabase/API call — those always hit the network.
 
-const STATIC_CACHE = "gc-static-v1";
-const STATIC_ASSET_PATTERN = /\.(js|css|png|jpg|jpeg|svg|woff2?|ico)$/;
+const STATIC_CACHE = "gc-static-v2"; // bumped v1->v2: forces every device to drop
+// whatever it had cached under the old bucket (see REVALIDATE note below for why).
+
+// Vite content-hashes these filenames (name-HASH.js/name-HASH.css under /assets/) —
+// a changed file always ships under a brand-new URL, so caching it forever is safe.
+const HASHED_ASSET_PATTERN = /\/assets\/.+\.(js|css)$/;
+
+// Brand/icon files in /public (favicon.png, logo-mark.png, icon-192.png, etc. — see
+// manifest.json/index.html) keep a FIXED filename across deploys. Under pure
+// cache-first, once a device cached one of these it would NEVER see an update no
+// matter how many times the file changes on the server (this is what caused the
+// logo to update on one device but not another after a rebrand). These get
+// stale-while-revalidate instead: serve the cached copy immediately if present,
+// but always kick off a background fetch to refresh the cache for next time.
+const REVALIDATE_ASSET_PATTERN = /\.(png|jpg|jpeg|svg|woff2?|ico)$/;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -55,10 +69,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static, content-hashed build assets + icons/fonts: cache-first.
-  // Safe indefinitely — Vite gives changed content a new hashed filename,
-  // so a stale cache entry is never served for code that has actually changed.
-  if (STATIC_ASSET_PATTERN.test(url.pathname)) {
+  // Content-hashed JS/CSS build output: cache-first, safe indefinitely — a
+  // changed file always ships under a new hashed filename.
+  if (HASHED_ASSET_PATTERN.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached;
@@ -70,6 +83,28 @@ self.addEventListener("fetch", (event) => {
           return res;
         });
       })
+    );
+    return;
+  }
+
+  // Fixed-filename brand/icon assets: stale-while-revalidate. Serve the cached
+  // copy instantly if we have one (fast, works offline), but always fetch a
+  // fresh copy in the background and update the cache — so a server-side change
+  // (e.g. a rebrand) reaches every device within one extra load instead of
+  // getting stuck forever.
+  if (REVALIDATE_ASSET_PATTERN.test(url.pathname)) {
+    event.respondWith(
+      caches.open(STATIC_CACHE).then((cache) =>
+        cache.match(req).then((cached) => {
+          const network = fetch(req)
+            .then((res) => {
+              if (res.ok) cache.put(req, res.clone());
+              return res;
+            })
+            .catch(() => cached);
+          return cached || network;
+        })
+      )
     );
     return;
   }
