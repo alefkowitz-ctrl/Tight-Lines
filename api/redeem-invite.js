@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
   try {
     const codeRes = await fetch(
-      SB_URL + "/rest/v1/invite_codes?select=active,comp_tier&code=eq." + encodeURIComponent(code),
+      SB_URL + "/rest/v1/invite_codes?select=active,comp_tier,comp_duration_days&code=eq." + encodeURIComponent(code),
       { headers: { apikey: key, Authorization: "Bearer " + key } }
     );
     if (!codeRes.ok) return res.status(500).json({ error: { message: "Could not verify code." } });
@@ -53,6 +53,14 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: false, reason: "already_paying_subscriber" });
     }
 
+    // comp_duration_days null/0 => permanent (e.g. GUIDESCHOICE2026), unchanged behavior.
+    // A positive value => time-limited trial; expiry is stored in current_period_end,
+    // the same column real Stripe subscriptions use for "when does this access end" —
+    // reused rather than adding a new column, and refreshTier's expiry check is gated
+    // on is_comped so this can never affect a genuine paying subscriber.
+    const days = Number(codeRow.comp_duration_days) || 0;
+    const expiresAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+
     const upsertRes = await fetch(SB_URL + "/rest/v1/subscriptions?on_conflict=user_id", {
       method: "POST",
       headers: {
@@ -66,6 +74,7 @@ export default async function handler(req, res) {
         tier: codeRow.comp_tier,
         status: "active",
         is_comped: true,
+        current_period_end: expiresAt,
         updated_at: new Date().toISOString()
       })
     });
@@ -73,7 +82,7 @@ export default async function handler(req, res) {
       const body = await upsertRes.text().catch(() => "");
       return res.status(500).json({ error: { message: "Could not activate complimentary access: " + body } });
     }
-    return res.status(200).json({ ok: true, tier: codeRow.comp_tier });
+    return res.status(200).json({ ok: true, tier: codeRow.comp_tier, expiresAt });
   } catch (e) {
     return res.status(500).json({ error: { message: e.message } });
   }
