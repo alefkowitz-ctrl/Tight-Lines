@@ -196,16 +196,28 @@ function useAuth(){
   const [loading, setLoading] = useState(true);
   const [demoError, setDemoError] = useState("");
   const [tier, setTier] = useState("free");
+  // Populated only when a comped account's access has just been read as expired —
+  // lets the UI show "your trial ended" instead of silently looking like plain free tier.
+  const [trialExpired, setTrialExpired] = useState(null);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
   // Fails open to "free" on any error/missing row — a Supabase hiccup must never
   // read as a paywall lockout for someone who's actually paying.
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
-    if(!sb || !id){ setTier("free"); return "free"; }
+    if(!sb || !id){ setTier("free"); setTrialExpired(null); return "free"; }
     try{
-      const {data, error} = await sb.from("subscriptions").select("tier,status").eq("user_id", id).maybeSingle();
-      if(error || !data || data.status==="canceled"){ setTier("free"); return "free"; }
+      const {data, error} = await sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle();
+      if(error || !data || data.status==="canceled"){ setTier("free"); setTrialExpired(null); return "free"; }
+      // Time-limited comped access (e.g. a 30-day trial code) reuses current_period_end,
+      // the same column real Stripe subscriptions use for their billing period end. Gated
+      // strictly on is_comped so a webhook-lag false-positive can never lock out a real
+      // paying subscriber — is_comped is only ever true for complimentary/trial accounts.
+      if(data.is_comped && data.current_period_end && new Date(data.current_period_end) < new Date()){
+        setTier("free"); setTrialExpired({tier:data.tier||"guide_pro", expiredAt:data.current_period_end});
+        return "free";
+      }
+      setTrialExpired(null);
       const t = data.tier || "free";
       setTier(t);
       return t;
@@ -216,22 +228,33 @@ function useAuth(){
   // once comped/subscribed, refreshTier will no longer report "free" so this becomes
   // a permanent no-op. Best-effort: a failure here just leaves the user on free tier
   // (same as never having had a code), it never blocks sign-in.
-  async function maybeRedeemInvite(session, currentTier){
+  // Shared redemption path — used both for the automatic signup-time redemption below
+  // and for a manual "Have a code?" entry from an already-signed-in user (Settings).
+  // Server-side (redeem-invite.js) is the actual authority on validity/eligibility;
+  // this is just the client plumbing, so it's safe to call from either caller.
+  async function redeemInviteCode(code){
+    const trimmed = String(code||"").trim();
+    if(!trimmed || !sb) return {ok:false, reason:"no_code"};
     try{
-      const code = session?.user?.user_metadata?.invite_code;
-      if(!code || currentTier!=="free" || !sb) return;
       const {data:{session:fresh}} = await sb.auth.getSession();
       const token = fresh?.access_token;
-      if(!token) return;
+      if(!token) return {ok:false, reason:"not_signed_in"};
       const res = await fetch("/api/redeem-invite", {
         method:"POST",
         headers:{"Content-Type":"application/json", Authorization:"Bearer "+token},
-        body: JSON.stringify({code})
+        body: JSON.stringify({code:trimmed})
       });
       const d = await res.json().catch(()=>null);
-      if(d && d.ok && d.tier) setTier(d.tier);
-      else if(!res.ok) console.error("Invite redemption failed:", d?.error?.message||res.status);
-    }catch(e){ console.error("Invite redemption error:", e.message); }
+      if(d && d.ok && d.tier){ setTier(d.tier); return {ok:true, tier:d.tier, expiresAt:d.expiresAt}; }
+      if(!res.ok) return {ok:false, reason:"error", message:d?.error?.message};
+      return {ok:false, reason:d?.reason||"unknown"};
+    }catch(e){ return {ok:false, reason:"error", message:e.message}; }
+  }
+  async function maybeRedeemInvite(session, currentTier){
+    const code = session?.user?.user_metadata?.invite_code;
+    if(!code || currentTier!=="free") return;
+    const r = await redeemInviteCode(code);
+    if(!r.ok && r.reason==="error") console.error("Invite redemption error:", r.message);
   }
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
@@ -263,7 +286,7 @@ function useAuth(){
     });
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
-  return {user, loading, demoError, tier, refreshTier};
+  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -5919,7 +5942,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user, tier, refreshTier}){
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
@@ -5935,6 +5958,26 @@ function App({user, tier, refreshTier}){
   };
   const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
   const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
+  const [redeemCode,setRedeemCode]=useState("");
+  const [redeemBusy,setRedeemBusy]=useState(false);
+  const [redeemMsg,setRedeemMsg]=useState(null);
+  async function handleRedeemCode(){
+    if(!redeemCode.trim()||redeemBusy) return;
+    setRedeemBusy(true); setRedeemMsg(null);
+    const r=await redeemInviteCode(redeemCode);
+    setRedeemBusy(false);
+    if(r.ok){ setRedeemMsg({type:"ok",text:"Code applied — you're upgraded!"}); setRedeemCode(""); }
+    else{
+      const friendly = r.reason==="not_a_comp_code" ? "That code isn't valid."
+        : r.reason==="already_paying_subscriber" ? "You already have an active paid subscription."
+        : r.reason==="not_signed_in" ? "Please sign in again and retry."
+        : (r.message || "Couldn't apply that code.");
+      setRedeemMsg({type:"err",text:friendly});
+    }
+  }
+  const [trialBannerDismissed,setTrialBannerDismissed]=useState(null); // stores the expiredAt it was dismissed for
+  const [trialBannerBusy,setTrialBannerBusy]=useState(false);
+  const [trialBannerErr,setTrialBannerErr]=useState("");
   const [signOutBusy,setSignOutBusy]=useState(false);
   const [signOutErr,setSignOutErr]=useState("");
   const handleSignOut=async()=>{
@@ -6659,12 +6702,32 @@ function App({user, tier, refreshTier}){
   return(
     <div className="app">
       <div className="bgbar"/>
-      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
-        📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
-      </div>}
-      {signOutErr&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
-        ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
-      </div>}
+      {(()=>{
+        const showTrial = trialExpired && trialBannerDismissed!==trialExpired.expiredAt;
+        if(!isOnline || signOutErr || showTrial) return (
+          <div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,display:"flex",flexDirection:"column"}}>
+            {!isOnline&&<div style={{background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
+              📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
+            </div>}
+            {signOutErr&&<div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
+              ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
+            </div>}
+            {showTrial&&<div style={{background:"rgba(209,154,74,0.97)",padding:"8px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:12,flexWrap:"wrap",fontSize:14,color:"#1f231d",fontFamily:"var(--font-body)"}}>
+              <span>Your {TIER_INFO[trialExpired.tier]?TIER_INFO[trialExpired.tier].name:"trial"} trial has ended.</span>
+              {trialBannerErr&&<span style={{fontSize:13}}>{trialBannerErr}</span>}
+              <button disabled={trialBannerBusy} onClick={async()=>{setTrialBannerBusy(true);setTrialBannerErr("");try{await startCheckout(trialExpired.tier);}catch(e){setTrialBannerErr(e.message);setTrialBannerBusy(false);}}}
+                style={{background:"#1f231d",border:"none",borderRadius:6,padding:"5px 12px",color:"var(--gold)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                {trialBannerBusy?"Opening…":"Upgrade"}
+              </button>
+              <button onClick={()=>setTrialBannerDismissed(trialExpired.expiredAt)} aria-label="Dismiss"
+                style={{background:"none",border:"none",color:"#1f231d",fontSize:16,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>
+                ×
+              </button>
+            </div>}
+          </div>
+        );
+        return null;
+      })()}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
       <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhoto}/>
 
@@ -6701,6 +6764,17 @@ function App({user, tier, refreshTier}){
                     style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                     {settingsUpgradeBusy==="guide_pro"?"Starting…":"Upgrade to Guide Pro — $19.99/mo"}
                   </button>
+                  <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Have a code?</div>
+                  <div style={{display:"flex",gap:6,marginBottom:10}}>
+                    <input value={redeemCode} onChange={e=>setRedeemCode(e.target.value)} placeholder="Enter code"
+                      onKeyDown={e=>{if(e.key==="Enter") handleRedeemCode();}}
+                      style={{flex:1,minWidth:0,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"7px 9px",color:"var(--foam)",fontSize:14,fontFamily:"var(--font-body)"}}/>
+                    <button disabled={redeemBusy||!redeemCode.trim()} onClick={handleRedeemCode}
+                      style={{background:"rgba(209,154,74,0.18)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"7px 12px",color:"var(--foam)",fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                      {redeemBusy?"…":"Apply"}
+                    </button>
+                  </div>
+                  {redeemMsg&&<div style={{fontSize:12,marginTop:-4,marginBottom:10,color:redeemMsg.type==="ok"?"var(--moss)":"var(--red)"}}>{redeemMsg.text}</div>}
                 </>}
                 <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)"}}>
                   <span>🧭 Guide tab</span>
@@ -7278,7 +7352,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError, tier, refreshTier} = useAuth();
+  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
@@ -7313,12 +7387,12 @@ function Root(){
     </div>
   );
   // Only bypass auth if Supabase is genuinely not configured
-  if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}}/>;
+  if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}} redeemInviteCode={async()=>({ok:false,reason:"not_configured"})}/>;
   // Supabase IS configured - require login
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} refreshTier={refreshTier}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode}/>
   </>;
 }
 export default Root;
