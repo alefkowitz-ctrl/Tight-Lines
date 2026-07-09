@@ -5935,6 +5935,20 @@ function App({user, tier, refreshTier}){
   };
   const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
   const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
+  const [signOutBusy,setSignOutBusy]=useState(false);
+  const [signOutErr,setSignOutErr]=useState("");
+  const handleSignOut=async()=>{
+    if(!sb||signOutBusy) return;
+    setSignOutErr(""); setSignOutBusy(true);
+    try{
+      const {error} = await sb.auth.signOut();
+      if(error) throw error;
+    }catch(e){
+      setSignOutErr(e?.message||"Sign out failed. Check your connection and try again.");
+    }finally{
+      setSignOutBusy(false);
+    }
+  };
   useEffect(()=>{
     const onPageShow=(e)=>{ if(e.persisted) setSettingsUpgradeBusy(null); };
     window.addEventListener("pageshow",onPageShow);
@@ -6648,6 +6662,9 @@ function App({user, tier, refreshTier}){
       {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
         📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
       </div>}
+      {signOutErr&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
+        ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
+      </div>}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
       <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhoto}/>
 
@@ -6658,9 +6675,9 @@ function App({user, tier, refreshTier}){
               style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               ⚙
             </button>
-            <button onClick={()=>sb?sb.auth.signOut():null}
-              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-              Sign Out
+            <button disabled={signOutBusy} onClick={handleSignOut}
+              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:signOutBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:signOutBusy?0.6:1}}>
+              {signOutBusy?"Signing out…":"Sign Out"}
             </button>
           </div>
           {showSettings&&settingsPos&&createPortal(
