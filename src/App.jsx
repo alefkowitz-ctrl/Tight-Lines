@@ -27,7 +27,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   ) : null;
   const emblemLarge = mark ? (
     <img src="/logo-mark-large.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(80), width: px(240), objectFit: "contain", display: "block" }} />
+      style={{ height: px(80), width: px(80), objectFit: "contain", display: "block" }} />
   ) : null;
   const emblemRow = mark ? (
     stacked ? (
@@ -329,7 +329,7 @@ function AuthScreen({demoError}){
             <label style={{display:"block",fontSize:14,letterSpacing:1.5,textTransform:"uppercase",color:"var(--stone)",marginBottom:5}}>Invite Code (optional)</label>
             <input className="inp" placeholder="Have a code? Enter it here" value={inviteCode} onChange={e=>setInviteCode(e.target.value)}/>
             <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:"var(--stone)",margin:"10px 0",cursor:"pointer",lineHeight:1.4}}>
-              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#d4b877",cursor:"pointer",flexShrink:0}}/>
+              <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{marginTop:2,width:16,height:16,accentColor:"#d09a4a",cursor:"pointer",flexShrink:0}}/>
               <span>I agree to the <a href="/terms.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Terms</a> and <a href="/privacy.html" target="_blank" rel="noreferrer" style={{color:"var(--sky)"}}>Privacy Policy</a></span>
             </label>
           </>}
@@ -1252,7 +1252,7 @@ function FlowChart({points,label}){
         {xi.map((idx,i)=>{const d=new Date(points[idx].t);return<text key={i} x={px(idx)} y={H-4} textAnchor="middle" fontSize="9" fill="#8a8a7a">{`${d.getMonth()+1}/${d.getDate()}`}</text>;})}
         <polygon points={ap} fill="url(#fg)"/>
         <polyline points={lp} fill="none" stroke="#b8d4dc" strokeWidth="2" strokeLinejoin="round"/>
-        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#d4b877"/>
+        <circle cx={px(points.length-1)} cy={py(points[points.length-1].v)} r="3" fill="#d09a4a"/>
       </svg>
     </div>
   );
@@ -1506,7 +1506,7 @@ function HatchMatcher({loc, waterTemp, gauges, autoRun, prefetchedResult, prefet
         React.createElement('div',{key:i,style:{padding:"10px 0",borderBottom:i<result.length-1?"1px solid rgba(255,255,255,0.06)":"none"}},
           React.createElement('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
             React.createElement('span',{style:{fontSize:14,color:"var(--foam)",fontFamily:"var(--font-body)",fontWeight:600}},h.name),
-            React.createElement('span',{style:{fontSize:14,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(200,168,75,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
+            React.createElement('span',{style:{fontSize:14,padding:"2px 8px",borderRadius:20,background:h.likelihood==="High"?"rgba(90,122,74,0.3)":h.likelihood==="Moderate"?"rgba(209,154,74,0.2)":"rgba(255,255,255,0.06)",color:h.likelihood==="High"?"#9cd47a":h.likelihood==="Moderate"?"var(--gold)":"var(--stone)"}},h.likelihood)
           ),
           React.createElement('div',{style:{fontSize:14,color:"var(--stone)",marginBottom:6}},"Water: "+h.waterTempRange+" · "+h.timing),
           React.createElement('div',{style:{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}},
@@ -1600,7 +1600,7 @@ function WeekForecast({data, highlightDay}){
           const isSel = i===sel;
           return(
             <div key={i} onClick={()=>setSelDay(i)}
-              style={{flex:"0 0 auto",width:54,background:isSel?"var(--water)":isHi?"rgba(200,168,75,0.15)":"rgba(0,0,0,0.2)",
+              style={{flex:"0 0 auto",width:54,background:isSel?"var(--water)":isHi?"rgba(209,154,74,0.15)":"rgba(0,0,0,0.2)",
                 border:`1px solid ${isSel?"var(--water)":isHi?"var(--gold)":"rgba(255,255,255,0.08)"}`,
                 borderRadius:10,padding:"8px 4px",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
               <div style={{fontSize:13,color:isSel?"var(--foam)":"var(--stone)",textTransform:"uppercase",letterSpacing:.5}}>{DAYS[dt.getDay()]}</div>
@@ -1620,7 +1620,7 @@ function WeekForecast({data, highlightDay}){
         </div>
         {/* Plain-language fishing read for the selected day — deterministic, no AI. Shown first. */}
         {(()=>{const read=weekWeatherRead(d,sel);return read?(
-          <div style={{background:"rgba(200,168,75,0.08)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+          <div style={{background:"rgba(209,154,74,0.08)",border:"1px solid rgba(209,154,74,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
             <div style={{fontSize:13,color:"var(--gold)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Fishing Read</div>
             <div style={{fontSize:14,color:"var(--foam)",lineHeight:1.55}}>{read}</div>
           </div>
@@ -1785,9 +1785,9 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           const hpx=i=>PL+(i/(histAvg.length-1))*iW;
           const hpy=v=>PT+iH-((v-minV)/range)*iH;
           const hpts=histAvg.map((p,i)=>`${hpx(i)},${hpy(p.v)}`).join(" ");
-          return <polyline points={hpts} fill="none" stroke="rgba(200,168,75,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
+          return <polyline points={hpts} fill="none" stroke="rgba(209,154,74,0.45)" strokeWidth="1" strokeDasharray="3,3" strokeLinejoin="round"/>;
         })()}
-        <circle cx={dotX} cy={dotY} r="3" fill="#d4b877"/>
+        <circle cx={dotX} cy={dotY} r="3" fill="#d09a4a"/>
       </svg>
     );
   }
@@ -1812,7 +1812,7 @@ function GaugeChart({siteNo, siteName, initialCFS}){
       </div>
       <div style={{display:"flex",gap:12,marginBottom:6,fontSize:14,color:"var(--stone)",alignItems:"center",flexWrap:"wrap"}}>
         <span style={{display:"inline-block",width:16,height:2,background:"#b8d4dc",verticalAlign:"middle"}}></span>Flow (CFS)
-        {histAvg.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(200,168,75,0.6)",borderTop:"1px dashed rgba(200,168,75,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev avg</>}
+        {histAvg.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(209,154,74,0.6)",borderTop:"1px dashed rgba(209,154,74,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev avg</>}
         {tempPoints.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(255,100,100,0.7)",verticalAlign:"middle",marginLeft:8}}></span>Water Temp (°F)</>}
       </div>
       {loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
@@ -1991,10 +1991,10 @@ function generateTripReportPDF(guest, trip, reportText){
   .header{background:linear-gradient(135deg,#1a3a45,#2c5f6e);color:#f2efe6;padding:32px 40px 24px;position:relative;}
   .brand{font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#b8d4dc;margin-bottom:6px;}
   .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
-  .report-title span{color:#d4b877;font-style:italic;}
+  .report-title span{color:#d09a4a;font-style:italic;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#d4b877,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#d09a4a,transparent);margin:0;}
 
   /* Conditions section */
   .section{padding:24px 40px;}
@@ -2011,7 +2011,7 @@ function generateTripReportPDF(guest, trip, reportText){
   /* Trip stats bar */
   .stats-bar{background:#1a3a45;padding:14px 40px;display:flex;gap:32px;align-items:center;}
   .stat{text-align:center;}
-  .stat-val{font-family:'Oswald',sans-serif;font-size:20px;color:#d4b877;}
+  .stat-val{font-family:'Oswald',sans-serif;font-size:20px;color:#d09a4a;}
   .stat-lbl{font-size:10px;color:#b8d4dc;text-transform:uppercase;letter-spacing:1px;}
   .stat-div{width:1px;height:32px;background:rgba(255,255,255,0.15);}
 
@@ -2031,7 +2031,7 @@ function generateTripReportPDF(guest, trip, reportText){
   /* Footer */
   .footer{background:#f0f5f7;border-top:1px solid #d0dfe3;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;}
   .footer-brand{font-family:'Oswald',sans-serif;font-size:14px;color:#2c5f6e;}
-  .footer-brand span{color:#d4b877;font-style:italic;}
+  .footer-brand span{color:#d09a4a;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9a9e;font-style:italic;}
 
   .section-bg{background:#f8fbfc;}
@@ -2107,7 +2107,7 @@ ${reportText?`
   // Open in new window and trigger print to PDF
   const win = window.open("","_blank","width=900,height=700");
   // Add close button to PDF window
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d4b877;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d09a4a;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html.replace("</body>","</body>"));
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -2213,7 +2213,7 @@ function generatePlannerReportPDF(loc, date, report){
   .report-title{font-family:'Oswald',sans-serif;font-size:32px;font-weight:700;color:#f2efe6;margin-bottom:4px;}
   .report-meta{font-size:14px;color:#b8d4dc;margin-top:8px;line-height:1.8;}
   .header-accent{position:absolute;bottom:0;right:40px;font-size:64px;opacity:0.15;}
-  .divider-gold{height:3px;background:linear-gradient(90deg,#d4b877,transparent);margin:0;}
+  .divider-gold{height:3px;background:linear-gradient(90deg,#d09a4a,transparent);margin:0;}
   .section{padding:24px 40px;}
   .section-title{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#2c5f6e;border-bottom:1px solid #d0dfe3;padding-bottom:8px;margin-bottom:16px;}
   .conditions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;}
@@ -2226,7 +2226,7 @@ function generatePlannerReportPDF(loc, date, report){
   .report-text{font-size:14px;line-height:1.7;color:#333;}
   .footer{padding:20px 40px;text-align:center;border-top:1px solid #e0ebee;}
   .footer-brand{font-family:'Oswald',sans-serif;font-size:13px;color:#2c5f6e;letter-spacing:1px;}
-  .footer-brand span{color:#d4b877;font-style:italic;}
+  .footer-brand span{color:#d09a4a;font-style:italic;}
   .footer-note{font-size:11px;color:#8a9ea4;margin-top:4px;}
 </style>
 </head>
@@ -2257,7 +2257,7 @@ ${riversHtml}
 </html>`;
 
   const win = window.open("","_blank","width=900,height=700");
-  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d4b877;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
+  const closeBtn=`<div style="position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;"><button onclick="window.print()" style="background:#d09a4a;color:#1a2e35;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">🖨 Print / Save PDF</button><button onclick="window.close()" style="background:#1a3a45;color:#f2efe6;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:serif;">✕ Close</button></div>`;
   win.document.write(html);
   win.document.body.insertAdjacentHTML("afterbegin",closeBtn);
   win.document.close();
@@ -2483,7 +2483,7 @@ function GuideStats({guests}){
         <div className="card">
           <div className="ctitle">🪶 Top Flies</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {topFlies.map(([fly,ct])=>(<span key={fly} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"4px 12px",fontSize:15,color:"var(--gold)"}}>🪶 {fly} <span style={{color:"var(--stone)",fontSize:14}}>×{ct}</span></span>))}
+            {topFlies.map(([fly,ct])=>(<span key={fly} style={{background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"4px 12px",fontSize:15,color:"var(--gold)"}}>🪶 {fly} <span style={{color:"var(--stone)",fontSize:14}}>×{ct}</span></span>))}
           </div>
         </div>
       )}
@@ -2781,7 +2781,7 @@ function GuideTrends({guests, loc, setView, setSelectedGuest, setSelectedTrip, l
               <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
                 {r.avgCFS&&<span style={{fontSize:13,background:"rgba(44,95,110,0.3)",borderRadius:20,padding:"2px 9px",color:"var(--sky)"}}>💧 {Math.round(r.avgCFS)} CFS avg</span>}
                 {r.peakMonth&&<span style={{fontSize:13,background:"rgba(74,122,58,0.25)",borderRadius:20,padding:"2px 9px",color:"#9cd47a"}}>📅 Peak: {r.peakMonth}</span>}
-                {r.topFly&&<span style={{fontSize:13,background:"rgba(200,168,75,0.2)",borderRadius:20,padding:"2px 9px",color:"var(--gold)"}}>🪶 {r.topFly}</span>}
+                {r.topFly&&<span style={{fontSize:13,background:"rgba(209,154,74,0.2)",borderRadius:20,padding:"2px 9px",color:"var(--gold)"}}>🪶 {r.topFly}</span>}
                 {r.topSkill&&<span style={{fontSize:13,background:"rgba(255,255,255,0.07)",borderRadius:20,padding:"2px 9px",color:"var(--stone)"}}>👤 {r.topSkill}</span>}
                 {r.topStyle&&<span style={{fontSize:13,background:"rgba(255,255,255,0.07)",borderRadius:20,padding:"2px 9px",color:"var(--stone)"}}>🎣 {r.topStyle}</span>}
               </div>
@@ -3629,7 +3629,7 @@ function GuideBook({user, loc}){
       {guideSection==="stats"?<GuideStats guests={guests}/>:guideSection==="seasonlog"?<GuideSeasonLog guests={guests}/>:guideSection==="gauges"?<GuideSavedGauges user={user}/>:guideSection==="trends"?<GuideTrends guests={guests} loc={loc} setView={setView} setSelectedGuest={setSelectedGuest} setSelectedTrip={setSelectedTrip} loadTripPhotos={loadTripPhotos}/>:null}
       <div style={{display:guideSection==="clients"?"block":"none"}}>
       {String(user?.id).startsWith("local")&&(
-        <div style={{background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
+        <div style={{background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:14,padding:"14px 16px",marginBottom:14,fontSize:15,color:"var(--gold)",lineHeight:1.6}}>
           ⚠️ <strong>Not logged in</strong> — guest data is saved to this device only.
         </div>
       )}
@@ -3640,7 +3640,7 @@ function GuideBook({user, loc}){
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
         <button onClick={runPhotoMigration} disabled={!!migrationStatus}
-          style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
+          style={{fontSize:14,padding:"4px 10px",background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
           {migrationStatus||"🔄 Migrate Photos to Storage"}
         </button>
       </div>
@@ -4201,7 +4201,7 @@ function GuideBook({user, loc}){
                   if(sb) sb.from("trips").update({catch_details:details.map(d=>({...d,analyzing:false}))}).eq("id",selectedTrip.id);
                 }catch(outerErr){void 0;}
                 finally{reset();}
-              }} style={{fontSize:14,padding:"4px 10px",background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
+              }} style={{fontSize:14,padding:"4px 10px",background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,color:"var(--gold)",cursor:"pointer",fontFamily:"var(--font-body)"}}>
                 ✦ Identify Fish
               </button>
             </div>
@@ -4273,7 +4273,7 @@ function GuideBook({user, loc}){
                         btn.textContent="🔍 Identify";btn.disabled=false;
                       }} style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>🔍 Identify</button>}
                       <button onClick={e=>{e.stopPropagation();setEditingTripCatchIdx(editingTripCatchIdx===i?null:i);}}
-                        style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                        style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                         ✏️ Edit
                       </button>
                       <button onClick={async e=>{e.stopPropagation();if(!window.confirm("Remove this photo and catch data?"))return;
@@ -4386,7 +4386,7 @@ function GuideBook({user, loc}){
                               }else{alert("No historical conditions found for this date/location.");}
                             }catch(err){alert("Conditions fetch failed: "+err.message);}
                             finally{e.currentTarget.textContent="📍 Fetch";e.currentTarget.disabled=false;}
-                          }} style={{background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:15,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"var(--font-body)"}}>
+                          }} style={{background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"0 10px",color:"var(--gold)",fontSize:15,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"var(--font-body)"}}>
                             📍 Fetch
                           </button>
                         </div>
@@ -4400,10 +4400,10 @@ function GuideBook({user, loc}){
           </div>
         )}
         {migrationStatus&&(
-          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
+          <div style={{padding:"8px 12px",background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
         )}
         {migrationStatus&&(
-          <div style={{padding:"8px 12px",background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
+          <div style={{padding:"8px 12px",background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:10,fontSize:15,color:"var(--gold)",marginBottom:8}}>{migrationStatus}</div>
         )}
         <div style={{marginTop:14,display:"flex",gap:8}}>
           <button className="gen" style={{flex:1}} disabled={generating} onClick={()=>generateReport(selectedGuest,selectedTrip)}>
@@ -5148,7 +5148,7 @@ function TripPlannerLoading({steps,onCancel,destination}){
       <div style={{fontSize:56,marginBottom:20}}>🪶</div>
       <div style={{fontFamily:"var(--font-head)",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
       <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near {destination||"you"}<br/>and finding where they're moving…</div>
-      <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,168,75,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(209,154,74,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <p style={{fontSize:16,color:"var(--sky)",lineHeight:1.75,textAlign:"center",transition:"opacity 0.5s",opacity:fade?1:0,margin:0,fontStyle:"italic"}}>"{FLY_FACTS[factIdx]}"</p>
       </div>
       <div style={{width:"100%",maxWidth:340}}>
@@ -5541,7 +5541,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             </button>}
           </div>}
           {savedReports.map(r=>(
-            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,168,75,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"var(--font-body)"}}>
+            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(209,154,74,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"var(--font-body)"}}>
               <span style={{color:"var(--gold)"}}>{r.loc_label||"Saved report"}</span>
               <span style={{color:"var(--stone)",marginLeft:8,fontSize:13}}>{new Date(r.created_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
             </button>
@@ -5634,7 +5634,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(200,168,75,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
@@ -5706,7 +5706,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         </button>}
       </div>
       {results.length===0&&q.length>=2&&!q.match(/^[0-9]+$/)&&(
-        <div style={{marginTop:8,background:"rgba(200,168,75,0.1)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:10,padding:"10px 12px"}}>
+        <div style={{marginTop:8,background:"rgba(209,154,74,0.1)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:10,padding:"10px 12px"}}>
           <div style={{fontSize:15,color:"var(--gold)",marginBottom:4,fontWeight:600}}>Stream not found in nearby gauges</div>
           <div style={{fontSize:14,color:"var(--stone)",lineHeight:1.6}}>
             To add any stream:<br/>
@@ -5799,7 +5799,7 @@ function CatchPatterns({catches}){
       <div className="csub">{catches.length} catches analyzed</div>
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
         {[["monthly","By Month"],["species","By Species"],["flies","Top Flies"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setView(v)} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:view===v?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
+          <button key={v} onClick={()=>setView(v)} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:view===v?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:view===v?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{l}</button>
         ))}
       </div>
       {view==="monthly"&&(
@@ -5857,7 +5857,7 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <div className="csub" style={{margin:0}}>Live USGS · {gauges.length} gauges{lastUpd&&" · "+lastUpd}</div>
-        {gauges.length>0&&<button onClick={()=>setShowStarredOnly&&setShowStarredOnly(v=>!v)} style={{fontSize:14,background:showStarredOnly?"rgba(200,168,75,0.3)":"rgba(255,255,255,0.06)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"3px 10px",color:showStarredOnly?"var(--gold)":"var(--stone)",cursor:"pointer"}}>
+        {gauges.length>0&&<button onClick={()=>setShowStarredOnly&&setShowStarredOnly(v=>!v)} style={{fontSize:14,background:showStarredOnly?"rgba(209,154,74,0.3)":"rgba(255,255,255,0.06)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:20,padding:"3px 10px",color:showStarredOnly?"var(--gold)":"var(--stone)",cursor:"pointer"}}>
           {showStarredOnly?"⭐ Starred":"☆ All"}
         </button>}
       </div>
@@ -5889,7 +5889,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <span style={{fontSize:15,color:"var(--gold)",fontFamily:"var(--font-head)"}}>⭐ My Gauges</span>
-        <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:14,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
+        <button onClick={()=>setShowAddGauge(v=>!v)} style={{fontSize:14,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"3px 10px",color:"var(--gold)",cursor:"pointer"}}>+ Add</button>
       </div>
       {showAddGauge&&(
         <div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -6655,7 +6655,7 @@ function App({user, tier, refreshTier}){
         <div className="hdr">
           <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
             <button onClick={openSettings} aria-label="Settings"
-              style={{background:showSettings?"rgba(200,168,75,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+              style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               ⚙
             </button>
             <button onClick={()=>sb?sb.auth.signOut():null}
@@ -6664,7 +6664,7 @@ function App({user, tier, refreshTier}){
             </button>
           </div>
           {showSettings&&settingsPos&&createPortal(
-              <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(200,168,75,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
+              <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(209,154,74,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Plan</div>
                 <div style={{fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)",marginBottom:8}}>
@@ -6677,17 +6677,17 @@ function App({user, tier, refreshTier}){
                 {tier!=="guide_pro"&&<>
                   {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
                   {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
-                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                     {settingsUpgradeBusy==="consumer_pro"?"Starting…":"Upgrade to Consumer Pro — $4.99/mo"}
                   </button>}
                   <button disabled={settingsUpgradeBusy==="guide_pro"} onClick={async()=>{setSettingsUpgradeBusy("guide_pro");setSettingsUpgradeErr("");try{await startCheckout("guide_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
-                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(200,168,75,0.12)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                    style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                     {settingsUpgradeBusy==="guide_pro"?"Starting…":"Upgrade to Guide Pro — $19.99/mo"}
                   </button>
                 </>}
                 <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,cursor:"pointer",fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)"}}>
                   <span>🧭 Guide tab</span>
-                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#d4b877",cursor:"pointer"}}/>
+                  <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#d09a4a",cursor:"pointer"}}/>
                 </label>
                 <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
                 <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:12,paddingTop:10,display:"flex",gap:14}}>
@@ -6724,7 +6724,7 @@ function App({user, tier, refreshTier}){
             {loc&&<>
               <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
                 {[["weather","🌤 Weather"],["streams","💧 Streams"],["report","🐛 Bugs"],["shops","🪝 Shops"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:intelTab===id?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+                  <button key={id} onClick={()=>{setIntelTab(id);if(id==="report")setHatchAutoRun(true);}} style={{fontSize:15,padding:"6px 16px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:intelTab===id?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:intelTab===id?"var(--gold)":"var(--stone)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
                 ))}
               </div>
               {intelTab==="weather"&&<>
@@ -6820,8 +6820,8 @@ ${shopPins}
           {tab==="log"&&<>
             <div className="lhdr" style={{flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setCatchLogTab("list")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="list"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
-                <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(200,168,75,0.3)",background:catchLogTab==="photos"?"rgba(200,168,75,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
+                <button onClick={()=>setCatchLogTab("list")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="list"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
+                <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="photos"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
@@ -6887,7 +6887,7 @@ ${shopPins}
               const markers=cr.map((co,i)=>{
                 const c=wg[i];
                 const tip=(c.species||"Catch")+(c.length?' '+c.length+'"':'')+(c.time?' | '+c.time:'');
-                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#d4b877',color:'#8a6a1a',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
+                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#d09a4a',color:'#876430',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
               }).join('\n');
               const mapHtml=`<!DOCTYPE html><html><head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -6909,7 +6909,7 @@ ${shopPins}
                   <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin allow-popups"/>
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
                     {wg.slice(0,10).map((c,i)=>(
-                      <span key={i} style={{fontSize:14,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
+                      <span key={i} style={{fontSize:14,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
                         📍 {c.species||"Catch"}{c.length?" "+c.length+'"':""} 
                       </span>
                     ))}
@@ -6956,7 +6956,7 @@ ${shopPins}
 
                   <div style={{display:"flex",gap:8,marginTop:8}}>
                     <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
-                      style={{flex:1,background:"rgba(200,168,75,0.2)",border:"1px solid rgba(200,168,75,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                      style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                       ✏️ Edit
                     </button>
                     <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
@@ -7013,7 +7013,7 @@ ${shopPins}
                     <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Flies Used</div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
                       {(c.flies||[]).map((f,i)=>(
-                        <span key={i} style={{fontSize:14,background:"rgba(200,168,75,0.15)",border:"1px solid rgba(200,168,75,0.4)",borderRadius:20,padding:"2px 8px",color:"var(--gold)",display:"flex",alignItems:"center",gap:4}}>
+                        <span key={i} style={{fontSize:14,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"2px 8px",color:"var(--gold)",display:"flex",alignItems:"center",gap:4}}>
                           🪶 {f}
                           <button onClick={e=>{e.stopPropagation();const next=(c.flies||[]).filter((_,j)=>j!==i);updateCatch(c.id,{flies:next});}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",padding:"0 2px",fontSize:13,lineHeight:1}}>×</button>
                         </span>
@@ -7094,7 +7094,7 @@ ${shopPins}
             </div>
           )}
           <p className="hint">GPS & timestamp auto-recorded with your photo.</p>
-          {form.sizeEstimating&&<div style={{fontSize:15,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(200,168,75,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
+          {form.sizeEstimating&&<div style={{fontSize:15,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(209,154,74,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
           {form.idNote&&!form.sizeEstimating&&<div style={{fontSize:15,color:"var(--red)",marginBottom:8,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:8}}>⚠️ {form.idNote}</div>}
           <label className="lbl">Species</label>
           <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
@@ -7187,7 +7187,7 @@ function SplashScreen({onDone}){
       {s.isSplash?(
         <>
           {vidOk&&(
-            <button onClick={()=>setVidOpen(true)} style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(200,168,75,0.35)",background:"#000",flexShrink:0,padding:0,cursor:"pointer",display:"block"}}>
+            <button onClick={()=>setVidOpen(true)} style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(209,154,74,0.35)",background:"#000",flexShrink:0,padding:0,cursor:"pointer",display:"block"}}>
               <img src={WELCOME_VIDEO_THUMB} onError={()=>setVidOk(false)} alt="Watch the walkthrough" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:0.85}}/>
               <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:64,height:64,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"2px solid var(--gold)",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <div style={{width:0,height:0,borderTop:"13px solid transparent",borderBottom:"13px solid transparent",borderLeft:"22px solid var(--gold)",marginLeft:5}}/>
@@ -7215,7 +7215,7 @@ function SplashScreen({onDone}){
             </defs>
             <rect width="340" height="180" fill="url(#skg)"/>
             {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
-            <circle cx="290" cy="25" r="14" fill="#d4b877" opacity="0.9"/>
+            <circle cx="290" cy="25" r="14" fill="#d09a4a" opacity="0.9"/>
             <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
             <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
             <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
@@ -7227,14 +7227,14 @@ function SplashScreen({onDone}){
               <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
               <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
               <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
-              <line x1="6" y1="10" x2="50" y2="-15" stroke="#d4b877" strokeWidth="1.5"/>
-              <path d="M50,-15 Q80,-5 95,20" stroke="#d4b877" strokeWidth="0.8" fill="none" opacity="0.8"/>
+              <line x1="6" y1="10" x2="50" y2="-15" stroke="#d09a4a" strokeWidth="1.5"/>
+              <path d="M50,-15 Q80,-5 95,20" stroke="#d09a4a" strokeWidth="0.8" fill="none" opacity="0.8"/>
             </g>
           </svg>
           )}
           <div style={{marginBottom:8}}><Logo layout="stacked" mark={false} scale={1} /></div>
           <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
-          <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(200,168,75,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
+          <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(209,154,74,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
             <p style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
           </div>
