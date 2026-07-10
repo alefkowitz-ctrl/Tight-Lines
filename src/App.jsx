@@ -175,10 +175,10 @@ async function uploadPhotoToStorage(base64DataUrl, folder){
     const ext=blob.type.split("/")[1]||"jpg";
     const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const {data,error}=await sb.storage.from("trip-photos").upload(fileName,blob,{contentType:blob.type,upsert:false});
-    if(error){void 0;return null;}
+    if(error){console.error("uploadPhotoToStorage: storage upload failed:",error.message||error);return null;}
     const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
     return publicUrl;
-  }catch(e){void 0;return null;}
+  }catch(e){console.error("uploadPhotoToStorage: threw:",e.message||e);return null;}
 }
 
 
@@ -6247,8 +6247,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
 
   async function addCatch(catchData){
     // Upload photo to storage first, fall back to null if it fails
+    let photoUploadFailed=false;
     if(catchData.photo&&catchData.photo.startsWith("data:")){
       const url=await uploadPhotoToStorage(catchData.photo,"catches");
+      if(!url) photoUploadFailed=true;
       catchData={...catchData,photo:url||null}; // don't store huge base64 in DB
     }
     if(!sb||!isOnline){
@@ -6282,6 +6284,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       alert("Catch save failed: "+error.message);
     } else if(data){
       setCatches(c=>[{...catchData,id:data.id},...c]);
+      if(photoUploadFailed) alert("Catch saved, but the photo didn't upload — check your connection and try adding the photo again from the catch log.");
       return data.id;
     }
   }
