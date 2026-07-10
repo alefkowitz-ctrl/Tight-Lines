@@ -232,12 +232,22 @@ function useAuth(){
   // and for a manual "Have a code?" entry from an already-signed-in user (Settings).
   // Server-side (redeem-invite.js) is the actual authority on validity/eligibility;
   // this is just the client plumbing, so it's safe to call from either caller.
-  async function redeemInviteCode(code){
+  async function redeemInviteCode(code, sessionOverride){
     const trimmed = String(code||"").trim();
     if(!trimmed || !sb) return {ok:false, reason:"no_code"};
     try{
-      const {data:{session:fresh}} = await sb.auth.getSession();
-      const token = fresh?.access_token;
+      // Prefer a session handed to us directly (e.g. from an onAuthStateChange event)
+      // over calling sb.auth.getSession() again ourselves. Re-querying getSession()
+      // immediately after an auth event is a known Supabase JS footgun — it can race
+      // the library's internal session lock and resolve with no session at all, even
+      // though the caller is clearly signed in. That silently killed signup-time invite
+      // redemption (App Dev — TRIAL30 investigation): the code was correct, the user was
+      // signed in, but this re-query returned null, so the redeem call never fired.
+      let token = sessionOverride?.access_token;
+      if(!token){
+        const {data:{session:fresh}} = await sb.auth.getSession();
+        token = fresh?.access_token;
+      }
       if(!token) return {ok:false, reason:"not_signed_in"};
       const res = await fetch("/api/redeem-invite", {
         method:"POST",
@@ -253,8 +263,10 @@ function useAuth(){
   async function maybeRedeemInvite(session, currentTier){
     const code = session?.user?.user_metadata?.invite_code;
     if(!code || currentTier!=="free") return;
-    const r = await redeemInviteCode(code);
-    if(!r.ok && r.reason==="error") console.error("Invite redemption error:", r.message);
+    const r = await redeemInviteCode(code, session);
+    // Log every failure reason, not just "error" — a silently-swallowed not_signed_in
+    // or not_a_comp_code result is exactly what made this bug invisible the first time.
+    if(!r.ok) console.error("Invite redemption failed:", r.reason, r.message||"");
   }
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
@@ -5980,45 +5992,17 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
   const [trialBannerErr,setTrialBannerErr]=useState("");
   const [signOutBusy,setSignOutBusy]=useState(false);
   const [signOutErr,setSignOutErr]=useState("");
-  const [signOutStuck,setSignOutStuck]=useState(false);
   const handleSignOut=async()=>{
     if(!sb||signOutBusy) return;
-    setSignOutErr(""); setSignOutStuck(false); setSignOutBusy(true);
-    let timedOut=false;
-    // supabase-js serializes auth calls behind a browser-native lock with no
-    // timeout on sign-out (it waits forever to acquire it). If an earlier
-    // interrupted auth call left that lock stuck, signOut() hangs silently —
-    // no error, no rejection, nothing to catch. This client-side timeout is
-    // the only way to detect that and surface it instead of leaving the
-    // button spinning forever with no explanation.
-    const stuckTimer=setTimeout(()=>{
-      timedOut=true;
-      setSignOutErr("Sign out is taking too long — a background browser lock is likely stuck.");
-      setSignOutStuck(true);
-      setSignOutBusy(false);
-    },6000);
+    setSignOutErr(""); setSignOutBusy(true);
     try{
       const {error} = await sb.auth.signOut();
-      if(timedOut) return; // already surfaced above; this resolved late, ignore it
-      clearTimeout(stuckTimer);
       if(error) throw error;
     }catch(e){
-      if(timedOut) return;
-      clearTimeout(stuckTimer);
       setSignOutErr(e?.message||"Sign out failed. Check your connection and try again.");
     }finally{
-      if(!timedOut) setSignOutBusy(false);
+      setSignOutBusy(false);
     }
-  };
-  // Escape hatch for the stuck-lock case above: clears the local session
-  // directly (no library call, so it can't hit the same stuck lock) and
-  // reloads to a guaranteed-clean JS context.
-  const forceSignOut=()=>{
-    try{
-      const ref=(SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\.supabase\.co/)||[])[1];
-      if(ref) localStorage.removeItem(`sb-${ref}-auth-token`);
-    }catch(e){void 0;}
-    window.location.reload();
   };
   useEffect(()=>{
     const onPageShow=(e)=>{ if(e.persisted) setSettingsUpgradeBusy(null); };
@@ -6738,9 +6722,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
               📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
             </div>}
             {signOutErr&&<div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
-              ⚠ {signOutErr}
-              {signOutStuck&&<button onClick={forceSignOut} style={{background:"white",border:"none",borderRadius:6,padding:"3px 10px",color:"rgba(140,73,54,0.95)",fontWeight:600,fontSize:13,cursor:"pointer",marginLeft:10}}>Force Sign Out</button>}
-              <button onClick={()=>{setSignOutErr("");setSignOutStuck(false);}} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
+              ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
             </div>}
             {showTrial&&<div style={{background:"rgba(209,154,74,0.97)",padding:"8px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:12,flexWrap:"wrap",fontSize:14,color:"#1f231d",fontFamily:"var(--font-body)"}}>
               <span>Your {TIER_INFO[trialExpired.tier]?TIER_INFO[trialExpired.tier].name:"trial"} trial has ended.</span>
