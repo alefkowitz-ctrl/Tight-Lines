@@ -8,8 +8,10 @@
 // shell works offline. It NEVER caches planner reports, gauge readings,
 // weather, auth, or any Supabase/API call — those always hit the network.
 
-const STATIC_CACHE = "gc-static-v2"; // bumped v1->v2: forces every device to drop
-// whatever it had cached under the old bucket (see REVALIDATE note below for why).
+const STATIC_CACHE = "gc-static-v3"; // bumped v2->v3: sign-out portal fix + invite-code
+// banner shipped same day as two rounds of a stale-cache profile masking real fixes as
+// "not working" — bumping this forces every device to drop its old cache on next load
+// instead of relying on a manual "clear browsing data" each time a fix ships.
 
 // Vite content-hashes these filenames (name-HASH.js/name-HASH.css under /assets/) —
 // a changed file always ships under a brand-new URL, so caching it forever is safe.
