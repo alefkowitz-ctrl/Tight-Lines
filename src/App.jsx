@@ -6745,7 +6745,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
-          <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:10,display:"flex",gap:8,alignItems:"flex-start"}}>
+          <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:1001,display:"flex",gap:8,alignItems:"flex-start"}}>
             <button onClick={openSettings} aria-label="Settings"
               style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
               ⚙
