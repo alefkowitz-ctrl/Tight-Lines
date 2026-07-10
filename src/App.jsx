@@ -199,6 +199,11 @@ function useAuth(){
   // Populated only when a comped account's access has just been read as expired —
   // lets the UI show "your trial ended" instead of silently looking like plain free tier.
   const [trialExpired, setTrialExpired] = useState(null);
+  // Populated after every signup-time auto-redeem attempt (success or failure) so the
+  // outcome is visible on screen — this used to be console-only, which is useless on
+  // browsers where DevTools is blocked by an org policy (confirmed case: Adam's work
+  // Chrome profile). Cleared by the person dismissing the banner.
+  const [autoRedeemNotice, setAutoRedeemNotice] = useState(null);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
   // Fails open to "free" on any error/missing row — a Supabase hiccup must never
@@ -267,6 +272,7 @@ function useAuth(){
     // Log every failure reason, not just "error" — a silently-swallowed not_signed_in
     // or not_a_comp_code result is exactly what made this bug invisible the first time.
     if(!r.ok) console.error("Invite redemption failed:", r.reason, r.message||"");
+    setAutoRedeemNotice(r.ok ? {ok:true, tier:r.tier} : {ok:false, reason:r.reason, message:r.message||""});
   }
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
@@ -298,7 +304,7 @@ function useAuth(){
     });
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
-  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode};
+  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -5954,7 +5960,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
@@ -6716,7 +6722,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
       <div className="bgbar"/>
       {(()=>{
         const showTrial = trialExpired && trialBannerDismissed!==trialExpired.expiredAt;
-        if(!isOnline || signOutErr || showTrial) return (
+        if(!isOnline || signOutErr || showTrial || autoRedeemNotice) return (
           <div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,display:"flex",flexDirection:"column"}}>
             {!isOnline&&<div style={{background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
               📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
@@ -6724,6 +6730,21 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode}){
             {signOutErr&&<div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
               ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
             </div>}
+            {autoRedeemNotice&&(autoRedeemNotice.ok
+              ? <div style={{background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
+                  ✓ Your invite code was applied — {TIER_INFO[autoRedeemNotice.tier]?TIER_INFO[autoRedeemNotice.tier].name:autoRedeemNotice.tier} is now active.
+                  <button onClick={()=>setAutoRedeemNotice(null)} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
+                </div>
+              : <div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
+                  ⚠ Couldn't apply your invite code automatically ({
+                    autoRedeemNotice.reason==="not_signed_in" ? "session wasn't ready yet"
+                    : autoRedeemNotice.reason==="already_paying_subscriber" ? "this account already has an active subscription"
+                    : autoRedeemNotice.reason==="not_a_comp_code" ? "that code has no automatic access attached"
+                    : autoRedeemNotice.message || autoRedeemNotice.reason || "unknown reason"
+                  }). You can enter it manually in Settings → "Have a code?".
+                  <button onClick={()=>setAutoRedeemNotice(null)} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
+                </div>
+            )}
             {showTrial&&<div style={{background:"rgba(209,154,74,0.97)",padding:"8px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:12,flexWrap:"wrap",fontSize:14,color:"#1f231d",fontFamily:"var(--font-body)"}}>
               <span>Your {TIER_INFO[trialExpired.tier]?TIER_INFO[trialExpired.tier].name:"trial"} trial has ended.</span>
               {trialBannerErr&&<span style={{fontSize:13}}>{trialBannerErr}</span>}
@@ -7364,7 +7385,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode} = useAuth();
+  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
@@ -7404,7 +7425,7 @@ function Root(){
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice}/>
   </>;
 }
 export default Root;
