@@ -6001,9 +6001,25 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const handleSignOut=async()=>{
     if(!sb||signOutBusy) return;
     setSignOutErr(""); setSignOutBusy(true);
+    // sb.auth.signOut() has been observed hanging indefinitely — no error, no network
+    // call ever fires — across multiple devices, browsers, and networks (2026-07-10),
+    // after a day of heavy rapid auth activity (many sign-ins/outs across tabs and test
+    // accounts). Most likely the Supabase client's internal auth lock getting stuck.
+    // Rather than trust it to always resolve, race it against a timeout: if it doesn't
+    // finish in time, wipe the local session ourselves and reload. This guarantees the
+    // button can never get stuck again, regardless of the exact underlying cause.
+    const TIMED_OUT = Symbol("timeout");
     try{
-      const {error} = await sb.auth.signOut();
-      if(error) throw error;
+      const result = await Promise.race([
+        sb.auth.signOut(),
+        new Promise(resolve=>setTimeout(()=>resolve(TIMED_OUT), 4000))
+      ]);
+      if(result===TIMED_OUT){
+        try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
+        window.location.reload();
+        return;
+      }
+      if(result?.error) throw result.error;
     }catch(e){
       setSignOutErr(e?.message||"Sign out failed. Check your connection and try again.");
     }finally{
