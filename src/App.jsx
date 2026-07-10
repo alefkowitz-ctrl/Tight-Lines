@@ -6716,9 +6716,29 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   }
 
   const hatches=HATCHES[new Date().getMonth()];
+  // The header buttons (gear + Sign Out) get portaled to document.body below, to escape
+  // .hdr's own stacking context (position:relative;z-index:5) — nesting them in .hdr
+  // capped their effective z-index at 5 no matter what value was set on the buttons
+  // themselves, letting the top status banner (z-index 1000, a sibling of .hdr rather
+  // than a descendant) silently swallow every click whenever it was showing. This is
+  // the same class of bug the Settings dropdown panel was already portaled to fix;
+  // the toggle buttons that open it were missed at the time.
+  const appRef=useRef(null);
+  const [btnPos,setBtnPos]=useState(null);
+  useEffect(()=>{
+    function measure(){
+      if(appRef.current){
+        const r=appRef.current.getBoundingClientRect();
+        setBtnPos({top:r.top+14, right:window.innerWidth-r.right+16});
+      }
+    }
+    measure();
+    window.addEventListener("resize",measure);
+    return ()=>window.removeEventListener("resize",measure);
+  },[]);
 
   return(
-    <div className="app">
+    <div className="app" ref={appRef}>
       <div className="bgbar"/>
       {(()=>{
         const showTrial = trialExpired && trialBannerDismissed!==trialExpired.expiredAt;
@@ -6766,16 +6786,19 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
 
       <div className={`main${addOpen?" off":""}`}>
         <div className="hdr">
-          <div ref={settingsWrapRef} style={{position:"absolute",top:14,right:16,zIndex:1001,display:"flex",gap:8,alignItems:"flex-start"}}>
-            <button onClick={openSettings} aria-label="Settings"
-              style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-              ⚙
-            </button>
-            <button disabled={signOutBusy} onClick={handleSignOut}
-              style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:signOutBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:signOutBusy?0.6:1}}>
-              {signOutBusy?"Signing out…":"Sign Out"}
-            </button>
-          </div>
+          {btnPos&&!addOpen&&createPortal(
+            <div ref={settingsWrapRef} style={{position:"fixed",top:btnPos.top,right:btnPos.right,zIndex:2001,display:"flex",gap:8,alignItems:"flex-start"}}>
+              <button onClick={openSettings} aria-label="Settings"
+                style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                ⚙
+              </button>
+              <button disabled={signOutBusy} onClick={handleSignOut}
+                style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:signOutBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:signOutBusy?0.6:1}}>
+                {signOutBusy?"Signing out…":"Sign Out"}
+              </button>
+            </div>,
+            document.body
+          )}
           {showSettings&&settingsPos&&createPortal(
               <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(209,154,74,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
