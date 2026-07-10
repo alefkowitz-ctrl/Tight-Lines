@@ -33,7 +33,10 @@ export default async function handler(req, res) {
       SB_URL + "/rest/v1/invite_codes?select=active,comp_tier,comp_duration_days&code=eq." + encodeURIComponent(code),
       { headers: { apikey: key, Authorization: "Bearer " + key } }
     );
-    if (!codeRes.ok) return res.status(500).json({ error: { message: "Could not verify code." } });
+    if (!codeRes.ok) {
+      const body = await codeRes.text().catch(() => "");
+      return res.status(500).json({ error: { message: "Could not verify code (Supabase " + codeRes.status + "): " + body } });
+    }
     const codeRows = await codeRes.json();
     const codeRow = codeRows?.[0];
     if (!codeRow || codeRow.active === false || !codeRow.comp_tier) {
@@ -47,7 +50,11 @@ export default async function handler(req, res) {
       SB_URL + "/rest/v1/subscriptions?select=status,stripe_customer_id&user_id=eq." + encodeURIComponent(userId),
       { headers: { apikey: key, Authorization: "Bearer " + key } }
     );
-    const subRows = subRes.ok ? await subRes.json() : [];
+    if (!subRes.ok) {
+      const body = await subRes.text().catch(() => "");
+      return res.status(500).json({ error: { message: "Could not check existing subscription (Supabase " + subRes.status + "): " + body } });
+    }
+    const subRows = await subRes.json();
     const existing = subRows?.[0];
     if (existing && existing.status === "active" && existing.stripe_customer_id) {
       return res.status(200).json({ ok: false, reason: "already_paying_subscriber" });
