@@ -25,18 +25,14 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
     <img src="/logo-mark.png" alt="Guide's Choice" aria-hidden="true"
       style={{ height: px(46), width: px(46), objectFit: "contain", display: "block" }} />
   ) : null;
-  const emblemLarge = mark ? (
-    <img src="/logo-mark-large.png" alt="Guide's Choice" aria-hidden="true"
-      style={{ height: px(80), width: px(80), objectFit: "contain", display: "block" }} />
-  ) : null;
-  const emblemRow = mark ? (
-    stacked ? (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: px(10) }}>
-        <div style={{ width: px(30), height: 1, background: "var(--gold)", opacity: 0.7 }} />
-        {emblemLarge}
-        <div style={{ width: px(30), height: 1, background: "var(--gold)", opacity: 0.7 }} />
-      </div>
-    ) : emblem
+  // Full badge (helmet + trout emblem with "GUIDE'S CHOICE" / "FIND THE PATTERN" baked
+  // into the ring) — used for the stacked+mark layout (AuthScreen, main header, and the
+  // cold-launch loading screen) so the wordmark/tagline aren't duplicated as separate
+  // live text right next to it. Adam, App Dev 29: wants the text-ring version, not the
+  // plain emblem, as the visible logo.
+  const badge = mark ? (
+    <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern"
+      style={{ height: px(150), width: px(150), objectFit: "contain", display: "block" }} />
   ) : null;
   const title = (
     <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 32 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
@@ -49,10 +45,16 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
     </div>
   ) : null;
   if (stacked) {
+    if (mark) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+          {badge}
+        </div>
+      );
+    }
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
         <div style={{ marginBottom: px(14) }}>{title}</div>
-        {emblemRow && <div style={{ marginBottom: px(14) }}>{emblemRow}</div>}
         {tag}
       </div>
     );
@@ -190,6 +192,8 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("REPLACE_WITH");
 const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
+const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
+
 // ── Auth hook ─────────────────────────────────────────────────────────────────
 function useAuth(){
   const [user, setUser] = useState(null);
@@ -204,29 +208,54 @@ function useAuth(){
   // browsers where DevTools is blocked by an org policy (confirmed case: Adam's work
   // Chrome profile). Cleared by the person dismissing the banner.
   const [autoRedeemNotice, setAutoRedeemNotice] = useState(null);
+  // Set when every retry attempt in refreshTier below hit a genuine error (not just "no
+  // row" / legitimately free) — surfaces a visible "couldn't verify your plan" banner with
+  // a manual retry instead of silently looking like a downgrade. Cleared on next success.
+  const [tierCheckFailed, setTierCheckFailed] = useState(false);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
   // Fails open to "free" on any error/missing row — a Supabase hiccup must never
   // read as a paywall lockout for someone who's actually paying.
+  //
+  // Retries up to 2 extra times (short backoff) on a genuine fetch error only — e.g. a
+  // slow/flaky mobile connection right as the app opens — before falling back to "free".
+  // This was previously a single attempt with no retry: a transient failure right at
+  // cold-launch silently and permanently read as "free" for the rest of that session,
+  // with no self-heal. The only way out was signing out and back in, which forces a
+  // fresh attempt (usually on a by-then-stable connection) — that "fix" was really just
+  // a lucky retry. Confirmed report (App Dev 28+): both Adam's and Evan's accounts.
+  // A legitimate "no subscriptions row" (real free user) or status==="canceled" is NOT
+  // an error and must never trigger a retry — only `error` truthy does.
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
-    if(!sb || !id){ setTier("free"); setTrialExpired(null); return "free"; }
-    try{
-      const {data, error} = await sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle();
-      if(error || !data || data.status==="canceled"){ setTier("free"); setTrialExpired(null); return "free"; }
-      // Time-limited comped access (e.g. a 30-day trial code) reuses current_period_end,
-      // the same column real Stripe subscriptions use for their billing period end. Gated
-      // strictly on is_comped so a webhook-lag false-positive can never lock out a real
-      // paying subscriber — is_comped is only ever true for complimentary/trial accounts.
-      if(data.is_comped && data.current_period_end && new Date(data.current_period_end) < new Date()){
-        setTier("free"); setTrialExpired({tier:data.tier||"guide_pro", expiredAt:data.current_period_end});
-        return "free";
+    if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); return "free"; }
+    const delays = [0, 700, 1600]; // first attempt, then two retries
+    for(let attempt=0; attempt<delays.length; attempt++){
+      if(delays[attempt]) await sleep(delays[attempt]);
+      try{
+        const {data, error} = await sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle();
+        if(error){
+          if(attempt<delays.length-1) continue; // genuine error — worth another try
+          setTierCheckFailed(true); setTier("free"); setTrialExpired(null); return "free";
+        }
+        if(!data || data.status==="canceled"){ setTierCheckFailed(false); setTier("free"); setTrialExpired(null); return "free"; }
+        // Time-limited comped access (e.g. a 30-day trial code) reuses current_period_end,
+        // the same column real Stripe subscriptions use for their billing period end. Gated
+        // strictly on is_comped so a webhook-lag false-positive can never lock out a real
+        // paying subscriber — is_comped is only ever true for complimentary/trial accounts.
+        if(data.is_comped && data.current_period_end && new Date(data.current_period_end) < new Date()){
+          setTierCheckFailed(false); setTier("free"); setTrialExpired({tier:data.tier||"guide_pro", expiredAt:data.current_period_end});
+          return "free";
+        }
+        setTierCheckFailed(false); setTrialExpired(null);
+        const t = data.tier || "free";
+        setTier(t);
+        return t;
+      }catch(e){
+        if(attempt<delays.length-1) continue;
+        setTierCheckFailed(true); setTier("free"); return "free";
       }
-      setTrialExpired(null);
-      const t = data.tier || "free";
-      setTier(t);
-      return t;
-    }catch(e){ setTier("free"); return "free"; }
+    }
   }, [user]);
   // One-time complimentary-access redemption for a code stored on the auth user at
   // signup (see AuthScreen). Only fires while the caller is still on the free tier —
@@ -302,9 +331,18 @@ function useAuth(){
       setUser(session?.user ?? null);
       if(session?.user){ const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0); } else setTier("free");
     });
-    return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
+    // Re-check the tier whenever the app/tab comes back to the foreground — covers a
+    // PWA that was backgrounded (not freshly launched) whose last tier check happened
+    // to fail. Cheap (one query) and only fires while someone's actually signed in.
+    function onVisible(){
+      if(document.visibilityState==="visible" && sb.auth.getSession){
+        sb.auth.getSession().then(({data:{session}})=>{ if(session?.user) refreshTier(session.user.id); });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); document.removeEventListener("visibilitychange", onVisible); };
   },[]);
-  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice};
+  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -5183,10 +5221,18 @@ function TripPlannerLoading({steps,onCancel,destination}){
     },10000);
     return()=>clearInterval(t);
   },[]);
-  return(
-    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:9000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+  // Portaled straight to document.body (same fix already applied to the header's Sign
+  // Out/gear buttons): rendering this inline left it nested inside .content's own
+  // stacking context (position:relative;z-index:1), which caps its z-index:9000 at that
+  // local value no matter what — so .hdr (z-index:5, a sibling with a HIGHER local value)
+  // visually bled through the top of this "full-screen" takeover, and the portaled Sign
+  // Out/gear buttons (z-index:2001, already living on document.body) rendered on top of
+  // this overlay's own Cancel button instead of being safely covered by it. z-index:5000
+  // here clears both of those (and the Settings dropdown's 2000/2001) with room to spare
+  // below the video modal's 10000/10001.
+  return createPortal(
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:5000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
       <button onClick={onCancel} style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 16px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>✕ Cancel</button>
-      <div style={{fontSize:56,marginBottom:20}}>🪶</div>
       <div style={{fontFamily:"var(--font-head)",fontSize:26,color:"var(--gold)",marginBottom:6,textAlign:"center",letterSpacing:0.5}}>Hang tight, let it drift.</div>
       <div style={{fontSize:16,color:"var(--stone)",marginBottom:36,textAlign:"center",fontStyle:"italic",lineHeight:1.6}}>Reading the water near {destination||"you"}<br/>and finding where they're moving…</div>
       <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(209,154,74,0.2)",borderRadius:16,padding:"22px 28px",maxWidth:340,marginBottom:36,minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -5201,7 +5247,8 @@ function TripPlannerLoading({steps,onCancel,destination}){
           <div style={{height:"100%",width:prog+"%",background:"linear-gradient(90deg,var(--gold),#e3c873)",borderRadius:3,transition:"width 0.4s ease"}}/>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -5960,7 +6007,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice}){
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
@@ -5996,6 +6043,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [trialBannerDismissed,setTrialBannerDismissed]=useState(null); // stores the expiredAt it was dismissed for
   const [trialBannerBusy,setTrialBannerBusy]=useState(false);
   const [trialBannerErr,setTrialBannerErr]=useState("");
+  const [tierRetryBusy,setTierRetryBusy]=useState(false);
   const [signOutBusy,setSignOutBusy]=useState(false);
   const [signOutErr,setSignOutErr]=useState("");
   const handleSignOut=async()=>{
@@ -6761,10 +6809,17 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       <div className="bgbar"/>
       {(()=>{
         const showTrial = trialExpired && trialBannerDismissed!==trialExpired.expiredAt;
-        if(!isOnline || signOutErr || showTrial || autoRedeemNotice) return (
+        if(!isOnline || signOutErr || showTrial || autoRedeemNotice || tierCheckFailed) return (
           <div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,display:"flex",flexDirection:"column"}}>
             {!isOnline&&<div style={{background:"rgba(200,100,50,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
               📵 Offline mode — catches will sync when you reconnect{syncQueue.length>0?" · "+syncQueue.length+" pending":""}
+            </div>}
+            {tierCheckFailed&&<div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,flexWrap:"wrap"}}>
+              ⚠ Couldn't verify your plan — you may be seeing Free features while this is unresolved.
+              <button disabled={tierRetryBusy} onClick={async()=>{setTierRetryBusy(true);await refreshTier();setTierRetryBusy(false);}}
+                style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,padding:"4px 12px",color:"white",fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                {tierRetryBusy?"Retrying…":"Retry"}
+              </button>
             </div>}
             {signOutErr&&<div style={{background:"rgba(140,73,54,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>
               ⚠ {signOutErr} <button onClick={()=>setSignOutErr("")} style={{background:"none",border:"none",color:"white",textDecoration:"underline",cursor:"pointer",fontSize:14,marginLeft:8}}>Dismiss</button>
@@ -6856,7 +6911,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                   <input type="checkbox" checked={!hideGuide} onChange={toggleGuide} style={{width:18,height:18,accentColor:"#d09a4a",cursor:"pointer"}}/>
                 </label>
                 <div style={{fontSize:13,color:"var(--stone)",marginTop:8,lineHeight:1.5}}>Hide the Guide tab if you don't run client trips. Your guide data is kept safe.</div>
-                <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:12,paddingTop:10,display:"flex",gap:14}}>
+                <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+                  <a href="mailto:adam@guideschoicefishing.com" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>✉ Contact Support</a>
                   <a href="/privacy.html" target="_blank" rel="noreferrer" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>Privacy Policy</a>
                   <a href="/terms.html" target="_blank" rel="noreferrer" style={{fontSize:13,color:"var(--sky)",textDecoration:"none"}}>Terms</a>
                 </div>
@@ -7427,7 +7483,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice} = useAuth();
+  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
@@ -7456,7 +7512,7 @@ function Root(){
   if(loading) return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:48,marginBottom:12}}>🎣</div>
+        <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern" style={{width:88,height:88,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
         <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
       </div>
     </div>
@@ -7467,7 +7523,7 @@ function Root(){
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed}/>
   </>;
 }
 export default Root;
