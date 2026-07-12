@@ -212,6 +212,15 @@ function useAuth(){
   // row" / legitimately free) — surfaces a visible "couldn't verify your plan" banner with
   // a manual retry instead of silently looking like a downgrade. Cleared on next success.
   const [tierCheckFailed, setTierCheckFailed] = useState(false);
+  // Raw snapshot of the last refreshTier attempt — shown as small debug text in Settings.
+  // Added App Dev 29.5 after the retry fix alone didn't resolve Adam's "wrong account /
+  // no full access" report, and it turned out to reproduce on wifi too (not just flaky
+  // cellular) even after a full app close-and-reopen — meaning the failure mode isn't
+  // necessarily the transient-network case the retry logic targets. Rather than guess a
+  // third time, surface the actual query result so a screenshot gives real evidence:
+  // which user id, what the subscriptions row actually contains (or that there's no row
+  // at all), and any error — instead of theorizing further with no data.
+  const [tierDebug, setTierDebug] = useState(null);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
   // Fails open to "free" on any error/missing row — a Supabase hiccup must never
@@ -228,7 +237,7 @@ function useAuth(){
   // an error and must never trigger a retry — only `error` truthy does.
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
-    if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); return "free"; }
+    if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
       if(delays[attempt]) await sleep(delays[attempt]);
@@ -236,24 +245,34 @@ function useAuth(){
         const {data, error} = await sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle();
         if(error){
           if(attempt<delays.length-1) continue; // genuine error — worth another try
-          setTierCheckFailed(true); setTier("free"); setTrialExpired(null); return "free";
+          setTierCheckFailed(true); setTier("free"); setTrialExpired(null);
+          setTierDebug({uid:id, attempt:attempt+1, error:error.message||String(error), data:null});
+          return "free";
         }
-        if(!data || data.status==="canceled"){ setTierCheckFailed(false); setTier("free"); setTrialExpired(null); return "free"; }
+        if(!data || data.status==="canceled"){
+          setTierCheckFailed(false); setTier("free"); setTrialExpired(null);
+          setTierDebug({uid:id, attempt:attempt+1, error:null, data, note: !data?"no subscriptions row for this user_id":"status=canceled"});
+          return "free";
+        }
         // Time-limited comped access (e.g. a 30-day trial code) reuses current_period_end,
         // the same column real Stripe subscriptions use for their billing period end. Gated
         // strictly on is_comped so a webhook-lag false-positive can never lock out a real
         // paying subscriber — is_comped is only ever true for complimentary/trial accounts.
         if(data.is_comped && data.current_period_end && new Date(data.current_period_end) < new Date()){
           setTierCheckFailed(false); setTier("free"); setTrialExpired({tier:data.tier||"guide_pro", expiredAt:data.current_period_end});
+          setTierDebug({uid:id, attempt:attempt+1, error:null, data, note:"comp expired"});
           return "free";
         }
         setTierCheckFailed(false); setTrialExpired(null);
         const t = data.tier || "free";
         setTier(t);
+        setTierDebug({uid:id, attempt:attempt+1, error:null, data, note:"ok"});
         return t;
       }catch(e){
         if(attempt<delays.length-1) continue;
-        setTierCheckFailed(true); setTier("free"); return "free";
+        setTierCheckFailed(true); setTier("free");
+        setTierDebug({uid:id, attempt:attempt+1, error:e.message||String(e), data:null, note:"threw"});
+        return "free";
       }
     }
   }, [user]);
@@ -342,7 +361,7 @@ function useAuth(){
     document.addEventListener("visibilitychange", onVisible);
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); document.removeEventListener("visibilitychange", onVisible); };
   },[]);
-  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed};
+  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -6007,7 +6026,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed}){
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
@@ -6876,10 +6895,16 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           {showSettings&&settingsPos&&createPortal(
               <div style={{position:"fixed",top:settingsPos.top,right:settingsPos.right,background:"#0c1e25",border:"1px solid rgba(209,154,74,0.3)",borderRadius:12,padding:"14px 16px",minWidth:210,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",textAlign:"left",zIndex:2000}}>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Settings</div>
+                <div style={{fontSize:14,color:"var(--foam)",fontFamily:"var(--font-body)",marginBottom:10,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.1)",wordBreak:"break-all"}}>
+                  {user?.email||"(not signed in)"}
+                </div>
                 <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Plan</div>
                 <div style={{fontSize:15,color:"var(--foam)",fontFamily:"var(--font-body)",marginBottom:8}}>
                   Current: {tier==="free"?"Free":(TIER_INFO[tier]?TIER_INFO[tier].name:tier)}
                 </div>
+                {tierDebug&&<div style={{fontSize:11,color:"var(--stone)",fontFamily:"monospace",marginBottom:10,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:6,wordBreak:"break-all",lineHeight:1.5}}>
+                  uid:{tierDebug.uid||"none"} · try:{tierDebug.attempt||"-"}{tierDebug.error?` · err:${tierDebug.error}`:""}{tierDebug.note?` · ${tierDebug.note}`:""}{tierDebug.data?` · row:{tier:${tierDebug.data.tier},status:${tierDebug.data.status},comped:${tierDebug.data.is_comped},end:${tierDebug.data.current_period_end}}`:""}
+                </div>}
                 {tier!=="free"&&<button disabled={settingsUpgradeBusy==="portal"} onClick={async()=>{setSettingsUpgradeBusy("portal");setSettingsUpgradeErr("");try{await startPortal();}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
                   style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                   {settingsUpgradeBusy==="portal"?"Opening…":"⚙ Manage Subscription"}
@@ -7483,7 +7508,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed} = useAuth();
+  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
@@ -7523,7 +7548,7 @@ function Root(){
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug}/>
   </>;
 }
 export default Root;
