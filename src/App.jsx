@@ -390,14 +390,17 @@ function AuthScreen({demoError}){
           if(codeErr){ setError("Couldn't verify invite code. Please try again."); setLoading(false); return; }
           if(!codeRow || codeRow.active===false){ setError("Invalid or inactive invite code."); setLoading(false); return; }
         }
-        // invite_code is stashed in user metadata (not redeemed here) because signUp()
-        // does not return an authenticated session while email confirmation is required —
-        // there's no valid JWT yet to call a comp-granting endpoint with. It's redeemed
-        // later in useAuth's maybeRedeemInvite, the first time this user has a real session.
+        // Confirmed App Dev 30 (Adam tested live): this Supabase project has email
+        // confirmation DISABLED, so signUp() returns a live session immediately and no
+        // confirmation email is ever sent. useAuth's onAuthStateChange listener picks up
+        // that session and swaps AuthScreen out for the main app automatically — usually
+        // before this message is even visible. It's kept as a brief transition message
+        // and a same-screen fallback (mode stays on login, fields still filled) for the
+        // rare case that auto-transition is slow or doesn't fire.
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name, invite_code:code||null}}});
         if(e) throw e;
         setReturningUser(true);
-        setSuccess("Check your email to confirm your account, then log in.");
+        setSuccess("Account created — signing you in…");
         setMode("login");
       } else if(mode==="login"){
         const{error:e} = await sb.auth.signInWithPassword({email, password});
