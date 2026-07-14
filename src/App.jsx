@@ -366,7 +366,8 @@ function useAuth(){
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
 function AuthScreen({demoError}){
-  const [mode, setMode] = useState("login"); // login | signup | reset
+  const [returningUser, setReturningUser] = useLocalStorage("tl_returning_user", false);
+  const [mode, setMode] = useState(returningUser ? "login" : "signup"); // defaults to signup for first-time visitors, login once this device has signed in before
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -395,11 +396,13 @@ function AuthScreen({demoError}){
         // later in useAuth's maybeRedeemInvite, the first time this user has a real session.
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name, invite_code:code||null}}});
         if(e) throw e;
+        setReturningUser(true);
         setSuccess("Check your email to confirm your account, then log in.");
         setMode("login");
       } else if(mode==="login"){
         const{error:e} = await sb.auth.signInWithPassword({email, password});
         if(e) throw e;
+        setReturningUser(true);
       } else {
         const{error:e} = await sb.auth.resetPasswordForEmail(email, {redirectTo: window.location.origin});
         if(e) throw e;
