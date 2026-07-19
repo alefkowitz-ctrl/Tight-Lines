@@ -238,12 +238,6 @@ function useAuth(){
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
     if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
-    // Set immediately, before the retry loop starts: without this, a screenshot taken
-    // right after opening the app (before any attempt finishes) shows the exact same
-    // blank line as a genuinely stuck check — which is what caused confusion in App Dev
-    // 31/32 (a "just opened it, checked right away" report looked identical to the
-    // original hang bug). Now "checking…" vs. truly blank tells the two apart at a glance.
-    setTierDebug({uid:id, note:"checking…"});
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
       if(delays[attempt]) await sleep(delays[attempt]);
@@ -6213,6 +6207,35 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [catchSummary,setCatchSummary]=useState(null);
   const [summaryLoading,setSummaryLoading]=useState(false);
 
+  // ── Catch field-name mapping (single source of truth) ───────────────────
+  // The app's JS/state side is camelCase everywhere (matches the render code and
+  // the share-card builder); the "catches" table columns are snake_case. Every
+  // insert/update must convert at the DB boundary via catchDataToDbRow, and every
+  // row read back from Supabase must convert via catchRowToCamel — so a freshly
+  // -added catch and a reloaded one always end up in the exact same shape. Before
+  // this, addCatch's own local-state update skipped that conversion and stored the
+  // raw snake_case insert payload, so conditions/flow silently vanished from a
+  // catch's card until the next full reload re-fetched it correctly.
+  function catchRowToCamel(r){
+    return {
+      id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,
+      gps:r.gps,time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",
+      weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",
+      windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",
+      streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",
+      streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||"",
+      waterTemp:r.water_temp!=null?String(r.water_temp):""
+    };
+  }
+  function catchDataToDbRow(cd){
+    return {
+      species:cd.species,length:cd.length,flies:cd.flies,photo:cd.photo,gps:cd.gps,time:cd.time,notes:cd.notes,
+      air_temp:cd.airTemp||null,weather_desc:cd.weatherDesc||null,wind_speed:cd.windSpeed||null,
+      wind_dir:cd.windDir||null,pressure:cd.pressure||null,stream_cfs:cd.streamCFS||null,
+      stream_condition:cd.streamCondition||null,stream_gauge_name:cd.streamGaugeName||null,water_temp:cd.waterTemp||null
+    };
+  }
+
   // Load catches from Supabase on mount
   useEffect(()=>{
     if(!user) return;
@@ -6221,16 +6244,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       .then(async({data,error})=>{
         if(!error&&data){
           const key=await getOrCreateKey(user.id);
-          const rows=await Promise.all(data.map(async r=>({
-            id:r.id,species:r.species||"",length:r.length!=null?String(r.length):"",flies:r.flies||[],photo:r.photo,
-            gps:r.gps?.startsWith("ENC:")?await Promise.race([decryptGPS(r.gps,key),new Promise(res=>setTimeout(()=>res(r.gps),3000))]):r.gps,
-            time:r.time,notes:r.notes,airTemp:r.air_temp!=null?String(r.air_temp):"",
-            weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",
-            windDir:r.wind_dir||"",pressure:r.pressure!=null?String(r.pressure):"",
-            streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",
-            streamCondition:r.stream_condition||"",streamGaugeName:r.stream_gauge_name||"",
-            waterTemp:r.water_temp!=null?String(r.water_temp):""
-          })));
+          const rows=await Promise.all(data.map(async r=>{
+            const gps=r.gps?.startsWith("ENC:")?await Promise.race([decryptGPS(r.gps,key),new Promise(res=>setTimeout(()=>res(r.gps),3000))]):r.gps;
+            return {...catchRowToCamel(r),gps};
+          }));
           setCatches(rows);window._catches=rows;
         }
         setCatchesLoading(false);
@@ -6261,16 +6278,16 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       try{
         // Auto-fill conditions from cached data at catch time if missing
         const cached=JSON.parse(localStorage.getItem('tl_cached_conditions')||'{}');
-        if(cached.weather&&!item.air_temp) item.air_temp=String(cached.weather.temp);
-        if(cached.weather&&!item.weather_desc) item.weather_desc=cached.weather.desc;
-        if(cached.gauges?.length&&!item.stream_cfs){
+        if(cached.weather&&!item.airTemp) item.airTemp=String(cached.weather.temp);
+        if(cached.weather&&!item.weatherDesc) item.weatherDesc=cached.weather.desc;
+        if(cached.gauges?.length&&!item.streamCFS){
           const g=cached.gauges[0];
-          item.stream_cfs=String(Math.round(g.cfs||0));
-          item.stream_condition=g.label||"";
-          item.stream_gauge_name=g.name||"";
-          if(g.waterTempF) item.water_temp=String(g.waterTempF);
+          item.streamCFS=String(Math.round(g.cfs||0));
+          item.streamCondition=g.label||"";
+          item.streamGaugeName=g.name||"";
+          if(g.waterTempF) item.waterTemp=String(g.waterTempF);
         }
-        const{data,error}=await sb.from('catches').insert({user_id:user.id,...item}).select().single();
+        const{data,error}=await sb.from('catches').insert({user_id:user.id,...catchDataToDbRow(item)}).select().single();
         if(!error&&data){
           // Update local catch with real id and remove pending flag
           setCatches(cs=>cs.map(c2=>c2._offlineId===item._offlineId?{...c2,id:data.id,_pending:false,_offlineId:undefined}:c2));
@@ -6374,7 +6391,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     }
     let data=null,error=null;
     try{
-      const r=await sb.from("catches").insert({user_id:user.id,...catchData}).select().single();
+      const r=await sb.from("catches").insert({user_id:user.id,...catchDataToDbRow(catchData)}).select().single();
       data=r.data;error=r.error;
     }catch(netErr){error={message:netErr.message,_network:true};}
     if(error&&(error._network||/load failed|network|fetch|timeout/i.test(error.message||""))){
@@ -6391,7 +6408,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     if(error){
       alert("Catch save failed: "+error.message);
     } else if(data){
-      setCatches(c=>[{...catchData,id:data.id},...c]);
+      setCatches(c=>[catchRowToCamel(data),...c]);
       if(photoUploadFailed) alert("Catch saved, but the photo didn't upload — check your connection and try adding the photo again from the catch log.");
       return data.id;
     }
@@ -6433,11 +6450,29 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   // river/date bar + watermark). No exact GPS is ever drawn — river name only.
   async function buildCatchShareBlob(c,style){
     const W=1080,H=1350;
+    // Build content strings first — the stat-card bar is sized to whatever
+    // is actually present, so a sparse catch (no flies, no conditions) gets a
+    // short bar and a catch with everything logged still fits cleanly.
+    const headline=(c.species||"Catch")+(c.length?` · ${c.length}"`:"");
+    const riverName=(c.streamGaugeName||"").split(" ").slice(0,4).join(" ");
+    const subline=[riverName,c.time].filter(Boolean).join("  ·  ");
+    const flowPart=c.streamCFS?`${c.streamCFS} CFS${c.streamCondition?" · "+c.streamCondition:""}`:"";
+    const wxPart=[c.airTemp?`${c.airTemp}°F`:"",c.weatherDesc||""].filter(Boolean).join(" · ");
+    const windPart=c.windSpeed?`${c.windSpeed}mph ${c.windDir||""}`.trim():"";
+    const condLine=[flowPart,wxPart,windPart].filter(Boolean).join("   ·   ");
+    const fliesLine=(c.flies&&c.flies.length)?"Flies: "+c.flies.join(", "):"";
+    const statLines=[{text:headline,color:"#d09a4a",font:"700 58px Oswald, sans-serif",advance:54}];
+    if(subline) statLines.push({text:subline,color:"#f2efe6",font:"400 32px Montserrat, sans-serif",advance:44});
+    if(condLine) statLines.push({text:condLine,color:"#c2b49a",font:"400 28px Montserrat, sans-serif",advance:40,shrinkToFit:true});
+    if(fliesLine) statLines.push({text:fliesLine,color:"#d09a4a",font:"400 28px Montserrat, sans-serif",advance:40,shrinkToFit:true});
+
     const cv=document.createElement("canvas");
     cv.width=W;cv.height=H;
     const ctx=cv.getContext("2d");
     ctx.fillStyle="#2f3527";ctx.fillRect(0,0,W,H);
-    const photoH=style==="stat"?Math.round(H*0.78):H;
+    const topPad=76,bottomReserve=112;
+    const barNeeded=topPad+statLines.reduce((s,l)=>s+l.advance,0)+bottomReserve;
+    const photoH=style==="stat"?Math.min(Math.round(H*0.78),Math.max(Math.round(H*0.55),H-barNeeded)):H;
     let photoDrawn=false;
     if(c.photo){
       try{
@@ -6453,7 +6488,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       ctx.font="220px serif";ctx.textAlign="center";ctx.textBaseline="middle";
       ctx.fillText("🐟",W/2,photoH/2);
     }
-    await Promise.all(["700 58px Oswald","600 30px Oswald","400 32px Montserrat"].map(f=>document.fonts.load(f).catch(()=>{})));
+    await Promise.all(["700 58px Oswald","600 30px Oswald","400 32px Montserrat","400 28px Montserrat"].map(f=>document.fonts.load(f).catch(()=>{})));
     const logo=await loadSameOriginImage("/logo-mark.png").catch(()=>null);
     if(style==="stat"){
       ctx.fillStyle="#2f3527";ctx.fillRect(0,photoH,W,H-photoH);
@@ -6462,13 +6497,19 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       ctx.fillStyle=grad;ctx.fillRect(0,photoH-140,W,140);
       const pad=56;
       ctx.textAlign="left";ctx.textBaseline="alphabetic";
-      ctx.fillStyle="#d09a4a";ctx.font="700 58px Oswald, sans-serif";
-      ctx.fillText((c.species||"Catch")+(c.length?` · ${c.length}"`:""),pad,photoH+96);
-      ctx.fillStyle="#f2efe6";ctx.font="400 32px Montserrat, sans-serif";
-      const riverName=(c.streamGaugeName||"").split(" ").slice(0,4).join(" ");
-      ctx.fillText([riverName,c.time].filter(Boolean).join("  ·  "),pad,photoH+150);
-      const wmY=H-56,logoSize=56;
-      if(logo) ctx.drawImage(logo,pad,wmY-logoSize+16,logoSize,logoSize);
+      let y=photoH+topPad;
+      for(const line of statLines){
+        let fs=parseInt(line.font.match(/(\d+)px/)[1],10);
+        ctx.font=line.font;
+        if(line.shrinkToFit){
+          while(ctx.measureText(line.text).width>W-pad*2&&fs>18){ fs-=2; ctx.font=line.font.replace(/\d+px/,fs+"px"); }
+        }
+        ctx.fillStyle=line.color;
+        ctx.fillText(line.text,pad,y);
+        y+=line.advance;
+      }
+      const wmY=H-50,logoSize=52;
+      if(logo) ctx.drawImage(logo,pad,wmY-logoSize+14,logoSize,logoSize);
       ctx.fillStyle="#c2b49a";ctx.font="600 26px Oswald, sans-serif";
       ctx.fillText("GUIDE'S CHOICE",pad+(logo?logoSize+14:0),wmY);
     } else {
@@ -6838,23 +6879,23 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               const dateStr=!isNaN(d2)?d2.toISOString().split("T")[0]:null;
               if(dateStr&&dateStr<today){
                 const conds=await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,"12");
-                if(conds)return{air_temp:conds.airTemp||null,weather_desc:conds.weatherDesc||null,wind_speed:conds.windSpeed||null,wind_dir:conds.windDir||null,pressure:conds.pressure||null,stream_cfs:conds.streamCFS||null,stream_condition:conds.streamCondition||null,stream_gauge_name:conds.streamGaugeName||null};
+                if(conds)return{airTemp:conds.airTemp||null,weatherDesc:conds.weatherDesc||null,windSpeed:conds.windSpeed||null,windDir:conds.windDir||null,pressure:conds.pressure||null,streamCFS:conds.streamCFS||null,streamCondition:conds.streamCondition||null,streamGaugeName:conds.streamGaugeName||null};
                 return null;
               }
               const[wx,usgs]=await Promise.all([fetchWeather(fetchLat,fetchLng),fetchUSGSLive(fetchLat,fetchLng)]);
               const wc=wx.current;
               const pressureInHg=(wc.surface_pressure*0.02953).toFixed(2);
-              let cd={air_temp:String(Math.round(wc.temperature_2m)),weather_desc:WX_DESC[wc.weather_code]||"",wind_speed:String(Math.round(wc.wind_speed_10m)),wind_dir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
+              let cd={airTemp:String(Math.round(wc.temperature_2m)),weatherDesc:WX_DESC[wc.weather_code]||"",windSpeed:String(Math.round(wc.wind_speed_10m)),windDir:windDir(wc.wind_direction_10m),pressure:pressureInHg};
               const ts2=(usgs.value?.timeSeries)??[];
               if(ts2.length){
                 const parsed2=ts2.map(t2=>{const raw=t2.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const sLat=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.latitude||0);const sLng=parseFloat(t2.sourceInfo?.geoLocation?.geogLocation?.longitude||0);const dist=Math.sqrt(Math.pow(sLat-fetchLat,2)+Math.pow(sLng-fetchLng,2));const siteNo=(t2.sourceInfo?.siteCode?.[0]?.value)||"";return{name:t2.sourceInfo?.siteName??"",cfs,dist,siteNo};}).filter(x=>x.cfs!=null&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
-                if(parsed2.length){const nd2b=parsed2[0].dist;const cb2b=parsed2.filter(x=>x.dist-nd2b<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,parsed2[0]);cd={...cd,stream_cfs:String(Math.round(cb2b.cfs)),stream_condition:cfsLabel(cb2b.cfs).label,stream_gauge_name:cb2b.name};}
+                if(parsed2.length){const nd2b=parsed2[0].dist;const cb2b=parsed2.filter(x=>x.dist-nd2b<=0.05).reduce((a,b)=>b.cfs>a.cfs?b:a,parsed2[0]);cd={...cd,streamCFS:String(Math.round(cb2b.cfs)),streamCondition:cfsLabel(cb2b.cfs).label,streamGaugeName:cb2b.name};}
               }
               return cd;
             }catch(condErr){return null;}
           })()]);
           const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
-          let catchData={species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,gps:coords,time:t,notes:"",air_temp:null,weather_desc:null,wind_speed:null,wind_dir:null,pressure:null,stream_cfs:null,stream_condition:null,stream_gauge_name:null,water_temp:null};
+          let catchData={species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,gps:coords,time:t,notes:"",airTemp:null,weatherDesc:null,windSpeed:null,windDir:null,pressure:null,streamCFS:null,streamCondition:null,streamGaugeName:null,waterTemp:null};
           if(condRes)catchData={...catchData,...condRes};
           const savedId=await addCatch(catchData);
           if(savedId) lastCatchIdRef.current=savedId;
@@ -6944,7 +6985,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,air_temp:form.airTemp||null,weather_desc:form.weatherDesc||null,wind_speed:form.windSpeed||null,wind_dir:form.windDir||null,pressure:form.pressure||null,stream_cfs:form.streamCFS||null,stream_condition:form.streamCondition||null,stream_gauge_name:form.streamGaugeName||null,water_temp:form.waterTemp||null};
+    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,airTemp:form.airTemp||null,weatherDesc:form.weatherDesc||null,windSpeed:form.windSpeed||null,windDir:form.windDir||null,pressure:form.pressure||null,streamCFS:form.streamCFS||null,streamCondition:form.streamCondition||null,streamGaugeName:form.streamGaugeName||null,waterTemp:form.waterTemp||null};
     addCatch(catchData).then(id=>{if(id)lastCatchIdRef.current=id;});
     setForm(blank);setAddOpen(false);
   }
