@@ -6134,6 +6134,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
+  const [sharingCatchId,setSharingCatchId]=useState(null);
+  const [sharingBusy,setSharingBusy]=useState(false);
   const [editCatchFlyInput,setEditCatchFlyInput]=useState("");
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
@@ -6392,6 +6394,113 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   async function deleteCatch(id){
     if(sb) await sb.from("catches").delete().eq("id",id);
     setCatches(cs=>cs.filter(x=>x.id!==id));
+  }
+
+  // ── Catch card social share ─────────────────────────────────────────────
+  // Loads an image via fetch()+createImageBitmap (falls back to a data-URL <img>
+  // on older browsers) instead of an <img crossOrigin> tag. Drawing a blob: URL
+  // source is always same-origin, so the canvas never taints even if the photo's
+  // storage host doesn't send CORS headers for direct <img> loads.
+  async function loadImageSource(url){
+    const resp=await fetch(url);
+    if(!resp.ok) throw new Error("image fetch failed");
+    const blob=await resp.blob();
+    if(window.createImageBitmap){
+      try{ return await createImageBitmap(blob); }catch(e){ void 0; }
+    }
+    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(blob);});
+    return await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=dataUrl;});
+  }
+  function loadSameOriginImage(src){
+    return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;});
+  }
+  function roundRectPath(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  // style: "minimal" (photo + small watermark) or "stat" (photo + species/length/
+  // river/date bar + watermark). No exact GPS is ever drawn — river name only.
+  async function buildCatchShareBlob(c,style){
+    const W=1080,H=1350;
+    const cv=document.createElement("canvas");
+    cv.width=W;cv.height=H;
+    const ctx=cv.getContext("2d");
+    ctx.fillStyle="#2f3527";ctx.fillRect(0,0,W,H);
+    const photoH=style==="stat"?Math.round(H*0.78):H;
+    let photoDrawn=false;
+    if(c.photo){
+      try{
+        const img=await loadImageSource(c.photo);
+        const iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
+        const scale=Math.max(W/iw,photoH/ih);
+        const dw=iw*scale,dh=ih*scale;
+        ctx.drawImage(img,(W-dw)/2,(photoH-dh)/2,dw,dh);
+        photoDrawn=true;
+      }catch(photoErr){ void 0; }
+    }
+    if(!photoDrawn){
+      ctx.font="220px serif";ctx.textAlign="center";ctx.textBaseline="middle";
+      ctx.fillText("🐟",W/2,photoH/2);
+    }
+    await Promise.all(["700 58px Oswald","600 30px Oswald","400 32px Montserrat"].map(f=>document.fonts.load(f).catch(()=>{})));
+    const logo=await loadSameOriginImage("/logo-mark.png").catch(()=>null);
+    if(style==="stat"){
+      ctx.fillStyle="#2f3527";ctx.fillRect(0,photoH,W,H-photoH);
+      const grad=ctx.createLinearGradient(0,photoH-140,0,photoH);
+      grad.addColorStop(0,"rgba(47,53,39,0)");grad.addColorStop(1,"rgba(47,53,39,1)");
+      ctx.fillStyle=grad;ctx.fillRect(0,photoH-140,W,140);
+      const pad=56;
+      ctx.textAlign="left";ctx.textBaseline="alphabetic";
+      ctx.fillStyle="#d09a4a";ctx.font="700 58px Oswald, sans-serif";
+      ctx.fillText((c.species||"Catch")+(c.length?` · ${c.length}"`:""),pad,photoH+96);
+      ctx.fillStyle="#f2efe6";ctx.font="400 32px Montserrat, sans-serif";
+      const riverName=(c.streamGaugeName||"").split(" ").slice(0,4).join(" ");
+      ctx.fillText([riverName,c.time].filter(Boolean).join("  ·  "),pad,photoH+150);
+      const wmY=H-56,logoSize=56;
+      if(logo) ctx.drawImage(logo,pad,wmY-logoSize+16,logoSize,logoSize);
+      ctx.fillStyle="#c2b49a";ctx.font="600 26px Oswald, sans-serif";
+      ctx.fillText("GUIDE'S CHOICE",pad+(logo?logoSize+14:0),wmY);
+    } else {
+      const pillW=310,pillH=64,pad=32;
+      const px=W-pad-pillW,py=H-pad-pillH;
+      ctx.fillStyle="rgba(31,35,29,0.6)";
+      roundRectPath(ctx,px,py,pillW,pillH,16);ctx.fill();
+      const logoSize=38;
+      if(logo) ctx.drawImage(logo,px+16,py+(pillH-logoSize)/2,logoSize,logoSize);
+      ctx.textAlign="left";ctx.textBaseline="middle";
+      ctx.fillStyle="#f2efe6";ctx.font="600 24px Oswald, sans-serif";
+      ctx.fillText("GUIDE'S CHOICE",px+16+(logo?logoSize+12:0),py+pillH/2+1);
+    }
+    return await new Promise(res=>cv.toBlob(res,"image/jpeg",0.92));
+  }
+  async function shareCatch(c,style){
+    setSharingBusy(true);
+    try{
+      const blob=await buildCatchShareBlob(c,style);
+      if(!blob){ alert("Couldn't build the share image — try again."); return; }
+      const fname=`guides-choice-${(c.species||"catch").toLowerCase().replace(/\s+/g,"-")}.jpg`;
+      const file=new File([blob],fname,{type:"image/jpeg"});
+      const shareText=[c.species,(c.streamGaugeName||"").split(" ").slice(0,4).join(" ")].filter(Boolean).join(" — ");
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:"Guide's Choice",text:shareText});
+      } else {
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),4000);
+        alert("Your browser can't share images directly — the image saved to your device instead. Open it from Photos/Downloads to post it.");
+      }
+    }catch(shareErr){
+      if(shareErr?.name!=="AbortError") alert("Couldn't create the share image: "+(shareErr.message||shareErr));
+    } finally {
+      setSharingBusy(false);
+      setSharingCatchId(null);
+    }
   }
   const blank={species:"Brown Trout",length:"",flies:[],flyInput:"",notes:"",photo:null,gps:null,time:null,waterTemp:""};
   const [form,setForm]=useState(blank);
@@ -7239,11 +7348,31 @@ ${shopPins}
                       style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                       ✏️ Edit
                     </button>
+                    <button onClick={e=>{e.stopPropagation();setSharingCatchId(prev=>prev===c.id?null:c.id);}}
+                      style={{flex:1,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:8,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                      📤 Share
+                    </button>
                     <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
                       style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                       🗑 Delete
                     </button>
                   </div>
+                  {sharingCatchId===c.id&&(
+                    <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Share to social</div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button disabled={sharingBusy} onClick={()=>shareCatch(c,"minimal")}
+                          style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
+                          🖼 Minimal
+                        </button>
+                        <button disabled={sharingBusy} onClick={()=>shareCatch(c,"stat")}
+                          style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
+                          📋 Stat Card
+                        </button>
+                      </div>
+                      {sharingBusy&&<div style={{fontSize:13,color:"var(--stone)",marginTop:8,textAlign:"center"}}>Building image…</div>}
+                    </div>
+                  )}
                   {editingCatchId===c.id&&(
                 <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
                   <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
