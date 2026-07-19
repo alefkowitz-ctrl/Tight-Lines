@@ -242,7 +242,19 @@ function useAuth(){
     for(let attempt=0; attempt<delays.length; attempt++){
       if(delays[attempt]) await sleep(delays[attempt]);
       try{
-        const {data, error} = await sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle();
+        // Confirmed root cause (App Dev 31, via Adam's Settings screenshot showing
+        // "Free" with NO tierDebug line at all — proof this call never reached ANY
+        // branch below, success or error): the bare await here can hang indefinitely
+        // with no rejection if the request was in flight when the app/tab got
+        // backgrounded. That freezes tier/tierDebug at their untouched initial
+        // defaults ("free"/null) — no retry ever fires because nothing ever errors.
+        // Same hang class as the earlier signOut() and redeemInviteCode() bugs, both
+        // already fixed with a timeout; reusing the same Promise.race pattern already
+        // used elsewhere in this file (fetchUSGSLive, askClaude) rather than a new one.
+        const {data, error} = await Promise.race([
+          sb.from("subscriptions").select("tier,status,is_comped,current_period_end").eq("user_id", id).maybeSingle(),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error("subscription check timed out")), 8000))
+        ]);
         if(error){
           if(attempt<delays.length-1) continue; // genuine error — worth another try
           setTierCheckFailed(true); setTier("free"); setTrialExpired(null);
@@ -355,7 +367,19 @@ function useAuth(){
     // to fail. Cheap (one query) and only fires while someone's actually signed in.
     function onVisible(){
       if(document.visibilityState==="visible" && sb.auth.getSession){
-        sb.auth.getSession().then(({data:{session}})=>{ if(session?.user) refreshTier(session.user.id); });
+        // This is the resume-triggered self-heal for exactly the "tier looks stale/wrong
+        // after being backgrounded a while" scenario — so it needs the same hang
+        // protection as refreshTier's query. getSession() can itself need a network round
+        // trip (refreshing an expired access token) and can hang the same way if that
+        // request was in flight when the app got backgrounded again or the connection
+        // stalled. If this getSession() call hangs unprotected, refreshTier below never
+        // even gets called on resume, leaving a full manual sign-out/sign-in as the only
+        // way to force a truly fresh auth flow — which matches the reported symptom.
+        Promise.race([
+          sb.auth.getSession(),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error("resume session check timed out")), 8000))
+        ]).then(({data:{session}})=>{ if(session?.user) refreshTier(session.user.id); })
+          .catch((e)=>{ console.error("Resume session check failed/timed out:", e?.message||e); });
       }
     }
     document.addEventListener("visibilitychange", onVisible);
