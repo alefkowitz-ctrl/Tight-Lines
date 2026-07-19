@@ -238,6 +238,12 @@ function useAuth(){
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
     if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
+    // Set immediately, before the retry loop starts: without this, a screenshot taken
+    // right after opening the app (before any attempt finishes) shows the exact same
+    // blank line as a genuinely stuck check — which is what caused confusion in App Dev
+    // 31/32 (a "just opened it, checked right away" report looked identical to the
+    // original hang bug). Now "checking…" vs. truly blank tells the two apart at a glance.
+    setTierDebug({uid:id, note:"checking…"});
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
       if(delays[attempt]) await sleep(delays[attempt]);
