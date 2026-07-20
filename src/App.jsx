@@ -238,6 +238,12 @@ function useAuth(){
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
     if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
+    // Set immediately, before the retry loop starts: without this, a screenshot taken
+    // right after opening the app (before any attempt finishes) shows the exact same
+    // blank line as a genuinely stuck check — which is what caused confusion in App Dev
+    // 31/32 (a "just opened it, checked right away" report looked identical to the
+    // original hang bug). Now "checking…" vs. truly blank tells the two apart at a glance.
+    setTierDebug({uid:id, note:"checking…"});
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
       if(delays[attempt]) await sleep(delays[attempt]);
@@ -336,10 +342,31 @@ function useAuth(){
   }
   useEffect(()=>{
     if(!sb){ setLoading(false); return; }
-    // Add timeout in case Supabase is slow on mobile
-    const timeout = setTimeout(()=>setLoading(false), 5000);
+    // A slow/stuck getSession() here — not just a slightly slow network, but the "shows
+    // the wrong tier/paywall for a while, then corrects itself" pattern Adam reported — is
+    // the same suspected root cause as the signOut() hang below: Supabase client internal
+    // auth-lock contention (a stale lock left behind by a previous killed/backgrounded tab
+    // blocking a fresh page's attempt to read/refresh the session). Adam found that
+    // signing out and back in always fixes it; that works because sign-out wipes the
+    // local session and reloads, which clears any stuck lock tied to the old page context.
+    // Reusing that exact mechanism here — same localStorage wipe, same reload — so a stuck
+    // cold launch recovers on its own instead of requiring Adam to notice and do it by hand.
+    // Guarded by a one-shot sessionStorage flag so a merely slow (not stuck) connection can
+    // never trigger a reload loop: at most one automatic recovery attempt per tab session.
+    const timeout = setTimeout(()=>{
+      let alreadyTried=false;
+      try{ alreadyTried = sessionStorage.getItem("gc_auth_recover_attempted")==="1"; }catch(e){}
+      if(!alreadyTried){
+        try{ sessionStorage.setItem("gc_auth_recover_attempted","1"); }catch(e){}
+        try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
+        window.location.reload();
+        return;
+      }
+      setLoading(false);
+    }, 8000);
     sb.auth.getSession().then(async ({data:{session}})=>{
       clearTimeout(timeout);
+      try{ sessionStorage.removeItem("gc_auth_recover_attempted"); }catch(e){}
       if(session?.user){ setUser(session.user); const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0); setLoading(false); return; }
       // Public demo link: ?demo=1 with no existing session logs into a single
       // shared demo account (cloned from the real account's data) rather than
