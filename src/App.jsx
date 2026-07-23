@@ -4693,6 +4693,50 @@ function UpcomingTrips({user}){
 
 // ── Trip Planner ──────────────────────────────────────────────────────────────
 // ── Stream Gauge Chart — looks up USGS gauge by stream name ──────────────────
+const WX_CODE_ICON={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",61:"🌦️",63:"🌧️",65:"🌧️",71:"🌨️",73:"🌨️",75:"❄️",80:"🌦️",81:"🌧️",82:"⛈️",95:"⛈️",96:"⛈️",99:"⛈️"};
+// Per-river weather panel. Reuses the app's existing fetchWeather(lat,lng) — same
+// provider, same call already used elsewhere — just newly surfaced per river card.
+function RiverWeatherPanel({lat,lng}){
+  const [wx,setWx]=useState(null);
+  const [failed,setFailed]=useState(false);
+  useEffect(()=>{
+    if(lat==null||lng==null){setFailed(true);return;}
+    let alive=true;
+    fetchWeather(lat,lng).then(d=>{if(alive)setWx(d);}).catch(()=>{if(alive)setFailed(true);});
+    return()=>{alive=false;};
+  },[lat,lng]);
+  if(failed) return null;
+  if(!wx||!wx.current) return <div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Loading weather…</div>;
+  const cur=wx.current,daily=wx.daily||{};
+  const days=(daily.time||[]).slice(0,4);
+  return(
+    <div style={{marginTop:8,marginBottom:8,background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"9px 11px"}}>
+      <div style={{fontSize:14,color:"var(--foam)",marginBottom:6}}>
+        <b>{Math.round(cur.temperature_2m)}°F</b>
+        <span style={{color:"var(--stone)",marginLeft:8}}>{cur.wind_speed_10m!=null?Math.round(cur.wind_speed_10m)+" mph wind":""}</span>
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {days.map((d,i)=>{
+          const dt=new Date(d+"T12:00:00");
+          const label=i===0?"Today":dt.toLocaleDateString("en-US",{weekday:"short"});
+          const code=(daily.weather_code||[])[i];
+          const hi=(daily.temperature_2m_max||[])[i];
+          const lo=(daily.temperature_2m_min||[])[i];
+          const precip=(daily.precipitation_probability_max||[])[i];
+          return(
+            <div key={i} style={{fontSize:12,color:"var(--stone)",textAlign:"center"}}>
+              <div style={{textTransform:"uppercase",fontSize:11}}>{label}</div>
+              <div style={{fontSize:16}}>{WX_CODE_ICON[code]||"🌡️"}</div>
+              <div style={{color:"var(--foam)"}}>{hi!=null?Math.round(hi):"—"}°/{lo!=null?Math.round(lo):"—"}°</div>
+              {precip>=15&&<div style={{color:"#7fb8d4"}}>💧{precip}%</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
   const [siteNo, setSiteNo] = useState(knownSiteNo||null);
   const [siteName, setSiteName] = useState("");
@@ -4743,50 +4787,6 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
         if(scored.length>0){setSiteNo(scored[0].siteNo);setSiteName(scored[0].name);setCfs(scored[0].cfs);}
       }).catch(()=>{});
   },[streamName]);
-
-const WX_CODE_ICON={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",61:"🌦️",63:"🌧️",65:"🌧️",71:"🌨️",73:"🌨️",75:"❄️",80:"🌦️",81:"🌧️",82:"⛈️",95:"⛈️",96:"⛈️",99:"⛈️"};
-// Per-river weather panel. Reuses the app's existing fetchWeather(lat,lng) — same
-// provider, same call already used elsewhere — just newly surfaced per river card.
-function RiverWeatherPanel({lat,lng}){
-  const [wx,setWx]=useState(null);
-  const [failed,setFailed]=useState(false);
-  useEffect(()=>{
-    if(lat==null||lng==null){setFailed(true);return;}
-    let alive=true;
-    fetchWeather(lat,lng).then(d=>{if(alive)setWx(d);}).catch(()=>{if(alive)setFailed(true);});
-    return()=>{alive=false;};
-  },[lat,lng]);
-  if(failed) return null;
-  if(!wx||!wx.current) return <div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Loading weather…</div>;
-  const cur=wx.current,daily=wx.daily||{};
-  const days=(daily.time||[]).slice(0,4);
-  return(
-    <div style={{marginTop:8,marginBottom:8,background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"9px 11px"}}>
-      <div style={{fontSize:14,color:"var(--foam)",marginBottom:6}}>
-        <b>{Math.round(cur.temperature_2m)}°F</b>
-        <span style={{color:"var(--stone)",marginLeft:8}}>{cur.wind_speed_10m!=null?Math.round(cur.wind_speed_10m)+" mph wind":""}</span>
-      </div>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        {days.map((d,i)=>{
-          const dt=new Date(d+"T12:00:00");
-          const label=i===0?"Today":dt.toLocaleDateString("en-US",{weekday:"short"});
-          const code=(daily.weather_code||[])[i];
-          const hi=(daily.temperature_2m_max||[])[i];
-          const lo=(daily.temperature_2m_min||[])[i];
-          const precip=(daily.precipitation_probability_max||[])[i];
-          return(
-            <div key={i} style={{fontSize:12,color:"var(--stone)",textAlign:"center"}}>
-              <div style={{textTransform:"uppercase",fontSize:11}}>{label}</div>
-              <div style={{fontSize:16}}>{WX_CODE_ICON[code]||"🌡️"}</div>
-              <div style={{color:"var(--foam)"}}>{hi!=null?Math.round(hi):"—"}°/{lo!=null?Math.round(lo):"—"}°</div>
-              {precip>=15&&<div style={{color:"#7fb8d4"}}>💧{precip}%</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
   if(!siteNo) return null;
   return <GaugeChart siteNo={siteNo} siteName={siteName||streamName} initialCFS={cfs}/>;
