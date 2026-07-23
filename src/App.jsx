@@ -4744,6 +4744,50 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
       }).catch(()=>{});
   },[streamName]);
 
+const WX_CODE_ICON={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",61:"🌦️",63:"🌧️",65:"🌧️",71:"🌨️",73:"🌨️",75:"❄️",80:"🌦️",81:"🌧️",82:"⛈️",95:"⛈️",96:"⛈️",99:"⛈️"};
+// Per-river weather panel. Reuses the app's existing fetchWeather(lat,lng) — same
+// provider, same call already used elsewhere — just newly surfaced per river card.
+function RiverWeatherPanel({lat,lng}){
+  const [wx,setWx]=useState(null);
+  const [failed,setFailed]=useState(false);
+  useEffect(()=>{
+    if(lat==null||lng==null){setFailed(true);return;}
+    let alive=true;
+    fetchWeather(lat,lng).then(d=>{if(alive)setWx(d);}).catch(()=>{if(alive)setFailed(true);});
+    return()=>{alive=false;};
+  },[lat,lng]);
+  if(failed) return null;
+  if(!wx||!wx.current) return <div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Loading weather…</div>;
+  const cur=wx.current,daily=wx.daily||{};
+  const days=(daily.time||[]).slice(0,4);
+  return(
+    <div style={{marginTop:8,marginBottom:8,background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"9px 11px"}}>
+      <div style={{fontSize:14,color:"var(--foam)",marginBottom:6}}>
+        <b>{Math.round(cur.temperature_2m)}°F</b>
+        <span style={{color:"var(--stone)",marginLeft:8}}>{cur.wind_speed_10m!=null?Math.round(cur.wind_speed_10m)+" mph wind":""}</span>
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {days.map((d,i)=>{
+          const dt=new Date(d+"T12:00:00");
+          const label=i===0?"Today":dt.toLocaleDateString("en-US",{weekday:"short"});
+          const code=(daily.weather_code||[])[i];
+          const hi=(daily.temperature_2m_max||[])[i];
+          const lo=(daily.temperature_2m_min||[])[i];
+          const precip=(daily.precipitation_probability_max||[])[i];
+          return(
+            <div key={i} style={{fontSize:12,color:"var(--stone)",textAlign:"center"}}>
+              <div style={{textTransform:"uppercase",fontSize:11}}>{label}</div>
+              <div style={{fontSize:16}}>{WX_CODE_ICON[code]||"🌡️"}</div>
+              <div style={{color:"var(--foam)"}}>{hi!=null?Math.round(hi):"—"}°/{lo!=null?Math.round(lo):"—"}°</div>
+              {precip>=15&&<div style={{color:"#7fb8d4"}}>💧{precip}%</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
   if(!siteNo) return null;
   return <GaugeChart siteNo={siteNo} siteName={siteName||streamName} initialCFS={cfs}/>;
 }
@@ -4894,7 +4938,7 @@ function buildLabSynth(a){
     "USGS live gauges within range (these are REAL local streams with live flow - use them BOTH to attach live flow AND as a candidate source: include any gauged stream that is genuine trout water near here, but SKIP warmwater or bass streams. They do not replace the reports - combine the two): "+gaugeBlock+"."+home+heat,
     "FLOW LANGUAGE RULE: when a gauge above includes a 'vs. ~X CFS typical' note, that is the ONLY basis for describing how the flow compares to normal (e.g. 'well below average', 'about average') - use that exact phrasing or a close paraphrase, never invent your own characterization of whether a flow is low, moderate, or high. When a gauge has NO such note, describe the raw CFS number and what it suits for wading/technique WITHOUT any comparative judgment (do not say 'moderate' or 'good flows' with no baseline to support it) - stick to what the number itself supports.",
     "DISTANCE LANGUAGE RULE: you do NOT have real drive-time data for any individual pick - never state a specific number of minutes or hours to reach one named water anywhere in this report (this applies to the overview, recommendation, and every per-river field alike). Describe order only, in relative terms (e.g. 'the closest option here', 'a bit farther', 'the longest drive of the group', 'on the way toward X'). The app calculates and displays each pick's real drive time separately from your text - a specific guessed number can only end up contradicting it.",
-    "TASK: Like a real guide, name the BEST trout fisheries within about a 2-hour drive of "+loc.label+", ranked best to worst (maximum 6; return fewer if fewer truly deserve it - never pad).",
+    "TASK: Like a real guide, name the BEST trout fisheries within about a 2-hour drive of "+loc.label+", ranked best to worst (maximum 10; return fewer if fewer truly deserve it - never pad).",
     "SELECTION RULES: (1) Build the candidate list from TWO sources combined: (a) the trout fisheries the RETRIEVED REPORTS establish near here - this catches tailwaters and famous water that may have no nearby gauge or a gauge named for a dam or lake; and (b) the gauged streams above that are genuine trout water. Do NOT silently drop a close gauged trout stream just because the reports did not mention it, and do NOT include a gauged stream that is warmwater or bass water. Corroborate report-only picks across more than one source where possible.",
     "(2) TAILWATERS: cold water below a dam is often the premier trout fishery in a region; include the relevant tailwater even when no gauge is named like a trout stream. When the reports clearly establish a water is a below-dam tailwater, set its \"verified\" field to \"tailwater\".",
     "(3) DISTANCE DISCIPLINE: only recommend water realistically within ~2 hours. Do NOT reach for famous names farther than that. Do NOT let a famous distant fishery crowd out quality water within about an hour. If a gauged stream within range is genuine trout water, keep a place for it.",
@@ -4906,7 +4950,8 @@ function buildLabSynth(a){
     "(9) PROXIMITY COVERAGE: a real guide starts a client on the CLOSEST quality trout water and only reaches farther for variety. The gauge list above is ordered nearest-first. Always include the nearest genuine trout streams (the closest 2-3 trout drainages within ~30-60 min) BEFORE adding a famous water 1.5-2 hours away. NEVER omit a close gauged trout stream in order to list a distant famous one, and NEVER give two slots to one distant river system while closer trout drainages within range go unlisted. Spread picks across DIFFERENT drainages and DIFFERENT directions from the origin, not a single corridor. One farther marquee water is fine for range, but the closest trout waters must anchor the list.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. FLY NAMES: name flies ONLY from the recognized national canon, matched to the hatch and season you identified - choose only from: \"+FLY_CANON+\". You may pick a specific modern pattern from that canon when it fits the hatch, but NEVER invent a pattern name and NEVER copy a one-off local shop or guide pattern from the reports - name only complete, widely recognized patterns a typical fly shop would stock. Every fly must be a full pattern name, never a tying style or descriptor with a generic noun (for example never 'Parachute Hatch' - write 'Parachute Adams'), and never a hatch or event named as if it were a fly. Attach a person's name to a fly only when it is a recognized pattern. In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
     "SOURCING: synthesize the reports into your own original assessment. Do NOT rely on a single source and do NOT name, quote, or attribute any specific shop, business, website, or author.",
-    "Keep each field to 1 sentence. Return ONLY JSON no markdown: ",
+    "RECOMMENDATION FIELD: this is the single most important field - a real guide's honest answer to 'if I could only send my client to ONE of these today, which one and why'. Compare your own picks against EACH OTHER using their actual flow status and conditions for this date - not generic praise. Name the specific pick by name. 2-3 sentences, not 1 - this field is exempt from the one-sentence rule below.",
+    "Keep every other field to 1 sentence. Return ONLY JSON no markdown: ",
     '{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"rivers":[{"name":"","lat":0,"lng":0,"type":"","source":"","verified":"","cfs":"","condition":"","crowdLevel":"","conditions":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}],"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]}'
   ].join(" ");
 }
@@ -5083,7 +5128,37 @@ async function labVerifyPicks(rivers,loc,ground){
 // faults (out-of-season hatch, unsafe time-of-day advice, implausible flow claim).
 // One planner-tagged search call, fail-open. Rides the same grounding, so it's a strong
 // mitigation for recall gaps (the St. Vrain/Big Thompson miss), not a guarantee.
-async function labReviewReport(report,loc,ground,dateStr){
+// NEW: single-river deep-dive narrative. Does not exist elsewhere in the app —
+// the main synthesis call keeps every field to 1 sentence by design (for speed
+// across up to 10 candidates at once); this is the richer, on-demand payoff for
+// whichever ONE river a user actually commits to.
+function buildRiverNarrativePrompt(r,loc,dateStr){
+  return [
+    "You are an experienced fly fishing guide writing a detailed briefing for a client who has chosen to fish "+String(r.name||"")+" near "+loc.label+" on "+dateStr+".",
+    "VERIFIED FACTS ABOUT THIS WATER (already confirmed - do not contradict): type="+(r.type||"unknown")+"; flow="+(r.cfs||"unknown")+" CFS ("+(r.condition||"")+"); known access points="+((r.accessPoints||[]).join(", ")||"none given")+"; summary="+JSON.stringify(r.why||"")+"; conditions="+JSON.stringify(r.conditions||"")+"; techniques="+JSON.stringify(r.techniques||"")+".",
+    "FLOW LANGUAGE RULE: only characterize this flow as low/moderate/high if justified by the CFS number and water type given - do not invent a comparison you were not given.",
+    "DISTANCE LANGUAGE RULE: never state a specific drive time in minutes or hours.",
+    "FLY NAMES: choose only from this recognized canon: "+FLY_CANON+". Never invent a pattern name.",
+    "Write a genuinely detailed briefing (3-4 short paragraphs, 150-220 words total): what kind of day to expect given this water's type and flow, realistic fishing quality and technique specific to this water (not generic filler), which 2-3 flies from the canon to start with and why, and one honest tip a good guide would actually say. Confident, specific, guide voice. Plain prose, no markdown, no headers, no bullet points."
+  ].join(" ");
+}
+
+// Chains the existing review/correction pass (scoped to just this one river, reusing
+// labReviewReport exactly as-is) with the new narrative call. Tagged "cheap" not
+// "planner" - this is a user drilling into one candidate they already have, not a
+// new trip search, and shouldn't spend the scarce daily planner-report quota.
+async function getFullRiverReport(r,loc,report,dateStr){
+  let river=r;
+  try{
+    const rv=await labReviewReport({rivers:[r],hatches:report.hatches,bestTimes:report.bestTimes,tips:report.tips},loc,report.searchTxt||"",dateStr,"cheap");
+    const fix=rv&&rv.fixes&&Array.isArray(rv.fixes.rivers)?rv.fixes.rivers.find(x=>x&&x.name===r.name):null;
+    if(fix&&Array.isArray(fix.flies)&&fix.flies.length) river={...r,flies:fix.flies};
+  }catch(e){ /* fail-open: proceed with the original, already-shown river data */ }
+  const narrative=await askClaude(buildRiverNarrativePrompt(river,loc,dateStr),false,500,"cheap");
+  return {narrative:narrative.trim(),correctedFlies:river.flies!==r.flies?river.flies:null};
+}
+
+async function labReviewReport(report,loc,ground,dateStr,usageKind="planner"){
   try{
     if(!report||!Array.isArray(report.rivers))return null;
     const picks=report.rivers.map(r=>r&&r.name).filter(Boolean);
@@ -5101,7 +5176,7 @@ async function labReviewReport(report,loc,ground,dateStr){
       "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, or unsafe/self-contradictory timing. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
       'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
     ].filter(Boolean).join(" ");
-    const race=Promise.race([askClaude(ctx,true,2600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
+    const race=Promise.race([askClaude(ctx,true,2600,usageKind),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
     const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
     if(a===-1||b<=a)return null;
@@ -5345,10 +5420,27 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 
   const [shops,setShops]=useState([]);
   const [report,setReport]=useState(null);
+  const [deepReports,setDeepReports]=useState({}); // per-river on-demand "Get Full Report" results, keyed by river name: {status:'loading'|'done'|'error', narrative, correctedFlies}
   const [savedReports,setSavedReports]=useState([]); // today's reports saved in Supabase — reopening is free
   const [saveNote,setSaveNote]=useState(null);
   const pendingSaveRef=useRef(null); // holds the last failed save payload so Retry/auto-retry can resend it
   const [retrying,setRetrying]=useState(false);
+
+  async function handleGetFullReport(r){
+    setDeepReports(prev=>({...prev,[r.name]:{status:"loading"}}));
+    try{
+      const dateStr=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+      const result=await getFullRiverReport(r,loc,report,dateStr);
+      if(result.correctedFlies){
+        // Apply the fix to the actual visible river data, not just a footnote —
+        // the fly chips shown above should reflect the corrected list too.
+        setReport(prevReport=>prevReport?{...prevReport,rivers:prevReport.rivers.map(rv=>rv.name===r.name?{...rv,flies:result.correctedFlies}:rv)}:prevReport);
+      }
+      setDeepReports(prev=>({...prev,[r.name]:{status:"done",narrative:result.narrative,correctedFlies:result.correctedFlies}}));
+    }catch(e){
+      setDeepReports(prev=>({...prev,[r.name]:{status:"error",message:e.message||"Something went wrong."}}));
+    }
+  }
 
   // Shared by the initial save and by manual/auto retry — keeps the exact payload
   // around on failure instead of discarding it, so a retry resends the same report.
@@ -5584,7 +5676,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
             reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips},loc,searchTxt,ds).catch(()=>null); // run the report review (omissions + in-place corrections) in parallel with finalize + gauge-load
-            builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
+            builtReport={searchNote,searchTxt,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
           } else { setError("The research step returned no usable report"+(String(searchTxt||"").length<200?" — the web search came back empty":"")+". Please try again in a moment."); }
@@ -5806,7 +5898,33 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
                 {r.flies?.length>0&&<div className="chips">{r.flies.map((f,j)=><a key={j} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
+                <RiverWeatherPanel lat={r.lat||loc?.lat} lng={r.lng||loc?.lng}/>
                 <StreamGaugeChart streamName={r.name} knownSiteNo={r.siteNo} localGauges={gauges} lat={r.lat||loc?.lat} lng={r.lng||loc?.lng}/>
+                {(()=>{
+                  const dr=deepReports[r.name];
+                  if(!dr) return(
+                    <button onClick={()=>handleGetFullReport(r)}
+                      style={{marginTop:8,width:"100%",padding:"9px",borderRadius:8,border:"1px solid var(--sage-gray-green,#6d7467)",background:"rgba(90,122,74,0.12)",color:"var(--foam)",fontSize:14,cursor:"pointer"}}>
+                      📖 Get Full Report
+                    </button>
+                  );
+                  if(dr.status==="loading") return(
+                    <div style={{marginTop:8,fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Writing your full report…</div>
+                  );
+                  if(dr.status==="error") return(
+                    <div style={{marginTop:8}}>
+                      <div style={{fontSize:14,color:"var(--red)",fontStyle:"italic",marginBottom:6}}>Couldn't generate a full report — {dr.message}</div>
+                      <button onClick={()=>handleGetFullReport(r)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--stone)",background:"transparent",color:"var(--stone)",fontSize:13,cursor:"pointer"}}>Try again</button>
+                    </div>
+                  );
+                  return(
+                    <div style={{marginTop:8,background:"rgba(90,122,74,0.12)",border:"1px solid rgba(90,122,74,0.3)",borderRadius:10,padding:"10px 12px"}}>
+                      <div style={{fontSize:13,color:"#9cd47a",letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Full Report</div>
+                      <div style={{fontSize:14,color:"var(--foam)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{dr.narrative}</div>
+                      {dr.correctedFlies&&<div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Fly list updated above after a fact-check pass.</div>}
+                    </div>
+                  );
+                })()}
               </div>
               );
             })}
