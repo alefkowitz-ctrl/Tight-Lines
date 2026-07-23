@@ -468,7 +468,7 @@ function AuthScreen({demoError}){
   }
 
   return(
-    <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",background:"var(--deep)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"safe center",padding:24,boxSizing:"border-box"}}>
       <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:40}}>
           <Logo layout="stacked" scale={1} />
