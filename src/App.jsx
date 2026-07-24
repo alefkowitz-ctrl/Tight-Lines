@@ -5346,6 +5346,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   const [shops,setShops]=useState([]);
   const [report,setReport]=useState(null);
   const [savedReports,setSavedReports]=useState([]); // today's reports saved in Supabase — reopening is free
+  const [openingReportId,setOpeningReportId]=useState(null); // which saved-report row is currently loading (per-row spinner state)
   const [saveNote,setSaveNote]=useState(null);
   const pendingSaveRef=useRef(null); // holds the last failed save payload so Retry/auto-retry can resend it
   const [retrying,setRetrying]=useState(false);
@@ -5356,7 +5357,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
     if(!sb) return;
     try{
       setSaveNote(null);
-      const {data:savedRow,error:saveErr}=await sb.from("planner_reports").insert({report_date:new Date().toISOString().split("T")[0],loc_label:payload.loc.label,lat:payload.loc.lat,lng:payload.loc.lng,payload}).select("id,created_at,loc_label").single();
+      // Same hang-timeout guard as refreshTier/signOut: a bare await here could hang
+      // indefinitely with no rejection (same root class as those two bugs), which would
+      // silently skip the "couldn't save" retry path below since saveErr never fires.
+      const {data:savedRow,error:saveErr}=await Promise.race([
+        sb.from("planner_reports").insert({report_date:new Date().toISOString().split("T")[0],loc_label:payload.loc.label,lat:payload.loc.lat,lng:payload.loc.lng,payload}).select("id,created_at,loc_label").single(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("save timed out")), 8000))
+      ]);
       if(saveErr){
         pendingSaveRef.current=payload;
         setSaveNote("This report is shown but couldn't be saved for later: "+saveErr.message);
@@ -5399,14 +5406,22 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       try{sessionStorage.setItem("tl_tripreport_v1",JSON.stringify({...s,v:1,ts:Date.now()}));}catch(se){void 0;}
     }catch(e){void 0;}
   }
-  // Open one of today's saved reports: list rows are lightweight, the payload loads on tap
+  // Open one of today's saved reports: list rows are lightweight, the payload loads on tap.
+  // Guarded the same way as refreshTier/signOut: without the timeout, a stuck/in-flight
+  // request just hangs forever with no rejection — no error, no report, tap looks like it
+  // did nothing at all (the exact symptom reported: button tapped, nothing happened).
   async function openSavedReport(r){
     if(!sb)return;
+    setOpeningReportId(r.id);
     try{
-      const {data,error:perr}=await sb.from("planner_reports").select("payload").eq("id",r.id).single();
+      const {data,error:perr}=await Promise.race([
+        sb.from("planner_reports").select("payload").eq("id",r.id).single(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("Loading that report timed out — check your connection and try again.")), 8000))
+      ]);
       if(perr||!data||!data.payload){setError("Couldn't load that report: "+(perr?perr.message:"not found"));return;}
       applySavedReport(data.payload);
     }catch(e){setError("Couldn't load that report: "+(e.message||"unknown error"));}
+    finally{setOpeningReportId(null);}
   }
 
   // Load today's saved reports (specific columns only — payload is fetched on tap)
@@ -5708,9 +5723,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             </button>}
           </div>}
           {savedReports.map(r=>(
-            <button key={r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(209,154,74,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",color:"var(--foam)",fontSize:15,fontFamily:"var(--font-body)"}}>
+            <button key={r.id} disabled={openingReportId===r.id} onClick={()=>openSavedReport(r)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(209,154,74,0.25)",borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:openingReportId===r.id?"default":"pointer",color:"var(--foam)",fontSize:15,fontFamily:"var(--font-body)",opacity:openingReportId===r.id?0.6:1}}>
               <span style={{color:"var(--gold)"}}>{r.loc_label||"Saved report"}</span>
-              <span style={{color:"var(--stone)",marginLeft:8,fontSize:13}}>{new Date(r.created_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
+              <span style={{color:"var(--stone)",marginLeft:8,fontSize:13}}>{openingReportId===r.id?"Loading…":new Date(r.created_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
             </button>
           ))}
         </div>
