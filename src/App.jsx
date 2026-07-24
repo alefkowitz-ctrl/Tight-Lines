@@ -4800,8 +4800,19 @@ async function identifyFish(b64,promptText){
 // --- Report-quality deterministic rules (when AI is wrong twice, make it code) ---
 
 // Known warm-water urban reaches that are not trout fisheries. Seed list; expand as cases arise.
-const WARM_URBAN_RE=/S(OUTH)?\.?\s+PLATTE\s+R(IVER)?\.?\s+(AT|NEAR|NR|ABV|ABOVE|BLW|BELOW)\s+(DENVER|ENGLEWOOD|COMMERCE\s*CITY|HENDERSON|64TH|88TH|BRIGHTON|FORT\s+LUPTON)|CHERRY\s+CR(EEK)?\.?\s+(AT|NEAR|NR)\s+(DENVER|GLENDALE)/i;
-function isWarmUrbanGauge(name){return WARM_URBAN_RE.test(String(name||""));}
+// Two independent regexes (base river name, place marker) rather than one rigid pattern
+// requiring a connector word ("at"/"below") to sit immediately before the place name.
+// That adjacency requirement was the confirmed root cause of two misses reaching a live
+// report: "South Platte River below Union Avenue, Englewood" (extra words sit between
+// "below" and "Englewood") and "South Platte at Englewood" (no "River"/"R." token at all
+// before "at", which the old pattern required). Matching base-name-anywhere AND
+// place-anywhere catches every phrasing variant without needing a new regex per wording.
+const WARM_URBAN_BASE_RE=/\bS(?:OUTH)?\.?\s*PLATTE\b|\bCHERRY\s+CR(?:EEK)?\b/i;
+const WARM_URBAN_PLACE_RE=/\b(DENVER|ENGLEWOOD|COMMERCE\s*CITY|HENDERSON|64TH|88TH|BRIGHTON|FORT\s+LUPTON|UNION\s+AVE(?:NUE)?|GLENDALE)\b/i;
+function isWarmUrbanGauge(name){
+  const n=String(name||"");
+  return WARM_URBAN_BASE_RE.test(n)&&WARM_URBAN_PLACE_RE.test(n);
+}
 
 // Remove whole sentences that push afternoon/midday fishing (applied only under thermal risk)
 function scrubAfternoonPush(text){
@@ -4971,6 +4982,20 @@ function dropWarmwaterByText(rivers){
   if(!Array.isArray(rivers)||!rivers.length)return rivers;
   const txt=r=>[r.name,r.type,r.why,r.conditions,r.condition,r.techniques].map(v=>String(v||"")).join(" ");
   const kept=rivers.filter(r=>!WARM_TEXT_RE.test(txt(r)));
+  return kept.length?kept:rivers;
+}
+
+// Deterministic backstop for the known Denver-metro warm-urban reaches (isWarmUrbanGauge,
+// defined above) — this had ONLY ever been wired into the candidate-gauge-list filter
+// (fishableGauges), never re-checked against the model's FINAL picks. That gap is how
+// "South Platte River below Union Avenue, Englewood" reached a live report as a Beginners
+// pick: the AI can name a well-known Denver gauge from its own knowledge regardless of what
+// the candidate list offered. Checks both the pick's own name (however the AI phrased it)
+// and its snapped real USGS gauge name (ground truth, immune to phrasing) so a match on
+// either is enough to drop it. Never empties the list.
+function dropWarmUrbanPicks(rivers){
+  if(!Array.isArray(rivers)||!rivers.length)return rivers;
+  const kept=rivers.filter(r=>!isWarmUrbanGauge(r.name)&&!isWarmUrbanGauge(r.gaugeSnap));
   return kept.length?kept:rivers;
 }
 
@@ -5200,6 +5225,7 @@ async function finalizeLabRivers(rivers,gaugeList,loc,ground){
   out=enforceStreamTypes(out,true);                // keep tailwaters the reports corroborate
   out=labSplitFused(out);                          // split fused two-dam tailwater entries
   out=dropWarmwaterByText(out);                     // drop picks the model itself calls warmwater/bass (backstop to deep-read)
+  out=dropWarmUrbanPicks(out);                       // drop known Denver-metro warm-urban reaches (South Platte/Cherry Creek through Denver, Englewood, etc.) — deterministic, checked against final name + snapped gauge
   out=damNameReconcile(out);                        // correct wrong-dam claims against the live gauge name (deterministic)
   out=await labGovernor(out,loc);                  // drive-time governor, never-empty
   out=await labVerifyPicks(out,loc,ground);        // skeptical trout-vs-warmwater pass + AVOID-list enforcement (drop on contradiction, label on doubt, never empty)
