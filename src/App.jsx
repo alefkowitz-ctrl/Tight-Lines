@@ -194,31 +194,46 @@ const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) :
 
 const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 
-// One-shot recovery for a stuck Supabase auth/session check: reloads the page ONCE per
-// tab session. This exists because of a documented supabase-js issue (the client can
-// deadlock on an internal cross-tab browser lock used to coordinate sign-in — no error,
-// no network activity, the request just never settles) — confirmed as the root cause of
-// the original cold-launch version of this symptom (App Dev 33) via Adam's own observation
-// that a manual sign-out/sign-in always fixed it, and confirmed again live for the sign-in
-// path (this session) — recovery correctly detected the stuck check and reloaded.
-// IMPORTANT: this does NOT wipe the stored session. The first version of this fix mimicked
-// manual sign-out (which wipes + reloads), on the theory that the wipe was necessary — but
-// the lock in question is a browser-level navigator.locks lock tied to the OLD page's JS
-// context, not anything stored in localStorage; a plain reload already destroys that
-// context and releases the lock. The still-valid session token survives the reload, so the
-// cold-launch getSession() check picks it right back up and the person stays signed in —
-// no forced re-login. (If the session were ever genuinely invalid rather than just
-// lock-stuck, the reload wouldn't fix it either way, and the one-shot guard below still
-// prevents a retry loop — it just falls through to the normal failure banner instead.)
-// Guarded by a one-shot sessionStorage flag so a merely slow (not stuck) connection can
-// never trigger a reload loop. Returns true if it fired (caller should stop — a reload is
-// underway); false if this tab already used its one attempt this session (caller should
-// fall back to its own normal failure handling instead).
+// Tiered recovery for a stuck Supabase auth/session check: reloads the page, escalating
+// across two attempts per tab session, then gives up automatically. This exists because
+// of a documented supabase-js issue (the client can deadlock on an internal cross-tab
+// browser lock used to coordinate sign-in — no error, no network activity, the request
+// just never settles) — confirmed as the root cause of the original cold-launch version
+// of this symptom (App Dev 33) via Adam's own observation that a manual sign-out/sign-in
+// always fixed it.
+// TWO TIERS, not one — learned live tonight (2026-07-26) the hard way:
+//   Attempt 1 (soft): reload WITHOUT wiping the stored session. Handles the common case
+//   — a stuck browser-level lock tied to the OLD page's JS context, nothing wrong with
+//   the token itself. A plain reload destroys that context and releases the lock; the
+//   still-valid session survives, so the person stays signed in with no forced re-login.
+//   This was the ONLY tier for a while tonight, on the theory the token itself was never
+//   actually the problem.
+//   Attempt 2 (hard): if a soft reload didn't fix it and the SAME hang recurs again this
+//   tab session, that's evidence the stored token itself may genuinely be bad, not just a
+//   stuck lock — confirmed live tonight: two devices (phone + this PC) signed in
+//   simultaneously, both refreshing around the same time, which Supabase's own concurrent-
+//   refresh handling can invalidate outright. Multiple plain reloads and even a fully
+//   closed-and-reopened tab did NOT fix it; only a manual "clear site data" did — proving
+//   the token, not a lock, was the actual problem that time. So attempt 2 wipes the stored
+//   session before reloading, same as a manual sign-out, to force a genuinely fresh
+//   sign-in — the same recovery this whole mechanism was originally modeled on.
+// After both tiers have been tried this tab session, automatic recovery stops — a third
+// consecutive failure means something neither tier can fix on its own (e.g. a real
+// backend issue), and the person is better served by the normal failure banner / manual
+// retry / manual reload than by an endless, invisible reload loop.
+// Guarded by a sessionStorage counter so a merely slow (not stuck) connection can never
+// trigger a reload loop. Returns true if it fired (caller should stop — a reload is
+// underway); false once both tiers are exhausted this session (caller should fall back
+// to its own normal failure handling instead).
 function attemptAuthRecovery(){
-  let alreadyTried=false;
-  try{ alreadyTried = sessionStorage.getItem("gc_auth_recover_attempted")==="1"; }catch(e){}
-  if(alreadyTried)return false;
-  try{ sessionStorage.setItem("gc_auth_recover_attempted","1"); }catch(e){}
+  let attempts=0;
+  try{ attempts = parseInt(sessionStorage.getItem("gc_auth_recover_attempted")||"0",10)||0; }catch(e){}
+  if(attempts>=2) return false;
+  const next=attempts+1;
+  try{ sessionStorage.setItem("gc_auth_recover_attempted",String(next)); }catch(e){}
+  if(next===2){
+    try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
+  }
   window.location.reload();
   return true;
 }
@@ -352,9 +367,9 @@ function useAuth(){
           return "free";
         }
         // A successful response (row found, no row, canceled, whatever) proves the
-        // auth/lock path is healthy again — clear the recovery flag so a LATER genuinely
-        // stuck check still gets its own one-shot recovery instead of silently being
-        // skipped because an earlier, unrelated recovery already used up the flag.
+        // auth/lock path is healthy again — clear the recovery counter so a LATER
+        // genuinely stuck check still gets its own fresh tiers instead of silently
+        // being skipped because an earlier, unrelated recovery already used them up.
         try{ sessionStorage.removeItem("gc_auth_recover_attempted"); }catch(e){}
         setTierChecking(false);
         if(!data || data.status==="canceled"){
@@ -446,7 +461,7 @@ function useAuth(){
     // blocking a fresh page's attempt to read/refresh the session). Adam found that
     // signing out and back in always fixes it; that works because sign-out wipes the
     // local session and reloads, which clears any stuck lock tied to the old page context.
-    // Reusing attemptAuthRecovery() here — same one-shot wipe+reload logic now shared with
+    // Reusing attemptAuthRecovery() here — same tiered reload logic now shared with
     // refreshTier's own recovery path below — so a stuck cold launch recovers on its own
     // instead of requiring Adam to notice and do it by hand.
     const timeout = setTimeout(()=>{
@@ -7805,9 +7820,18 @@ function AuthLoadingScreen(){
         <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
         {showEscape&&<div style={{marginTop:20}}>
           <div style={{fontSize:14,color:"var(--stone)",marginBottom:10}}>Taking longer than usual.</div>
-          <button onClick={()=>{try{sessionStorage.removeItem("gc_auth_recover_attempted");}catch(e){} window.location.reload();}}
+          <button onClick={()=>{
+              // A deliberate manual click, after already waiting, is a strong enough signal
+              // to skip straight to the strongest fix rather than hope a soft reload is
+              // enough — same as manually signing out: clears the recovery counter (so the
+              // automatic tiers get a fresh start too) AND wipes the stored session before
+              // reloading. Will require signing in again, same as a manual sign-out would.
+              try{ sessionStorage.removeItem("gc_auth_recover_attempted"); }catch(e){}
+              try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
+              window.location.reload();
+            }}
             style={{background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"8px 22px",color:"var(--gold)",fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-            Reload
+            Reload &amp; Sign In Again
           </button>
         </div>}
       </div>
