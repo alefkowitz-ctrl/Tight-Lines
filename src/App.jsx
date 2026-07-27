@@ -263,6 +263,15 @@ function useAuth(){
   // Cold-launch is unaffected (the outer `loading` gate already keeps the whole app
   // shell hidden until refreshTier resolves) — this specifically covers the interactive
   // sign-in path, where the app shell is already visible before the check finishes.
+  // IMPORTANT refinement (same evening): the Plan/Guide tab gating only shows the
+  // "Checking your plan…" placeholder when `tier` is ALSO still "free" — i.e. genuinely
+  // unknown. A later, routine background re-check (e.g. on tab-focus resume) can start
+  // and even get stuck AFTER an earlier check already succeeded — confirmed live via a
+  // screenshot showing "Current: Guide Pro" correctly resolved while a fresh, separate
+  // check sat stuck on "checking…" underneath it. Gating on tierChecking alone made an
+  // already-confirmed paid account's real content vanish behind a spinner for a check
+  // that was really just double-checking in the background. Once a real tier is known,
+  // a subsequent check (successful, slow, or even stuck) should never hide it again.
   const [tierChecking, setTierChecking] = useState(false);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
@@ -7687,8 +7696,8 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&(tierChecking?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
-          {tab==="guide"&&!hideGuide&&(tierChecking?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
+          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
+          {tab==="guide"&&!hideGuide&&((tierChecking&&tier==="free")?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
         </div>
 
         {batchProgress&&(
