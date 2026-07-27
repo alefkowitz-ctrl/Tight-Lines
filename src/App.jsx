@@ -250,6 +250,20 @@ function useAuth(){
   // which user id, what the subscriptions row actually contains (or that there's no row
   // at all), and any error — instead of theorizing further with no data.
   const [tierDebug, setTierDebug] = useState(null);
+  // True only while a subscription check is actively in flight for a signed-in user.
+  // Added after a live report: right after an interactive sign-in, `user` becomes
+  // truthy immediately (synchronously, in the onAuthStateChange handler below) while
+  // `tier` is still sitting at its untouched "free" default until refreshTier's async
+  // check resolves — and PLAN_TIERS.has(tier)/GUIDE_TIERS.has(tier) can't tell "free"
+  // apart from "not checked yet". That gap showed a paying customer the upgrade paywall
+  // for however long the check actually took (a fraction of a second normally, several
+  // seconds during exactly the slow/stuck-check scenarios fixed earlier this session) —
+  // confirmed live: the paywall "corrected itself" once the check finished, meaning it
+  // was never wrong data, just a premature verdict shown before the real answer arrived.
+  // Cold-launch is unaffected (the outer `loading` gate already keeps the whole app
+  // shell hidden until refreshTier resolves) — this specifically covers the interactive
+  // sign-in path, where the app shell is already visible before the check finishes.
+  const [tierChecking, setTierChecking] = useState(false);
   // Reads the caller's subscription tier. Accepts an explicit uid (used right after
   // sign-in, before `user` state has committed) and falls back to current `user`.
   // Fails open to "free" on any error/missing row — a Supabase hiccup must never
@@ -266,7 +280,7 @@ function useAuth(){
   // an error and must never trigger a retry — only `error` truthy does.
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
-    if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
+    if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierChecking(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
     // Set immediately, before the retry loop starts: without this, a screenshot taken
     // right after opening the app (before any attempt finishes) shows the exact same
     // blank line as a genuinely stuck check — which is what caused confusion in App Dev
@@ -280,6 +294,7 @@ function useAuth(){
     // showing "checking…" in the debug line at the same moment the red banner
     // was still up — that combination should be impossible once this fires here.
     setTierCheckFailed(false);
+    setTierChecking(true);
     setTierDebug({uid:id, note:"checking…"});
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
@@ -305,7 +320,7 @@ function useAuth(){
           // check that hangs on EVERY attempt rather than failing once and succeeding on
           // retry is the signature of the stuck-lock issue, not a transient network blip.
           if(attemptAuthRecovery())return "free"; // page is reloading — nothing else to do
-          setTierCheckFailed(true); setTier("free"); setTrialExpired(null);
+          setTierCheckFailed(true); setTier("free"); setTrialExpired(null); setTierChecking(false);
           setTierDebug({uid:id, attempt:attempt+1, error:error.message||String(error), data:null});
           return "free";
         }
@@ -314,6 +329,7 @@ function useAuth(){
         // stuck check still gets its own one-shot recovery instead of silently being
         // skipped because an earlier, unrelated recovery already used up the flag.
         try{ sessionStorage.removeItem("gc_auth_recover_attempted"); }catch(e){}
+        setTierChecking(false);
         if(!data || data.status==="canceled"){
           setTierCheckFailed(false); setTier("free"); setTrialExpired(null);
           setTierDebug({uid:id, attempt:attempt+1, error:null, data, note: !data?"no subscriptions row for this user_id":"status=canceled"});
@@ -336,7 +352,7 @@ function useAuth(){
       }catch(e){
         if(attempt<delays.length-1) continue;
         if(attemptAuthRecovery())return "free"; // page is reloading — nothing else to do
-        setTierCheckFailed(true); setTier("free");
+        setTierCheckFailed(true); setTier("free"); setTierChecking(false);
         setTierDebug({uid:id, attempt:attempt+1, error:e.message||String(e), data:null, note:"threw"});
         return "free";
       }
@@ -427,7 +443,7 @@ function useAuth(){
     }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
     const {data:{subscription}} = sb.auth.onAuthStateChange(async (event,session)=>{
       setUser(session?.user ?? null);
-      if(!session?.user){ setTier("free"); return; }
+      if(!session?.user){ setTier("free"); setTierChecking(false); return; }
       // INITIAL_SESSION fires once on every page load whenever a session already
       // exists — the mount effect just above (the direct sb.auth.getSession() call)
       // already runs its own refreshTier for that exact same session, so responding
@@ -462,7 +478,7 @@ function useAuth(){
     document.addEventListener("visibilitychange", onVisible);
     return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); document.removeEventListener("visibilitychange", onVisible); };
   },[]);
-  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug};
+  return {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking};
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
@@ -780,6 +796,19 @@ function UpgradeLock({tierKey, featureLabel}){
         style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"12px 28px",color:"#0c1e25",fontSize:16,fontWeight:600,cursor:busy?"default":"pointer",opacity:busy?0.7:1,fontFamily:"var(--font-body)"}}>
         {busy?"Starting checkout…":`Upgrade to ${info.name} — ${info.price}`}
       </button>
+    </div>
+  );
+}
+
+// Neutral placeholder shown instead of UpgradeLock while a subscription check is still
+// in flight (see tierChecking on the App component) — avoids flashing the "upgrade to
+// unlock" paywall at a paying customer for however long the check legitimately takes,
+// whether that's a fraction of a second (the normal case) or several seconds (the
+// slow/stuck-check scenarios this session's other fixes address).
+function CheckingPlan(){
+  return(
+    <div style={{textAlign:"center",padding:"60px 24px",maxWidth:420,margin:"0 auto"}}>
+      <div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",animation:"pulse 1.5s infinite"}}>Checking your plan…</div>
     </div>
   );
 }
@@ -6189,7 +6218,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
-function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug}){
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
@@ -7634,8 +7663,8 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>)}
-          {tab==="guide"&&!hideGuide&&(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>)}
+          {tab==="plan"&&(tierChecking?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
+          {tab==="guide"&&!hideGuide&&(tierChecking?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
         </div>
 
         {batchProgress&&(
@@ -7847,7 +7876,7 @@ function SplashScreen({onDone}){
 
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
-  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug} = useAuth();
+  const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
@@ -7887,7 +7916,7 @@ function Root(){
   if(!user) return <AuthScreen demoError={demoError}/>;
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug} tierChecking={tierChecking}/>
   </>;
 }
 export default Root;
