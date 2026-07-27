@@ -1326,6 +1326,33 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2,fullSweep=false){
   return {value:{timeSeries:[]}};
 }
 
+// Direction-balanced trim: keeps up to `budget` items from `list`, round-robining across 8
+// compass directions from the origin instead of taking the nearest N globally. Prevents a
+// dense cluster of close gauges in one direction (e.g. a handful of in-town creeks) from
+// crowding out a real drainage farther out in a different direction, within the same search
+// radius. Preserves each item's relative order within its own direction bucket, so an
+// upstream distance/priority sort is respected. Pure geometry — no named waters anywhere in
+// this function, so it behaves identically in any state.
+function directionalSpread(list,budget,lat,lng){
+  if(!Array.isArray(list)||list.length<=budget)return list;
+  const buckets=Array.from({length:8},()=>[]);
+  list.forEach(item=>{
+    const dy=(item.lat!=null?item.lat:lat)-lat,dx=(item.lng!=null?item.lng:lng)-lng;
+    const deg=(Math.atan2(dx,dy)*180/Math.PI+360)%360; // bearing from origin, 0=N, clockwise
+    buckets[Math.floor(((deg+22.5)%360)/45)].push(item);
+  });
+  const out=[];
+  let added=true;
+  while(added&&out.length<budget){
+    added=false;
+    for(const b of buckets){
+      if(out.length>=budget)break;
+      if(b.length){out.push(b.shift());added=true;}
+    }
+  }
+  return out;
+}
+
 async function fetchUSGSTempBatch(siteNos){
   if(!siteNos||!siteNos.length) return {};
   // New API first
@@ -5679,8 +5706,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
             return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
           }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist);
-          // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left
-          pgScaled=[...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)].slice(0,40);
+          // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left.
+          // Spread across compass directions so a dense cluster close to the origin can't crowd
+          // out a real drainage farther out in a different direction (same radius, just not "nearest").
+          pgScaled=directionalSpread([...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)],40,lat,lng);
         }catch(ge2){void 0;}
       }
       setGauges(pgScaled);
@@ -5689,20 +5718,20 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       {
         // Filter USGS gauges to fishable streams only
         const NON_FISHABLE2=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
-        const fishableGauges=pgScaled.filter(g=>{
+        const fishableGauges=directionalSpread(pgScaled.filter(g=>{
           const n=g.name.toLowerCase();
           const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
           const hasWater=waterWords.some(w=>n.includes(w));
           const hasNonFish=NON_FISHABLE2.some(w=>n.includes(w));
           return hasWater&&!hasNonFish&&!isWarmUrbanGauge(g.name);
-        }).slice(0,25);
+        }),25,lat,lng);
         addStep("Analyzing area conditions…","active");
         const ds=new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
         try{
           // Step 1: Run two parallel searches for broader coverage
           addStep("Reading shop reports — this can take a couple of minutes…","active");
-          const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in ALL directions including east, west, north, and south. Find shops in every nearby town and city. List every stream mentioned with current conditions and flies working.";
-          const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+" in all directions including over mountain passes. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
+          const searchPrompt1="Search fly shop websites for current fishing reports for "+ds+" within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+". Run SEPARATE searches for the area north of "+loc.label+", south of it, east of it, and west of it - a single combined search tends to satisfice on whichever nearby town comes up first and miss the other directions entirely. Find shops in every nearby town and city in each direction. List every stream mentioned with current conditions and flies working.";
+          const searchPrompt2="Search for current trout fishing reports on major rivers and streams within "+(driveMinutes<60?driveMinutes+" minute":Math.round(driveMinutes/60*10)/10+" hour")+" drive of "+loc.label+". Run separate searches covering each compass direction independently (including over mountain passes where relevant) rather than one combined search, so a whole drainage in one direction isn't missed because another direction's results came back first. Note freestone vs tailwater, flows, and crowd levels for "+ds+".";
           // Each search gets its own independent timeout; whichever finishes is kept (no all-or-nothing race)
           let searchFailReason="";
           const withTO=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
