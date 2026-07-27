@@ -194,6 +194,28 @@ const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) :
 
 const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 
+// One-shot recovery for a stuck Supabase auth/session check: clears the locally-stored
+// session and reloads the page ONCE per tab session. This exists because of a documented
+// supabase-js issue (the client can deadlock on an internal cross-tab browser lock used to
+// coordinate sign-in — no error, no network activity, the request just never settles) —
+// confirmed as the root cause of the original cold-launch version of this symptom
+// (App Dev 33) via Adam's own observation that a manual sign-out/sign-in always fixed it.
+// Retrying the same query in the same page context doesn't clear that kind of lock; only a
+// fresh page context does, which is what "sign out, sign back in" was really accomplishing.
+// Guarded by a one-shot sessionStorage flag so a merely slow (not stuck) connection can
+// never trigger a reload loop. Returns true if it fired (caller should stop — a reload is
+// underway); false if this tab already used its one attempt this session (caller should
+// fall back to its own normal failure handling instead).
+function attemptAuthRecovery(){
+  let alreadyTried=false;
+  try{ alreadyTried = sessionStorage.getItem("gc_auth_recover_attempted")==="1"; }catch(e){}
+  if(alreadyTried)return false;
+  try{ sessionStorage.setItem("gc_auth_recover_attempted","1"); }catch(e){}
+  try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
+  window.location.reload();
+  return true;
+}
+
 // ── Auth hook ─────────────────────────────────────────────────────────────────
 function useAuth(){
   const [user, setUser] = useState(null);
@@ -271,10 +293,20 @@ function useAuth(){
         ]);
         if(error){
           if(attempt<delays.length-1) continue; // genuine error — worth another try
+          // Every attempt failed. Before giving up and showing the banner, try the same
+          // one-shot recovery already used at cold-launch (see attemptAuthRecovery) — a
+          // check that hangs on EVERY attempt rather than failing once and succeeding on
+          // retry is the signature of the stuck-lock issue, not a transient network blip.
+          if(attemptAuthRecovery())return "free"; // page is reloading — nothing else to do
           setTierCheckFailed(true); setTier("free"); setTrialExpired(null);
           setTierDebug({uid:id, attempt:attempt+1, error:error.message||String(error), data:null});
           return "free";
         }
+        // A successful response (row found, no row, canceled, whatever) proves the
+        // auth/lock path is healthy again — clear the recovery flag so a LATER genuinely
+        // stuck check still gets its own one-shot recovery instead of silently being
+        // skipped because an earlier, unrelated recovery already used up the flag.
+        try{ sessionStorage.removeItem("gc_auth_recover_attempted"); }catch(e){}
         if(!data || data.status==="canceled"){
           setTierCheckFailed(false); setTier("free"); setTrialExpired(null);
           setTierDebug({uid:id, attempt:attempt+1, error:null, data, note: !data?"no subscriptions row for this user_id":"status=canceled"});
@@ -296,6 +328,7 @@ function useAuth(){
         return t;
       }catch(e){
         if(attempt<delays.length-1) continue;
+        if(attemptAuthRecovery())return "free"; // page is reloading — nothing else to do
         setTierCheckFailed(true); setTier("free");
         setTierDebug({uid:id, attempt:attempt+1, error:e.message||String(e), data:null, note:"threw"});
         return "free";
@@ -357,19 +390,11 @@ function useAuth(){
     // blocking a fresh page's attempt to read/refresh the session). Adam found that
     // signing out and back in always fixes it; that works because sign-out wipes the
     // local session and reloads, which clears any stuck lock tied to the old page context.
-    // Reusing that exact mechanism here — same localStorage wipe, same reload — so a stuck
-    // cold launch recovers on its own instead of requiring Adam to notice and do it by hand.
-    // Guarded by a one-shot sessionStorage flag so a merely slow (not stuck) connection can
-    // never trigger a reload loop: at most one automatic recovery attempt per tab session.
+    // Reusing attemptAuthRecovery() here — same one-shot wipe+reload logic now shared with
+    // refreshTier's own recovery path below — so a stuck cold launch recovers on its own
+    // instead of requiring Adam to notice and do it by hand.
     const timeout = setTimeout(()=>{
-      let alreadyTried=false;
-      try{ alreadyTried = sessionStorage.getItem("gc_auth_recover_attempted")==="1"; }catch(e){}
-      if(!alreadyTried){
-        try{ sessionStorage.setItem("gc_auth_recover_attempted","1"); }catch(e){}
-        try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
-        window.location.reload();
-        return;
-      }
+      if(attemptAuthRecovery())return;
       setLoading(false);
     }, 8000);
     sb.auth.getSession().then(async ({data:{session}})=>{
