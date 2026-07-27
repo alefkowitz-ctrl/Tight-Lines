@@ -194,14 +194,22 @@ const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) :
 
 const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 
-// One-shot recovery for a stuck Supabase auth/session check: clears the locally-stored
-// session and reloads the page ONCE per tab session. This exists because of a documented
-// supabase-js issue (the client can deadlock on an internal cross-tab browser lock used to
-// coordinate sign-in — no error, no network activity, the request just never settles) —
-// confirmed as the root cause of the original cold-launch version of this symptom
-// (App Dev 33) via Adam's own observation that a manual sign-out/sign-in always fixed it.
-// Retrying the same query in the same page context doesn't clear that kind of lock; only a
-// fresh page context does, which is what "sign out, sign back in" was really accomplishing.
+// One-shot recovery for a stuck Supabase auth/session check: reloads the page ONCE per
+// tab session. This exists because of a documented supabase-js issue (the client can
+// deadlock on an internal cross-tab browser lock used to coordinate sign-in — no error,
+// no network activity, the request just never settles) — confirmed as the root cause of
+// the original cold-launch version of this symptom (App Dev 33) via Adam's own observation
+// that a manual sign-out/sign-in always fixed it, and confirmed again live for the sign-in
+// path (this session) — recovery correctly detected the stuck check and reloaded.
+// IMPORTANT: this does NOT wipe the stored session. The first version of this fix mimicked
+// manual sign-out (which wipes + reloads), on the theory that the wipe was necessary — but
+// the lock in question is a browser-level navigator.locks lock tied to the OLD page's JS
+// context, not anything stored in localStorage; a plain reload already destroys that
+// context and releases the lock. The still-valid session token survives the reload, so the
+// cold-launch getSession() check picks it right back up and the person stays signed in —
+// no forced re-login. (If the session were ever genuinely invalid rather than just
+// lock-stuck, the reload wouldn't fix it either way, and the one-shot guard below still
+// prevents a retry loop — it just falls through to the normal failure banner instead.)
 // Guarded by a one-shot sessionStorage flag so a merely slow (not stuck) connection can
 // never trigger a reload loop. Returns true if it fired (caller should stop — a reload is
 // underway); false if this tab already used its one attempt this session (caller should
@@ -211,7 +219,6 @@ function attemptAuthRecovery(){
   try{ alreadyTried = sessionStorage.getItem("gc_auth_recover_attempted")==="1"; }catch(e){}
   if(alreadyTried)return false;
   try{ sessionStorage.setItem("gc_auth_recover_attempted","1"); }catch(e){}
-  try{ Object.keys(localStorage).forEach(k=>{ if(k.startsWith("sb-")) localStorage.removeItem(k); }); }catch(e){}
   window.location.reload();
   return true;
 }
