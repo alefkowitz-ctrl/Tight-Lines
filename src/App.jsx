@@ -278,9 +278,27 @@ function useAuth(){
   // a lucky retry. Confirmed report (App Dev 28+): both Adam's and Evan's accounts.
   // A legitimate "no subscriptions row" (real free user) or status==="canceled" is NOT
   // an error and must never trigger a retry — only `error` truthy does.
+  // Tracks a subscription check already in flight for a given uid. Without this,
+  // every trigger that can call refreshTier (sign-in, tab regaining focus via
+  // onVisible, etc.) starts a completely independent retry sequence — and since
+  // onVisible fires on EVERY tab-switch with no throttle, frequent switching between
+  // several open tabs (visible in every screenshot from this browser session) could
+  // keep restarting tierChecking back to "just started" before any single attempt
+  // ever reached one of its own terminal branches. That would make "Checking your
+  // plan…" look like a permanent hang even though any one check, left alone, would
+  // resolve fine. This is a strong inference from reading the code (onVisible has no
+  // guard against an already-in-flight check) plus the circumstantial evidence of a
+  // multi-tab browser session — not something directly confirmed via a debug capture
+  // of the restart happening. Either way, sharing one in-flight check per uid instead
+  // of letting overlapping triggers reset it is a strict improvement with no downside.
+  const inFlightTierCheck = useRef(null);
   const refreshTier = useCallback(async (uid)=>{
     const id = uid || (user && user.id);
     if(!sb || !id){ setTier("free"); setTrialExpired(null); setTierCheckFailed(false); setTierChecking(false); setTierDebug({uid:id||null, note:"no sb client or no uid"}); return "free"; }
+    if(inFlightTierCheck.current && inFlightTierCheck.current.id===id){
+      return inFlightTierCheck.current.promise;
+    }
+    const runCheck = (async()=>{
     // Set immediately, before the retry loop starts: without this, a screenshot taken
     // right after opening the app (before any attempt finishes) shows the exact same
     // blank line as a genuinely stuck check — which is what caused confusion in App Dev
@@ -357,6 +375,12 @@ function useAuth(){
         return "free";
       }
     }
+    })();
+    inFlightTierCheck.current = {id, promise: runCheck};
+    runCheck.finally(()=>{
+      if(inFlightTierCheck.current && inFlightTierCheck.current.promise===runCheck) inFlightTierCheck.current = null;
+    });
+    return runCheck;
   }, [user]);
   // One-time complimentary-access redemption for a code stored on the auth user at
   // signup (see AuthScreen). Only fires while the caller is still on the free tier —
