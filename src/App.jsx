@@ -4959,14 +4959,17 @@ async function labGovernor(rivers,loc){
     }
     return{...r,cfs,source,miFromOrigin:mi,driveMin};
   });
-  const inRange=annotated.filter(r=>r.driveMin==null||r.driveMin<=CAP_MIN);
-  if(inRange.length)return inRange;
-  // Nothing within day-trip range: keep the single nearest, honestly flagged.
-  const nearest=annotated.slice().sort((a,b)=>(a.driveMin||1e9)-(b.driveMin||1e9))[0];
-  if(!nearest)return [];
-  const hrs=nearest.driveMin?Math.round(nearest.driveMin/6)/10:null;
-  const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — the nearest real trout water; plan an overnight rather than a day trip.";
-  return [{...nearest,outOfRange:true,why:(note+" "+(nearest.why||"")).trim(),conditions:(note+" "+(nearest.conditions||"")).trim()}];
+  // Flag anything beyond the day-trip ring rather than dropping it. Previously
+  // a pick just past CAP_MIN vanished silently as soon as at least one OTHER
+  // pick was in range (only the "everything is far" case got an honest flag,
+  // via a keep-the-single-nearest fallback). Now every out-of-range pick is
+  // kept and flagged the same way, every time — never dropped for distance.
+  return annotated.map(r=>{
+    if(r.driveMin==null||r.driveMin<=CAP_MIN)return r;
+    const hrs=r.driveMin?Math.round(r.driveMin/6)/10:null;
+    const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — plan an overnight rather than a day trip.";
+    return {...r,outOfRange:true,why:(note+" "+(r.why||"")).trim(),conditions:(note+" "+(r.conditions||"")).trim()};
+  });
 }
 
 // Deterministic backstop to the deep-read grounding: drop a pick the model's OWN
@@ -5210,14 +5213,23 @@ async function finalizeLabRivers(rivers,gaugeList,loc,ground){
   // pick that reaches it (using the same lat/lng geocoding attaches here) and
   // already handles the case of a badly wrong geocode result (e.g. an
   // ambiguous bare river name resolving hundreds of miles away): the
-  // resulting drive-time estimate is huge and gets excluded there, same as
-  // any other out-of-range pick, terrain-aware rather than a flat mileage cut.
+  // resulting drive-time estimate is huge and gets flagged there (kept, not
+  // dropped, same as any other out-of-range pick), terrain-aware rather than
+  // a flat mileage cut.
   const regionHint=loc&&loc.label?loc.label.split(",").slice(-1)[0].trim():"";
   const geocoded=await Promise.all(out.map(async r=>{
     if(r.gaugeSnap)return r; // already pinned to a surveyed gauge — leave it
     const g=await geocodeRiver(String(r.name||""),regionHint);
-    if(!g)return null; // Places found nothing — drop
-    return{...r,lat:g.lat,lng:g.lng,geocodePinned:true};
+    if(g)return{...r,lat:g.lat,lng:g.lng,geocodePinned:true};
+    // Places found nothing. The model was asked for its own best-guess lat/lng
+    // for exactly this situation — use it instead of dropping a possibly-good
+    // pick over a single lookup miss. Sanity-bound it (real coordinates, not
+    // the {lat:0,lng:0} template default) and flag it as approximate so later
+    // steps (labGovernor's drive-time badge, etc.) can treat it with a little
+    // more caution than a surveyed gauge or a successful Places match.
+    const hasOwnCoord=r.lat!=null&&r.lng!=null&&!isNaN(r.lat)&&!isNaN(r.lng)&&Math.abs(r.lat)<=90&&Math.abs(r.lng)<=180&&(r.lat!==0||r.lng!==0);
+    if(hasOwnCoord)return{...r,geocodeApprox:true};
+    return null; // no gauge, no Places match, no usable model coordinate — truly nothing to place this on a map with
   }));
   out=geocoded.filter(Boolean);
   if(!out.length&&rivers.length)out=rivers.slice(0,1); // last resort: never return empty
