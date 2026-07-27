@@ -243,6 +243,14 @@ function useAuth(){
     // blank line as a genuinely stuck check — which is what caused confusion in App Dev
     // 31/32 (a "just opened it, checked right away" report looked identical to the
     // original hang bug). Now "checking…" vs. truly blank tells the two apart at a glance.
+    // Clear any stale "couldn't verify your plan" banner the instant a NEW check
+    // starts — previously this only cleared on a successful result, so a fresh
+    // in-progress check (note:"checking…") could sit visually behind a leftover
+    // failure banner from a prior attempt, making a check that's actually running
+    // again look permanently stuck. Confirmed via a live screenshot (2026-07-26)
+    // showing "checking…" in the debug line at the same moment the red banner
+    // was still up — that combination should be impossible once this fires here.
+    setTierCheckFailed(false);
     setTierDebug({uid:id, note:"checking…"});
     const delays = [0, 700, 1600]; // first attempt, then two retries
     for(let attempt=0; attempt<delays.length; attempt++){
@@ -385,9 +393,19 @@ function useAuth(){
       }
       setLoading(false);
     }).catch(()=>{ clearTimeout(timeout); setLoading(false); });
-    const {data:{subscription}} = sb.auth.onAuthStateChange(async (_,session)=>{
+    const {data:{subscription}} = sb.auth.onAuthStateChange(async (event,session)=>{
       setUser(session?.user ?? null);
-      if(session?.user){ const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0); } else setTier("free");
+      if(!session?.user){ setTier("free"); return; }
+      // INITIAL_SESSION fires once on every page load whenever a session already
+      // exists — the mount effect just above (the direct sb.auth.getSession() call)
+      // already runs its own refreshTier for that exact same session, so responding
+      // here too used to fire two concurrent subscription checks racing each other
+      // right at load/sign-in. TOKEN_REFRESHED fires periodically as the access
+      // token silently auto-renews and doesn't mean the tier itself changed — no
+      // reason to hit the DB again for it. Every other event (SIGNED_IN — an actual
+      // interactive sign-in, USER_UPDATED, etc.) still gets a real check.
+      if(event==="INITIAL_SESSION"||event==="TOKEN_REFRESHED")return;
+      const t0=await refreshTier(session.user.id); maybeRedeemInvite(session, t0);
     });
     // Re-check the tier whenever the app/tab comes back to the foreground — covers a
     // PWA that was backgrounded (not freshly launched) whose last tier check happened
