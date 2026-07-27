@@ -7781,6 +7781,39 @@ ${shopPins}
 }
 
 
+// Loading screen shown while cold-launch auth is resolving (the very first session
+// check on page load/refresh). The existing 8s automatic recovery (attemptAuthRecovery,
+// inside useAuth's mount effect) already retries this on its own if the underlying
+// Supabase auth-lock issue strikes here — but sitting on a bare "Loading…" with no
+// indication anything might be wrong and no way to act is exactly the kind of silent
+// experience this project avoids elsewhere (every other failure gets a visible banner
+// and a way to retry). Added after a live "code red" report of this screen hanging on
+// open. After a few seconds, shows a manual reload option so a person is never stuck
+// purely waiting on an invisible timer — clears the one-shot recovery flag first so a
+// deliberate manual click always gets a fresh attempt, even if the automatic one-shot
+// already fired earlier this tab session.
+function AuthLoadingScreen(){
+  const [showEscape,setShowEscape]=useState(false);
+  useEffect(()=>{
+    const t=setTimeout(()=>setShowEscape(true),5000);
+    return ()=>clearTimeout(t);
+  },[]);
+  return(
+    <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern" style={{width:88,height:88,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
+        <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
+        {showEscape&&<div style={{marginTop:20}}>
+          <div style={{fontSize:14,color:"var(--stone)",marginBottom:10}}>Taking longer than usual.</div>
+          <button onClick={()=>{try{sessionStorage.removeItem("gc_auth_recover_attempted");}catch(e){} window.location.reload();}}
+            style={{background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"8px 22px",color:"var(--gold)",fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+            Reload
+          </button>
+        </div>}
+      </div>
+    </div>
+  );
+}
 function SplashScreen({onDone}){
   const [fade,setFade]=React.useState(false);
   const [screen,setScreen]=React.useState(0);
@@ -7935,14 +7968,7 @@ function Root(){
     }
   },[user,loading]);
   if(showSplash) return <SplashScreen onDone={()=>{localStorage.setItem("gc_onboarded","1");setShowSplash(false);}}/>;
-  if(loading) return(
-    <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{textAlign:"center"}}>
-        <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern" style={{width:88,height:88,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
-        <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
-      </div>
-    </div>
-  );
+  if(loading) return <AuthLoadingScreen/>;
   // Only bypass auth if Supabase is genuinely not configured
   if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}} redeemInviteCode={async()=>({ok:false,reason:"not_configured"})}/>;
   // Supabase IS configured - require login
