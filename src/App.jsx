@@ -1129,9 +1129,18 @@ async function nwSearchByName(query,limit=300){
   var tokens=String(query||"").split(/\s+/).map(function(t){return t.replace(/'/g,"").trim();}).filter(Boolean).slice(0,6);
   if(!tokens.length) return [];
   var cql=tokens.map(function(t){return "monitoring_location_name LIKE '%"+t.toUpperCase()+"%'";}).join(" AND ");
+  // properties= trims the response to just the fields used here: measured live
+  // (2026-07-28) at 217KB -> 51KB for an 88-match query, with geometry still included.
   var url=USGS_NW+"/monitoring-locations/items?f=json&limit="+limit+"&site_type_code=ST"
+    +"&properties=monitoring_location_number,monitoring_location_name,altitude,state_name"
     +"&filter-lang=cql-text&filter="+encodeURIComponent(cql);
-  var d=await nwGet(url);
+  // Deliberately NOT using nwGet here: it swallows every failure and returns null, which
+  // would leave the picker silently showing only the small local placeholder list with no
+  // sign anything went wrong — exactly the ambiguity that made a "why am I only getting 4
+  // options" report impossible to diagnose. Let the caller see and surface the error.
+  var r=await fetch(url);
+  if(!r.ok) throw new Error("USGS search failed ("+r.status+")");
+  var d=await r.json();
   return (d?.features||[]).map(function(f){
     var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
     var sn=p.monitoring_location_number||nwSiteNo(p.id);
@@ -6117,15 +6126,18 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const [searchResults,setSearchResults]=React.useState([]);
   const [searching,setSearching]=React.useState(false);
   const [totalMatches,setTotalMatches]=React.useState(0);
+  const [searchErr,setSearchErr]=React.useState("");
   const distFrom=x=>x.distMi!=null?x.distMi:(loc?.lat!=null?Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69:9999);
+  // No cap: this is the instant local placeholder shown while the nationwide search runs.
+  // It was capped at 6, which was itself a limit on a pick-your-own list — removed.
   const localResults=q.length>=2&&!q.match(/^[0-9]+$/)
-    ?loadedGauges.filter(g=>tokenMatch(g.name,q)).sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,6)
+    ?loadedGauges.filter(g=>tokenMatch(g.name,q)).sort((a,b)=>distFrom(a)-distFrom(b))
     :[];
   const results=searchResults.length?searchResults:localResults;
   React.useEffect(()=>{
     if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);setTotalMatches(0);return;}
     const timer=setTimeout(async()=>{
-      setSearching(true);
+      setSearching(true);setSearchErr("");
       try{
         // Nationwide name search — no bounding box. This is a deliberate pick-your-own
         // list: the person typed the name, so every real match is shown, sorted
@@ -6162,7 +6174,10 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         withDist.sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
         setTotalMatches(withDist.length);
         setSearchResults(withDist);
-      }catch{}
+      }catch(e){
+        setSearchErr(e?.message||"Search failed");
+        setSearchResults([]);setTotalMatches(0);
+      }
       setSearching(false);
     },500);
     return()=>clearTimeout(timer);
@@ -6190,12 +6205,22 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           </div>
         </div>
       )}
-      {totalMatches>0&&(
+      {searching&&(
+        <div style={{marginTop:6,fontSize:13,color:"var(--sky)",fontStyle:"italic"}}>
+          Searching all USGS gauges nationwide…{localResults.length?" showing nearby matches so far.":""}
+        </div>
+      )}
+      {!!searchErr&&!searching&&(
+        <div style={{marginTop:6,fontSize:13,color:"#e8a0a0"}}>
+          Nationwide search unavailable ({searchErr}). Showing nearby gauges only — you can still paste a USGS site number above.
+        </div>
+      )}
+      {!searching&&!searchErr&&totalMatches>0&&(
         <div style={{marginTop:6,fontSize:13,color:"var(--stone)",fontStyle:"italic"}}>
           {totalMatches} match{totalMatches===1?"":"es"} nationwide, nearest first{totalMatches>6?" — scroll for more":""}. Add a town, dam, or landmark to narrow (e.g. "South Platte Cheesman").
         </div>
       )}
-      <div style={{maxHeight:totalMatches>6?320:undefined,overflowY:totalMatches>6?"auto":undefined}}>
+      <div style={{maxHeight:results.length>6?320:undefined,overflowY:results.length>6?"auto":undefined}}>
       {results.map((r,i)=>(
         <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
