@@ -1365,6 +1365,7 @@ function directionalSpread(list,budget,lat,lng){
   return out;
 }
 
+
 async function fetchUSGSTempBatch(siteNos){
   if(!siteNos||!siteNos.length) return {};
   // New API first
@@ -6053,18 +6054,43 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 
+// Requires every word in the query to appear somewhere in the name — not one exact
+// contiguous phrase. Previously "south platte" alone could match 80+ sites (the name
+// spans a whole river system from Denver-metro plains water up into the mountains), and
+// the only way to see past the first handful was... there wasn't one, since a natural
+// follow-up like "south platte cheesman" failed too: "cheesman" doesn't sit adjacent to
+// "south platte" in the literal site name, so the old contiguous-substring check missed
+// it even though the person typed the exact right words. Confirmed live (2026-07-28) and
+// verified against real USGS data: token matching correctly narrows "south platte
+// cheesman" to just the 2 real Cheesman-area sites, "platte trumbull" to the Deckers-area
+// gauge, etc. — for any river system anywhere, no curated list, just "did they type the
+// words that are actually in the name."
+function tokenMatch(name,query){
+  const n=(name||"").toLowerCase();
+  const tokens=(query||"").toLowerCase().split(/\s+/).filter(Boolean);
+  return tokens.length>0&&tokens.every(t=>n.includes(t));
+}
+
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const q=(gaugeInput||"").toLowerCase().trim();
   const loadedGauges=window._loadedGauges||[];
   const [searchResults,setSearchResults]=React.useState([]);
   const [searching,setSearching]=React.useState(false);
+  const [totalMatches,setTotalMatches]=React.useState(0);
+  const distFrom=x=>x.distMi!=null?x.distMi:(loc?.lat!=null?Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69:9999);
   const localResults=q.length>=2&&!q.match(/^[0-9]+$/)
-    ?loadedGauges.filter(g=>(g.name||"").toLowerCase().includes(q)).slice(0,6)
+    ?loadedGauges.filter(g=>tokenMatch(g.name,q)).sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,6)
     :[];
-  const results=[...localResults,...searchResults.filter(r=>!localResults.find(l=>l.siteNo===r.siteNo))].slice(0,8);
+  const mergedResults=[...localResults,...searchResults.filter(r=>!localResults.find(l=>l.siteNo===r.siteNo))];
+  const results=mergedResults.sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,8);
   React.useEffect(()=>{
-    if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);return;}
-    if(localResults.length>=4){setSearchResults([]);return;}
+    if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);setTotalMatches(0);return;}
+    // Previously returned early once 4+ local matches existed (from the 50-mile "Nearby
+    // Waters" cache), skipping the wider live search entirely. That's a raw count, not a
+    // relevance signal — confirmed live (2026-07-28): searching "South Platte" near
+    // Lafayette hit this exact guard on 4 close Denver-metro reaches and never got to see
+    // any of the dozens of other matches within the actual search radius. Always run the
+    // live radius search once the query is long enough; it's debounced 500ms either way.
     const timer=setTimeout(async()=>{
       setSearching(true);
       try{
@@ -6087,13 +6113,18 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
             lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
           })).filter(x=>x.siteNo&&x.name);
         }
-        let matched=ts.filter(x=>x.name.toLowerCase().includes(q));
-        // Fallback: the query may be a colloquial place name (e.g. "Deckers") that never
-        // appears in the gauge's official USGS site name — those are usually named after
-        // a dam, a different nearby town, or a tributary junction instead. Geocode the
-        // query text itself and fall back to the nearest gauge(s) to that point. This is
-        // generic for any place name anywhere in the country — no curated stream list.
-        if(matched.length===0&&ts.length){
+        let matched=ts.filter(x=>tokenMatch(x.name,q));
+        // Also try geocoding the query text itself and pulling in the nearest gauge(s) to
+        // that point — not gated on token matches being empty. A query can token-match a
+        // couple of totally unrelated sites (confirmed live, 2026-07-28: "deckers" name-
+        // matches two Fourmile Creek gauges purely because the word "Deckers" also
+        // appears in THEIR names — that meant this fallback's old "only if zero matches"
+        // condition silently never fired, even though the actual place a person means,
+        // the South Platte at Deckers, never appears in any gauge's official name at all).
+        // Merging both sources and sorting by distance afterward lets whichever is
+        // actually closer win either way — generic for any place name in the country, no
+        // curated stream list.
+        if(ts.length){
           try{
             const geo=await geocode(q);
             if(geo&&geo.length){
@@ -6104,13 +6135,17 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
                 -(Math.pow(parseFloat(b.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(b.lon)-(loc?.lng||0),2))
               )[0];
               const glat=parseFloat(hit.lat),glng=parseFloat(hit.lon);
-              matched=[...ts].sort((a,b)=>
+              const nearGeo=[...ts].sort((a,b)=>
                 (Math.pow(a.lat-glat,2)+Math.pow(a.lng-glng,2))-(Math.pow(b.lat-glat,2)+Math.pow(b.lng-glng,2))
-              ).slice(0,4);
+              ).slice(0,3);
+              matched=[...matched,...nearGeo.filter(g=>!matched.find(m=>m.siteNo===g.siteNo))];
             }
           }catch{}
         }
-        setSearchResults(matched.slice(0,6).map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)})));
+        setTotalMatches(matched.length);
+        const withDist=matched.map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)}));
+        withDist.sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
+        setSearchResults(withDist.slice(0,6));
       }catch{}
       setSearching(false);
     },500);
@@ -6137,6 +6172,11 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
             3. Copy the 8-digit site number<br/>
             4. Paste it in the field above and tap Save
           </div>
+        </div>
+      )}
+      {totalMatches>results.length&&(
+        <div style={{marginTop:6,fontSize:13,color:"var(--stone)",fontStyle:"italic"}}>
+          Showing the {results.length} closest of {totalMatches} matches — add a nearby town, dam, or landmark to narrow it down (e.g. "South Platte Cheesman").
         </div>
       )}
       {results.map((r,i)=>(
