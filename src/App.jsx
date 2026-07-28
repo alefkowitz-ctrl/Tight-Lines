@@ -190,7 +190,24 @@ async function uploadPhotoToStorage(base64DataUrl, folder){
 const SUPABASE_URL = "https://geqcnlrwkwicavwixvdn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlcWNubHJ3a3dpY2F2d2l4dmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTcyNjIsImV4cCI6MjA5MzY3MzI2Mn0.R2IKRDFT0P0vrXKEfcuSv54TDAiiBK0LbQPHiilanjM";
 const SUPABASE_CONFIGURED = !SUPABASE_URL.includes("REPLACE_WITH");
-const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// Supabase JS's default auth client coordinates token refresh across browser tabs using
+// navigator.locks — with no timeout on lock acquisition. This is a real, currently-open
+// upstream bug (github.com/supabase/supabase-js/issues/1594, #2111): a lock orphaned by
+// one killed or backgrounded tab is held forever, and every auth call in every OTHER
+// tab that opens afterward — getSession, sign-in, everything — queues behind it and
+// hangs indefinitely. This is the confirmed root cause of the recurring stuck-loading
+// screen that only resolves by forcing a sign-out (attemptAuthRecovery wiping the
+// session is a detect-and-recover patch for this; it was never able to prevent it).
+// Documented community workaround, used here: swap in a lock that never touches
+// navigator.locks, so a lock stuck in one tab can no longer block any other. Trade-off:
+// if the same account is open in two tabs at once, their token refreshes could in
+// theory race — Supabase's server-side refresh token rotation is built to tolerate
+// that, and it's a far smaller risk than the app hanging and forcing a sign-out, which
+// is what was happening before this. Reasoned from the documented upstream fix, not
+// something testable by execution outside a real browser — worth confirming this
+// actually resolves it after it's live for a few days of normal use.
+const noOpAuthLock = async (name, acquireTimeout, fn) => fn();
+const sb = SUPABASE_CONFIGURED ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { lock: noOpAuthLock } }) : null;
 
 const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 
@@ -6076,26 +6093,40 @@ function tokenMatch(name,query){
 // (a real field the USGS returns per-gauge, not a curated list) is a strong, physically
 // real signal for which stretch a trout angler actually means — coldwater fisheries in
 // the Mountain West sit meaningfully higher than the same river's lowland/urban miles.
-// Confirmed live (2026-07-28) against "South Platte" near Lafayette: 89 matches split
+// Confirmed live (2026-07-28) against "South Platte" near Lafayette: matches split
 // cleanly into a Denver-metro cluster (~4,900-5,500 ft) and mountain water (~6,000-
 // 10,000 ft) with a real ~500 ft jump between them — not a smooth gradient, an actual
 // gap the data itself reveals. Scans the elevation-sorted list from its LOWEST point
 // upward and cuts at the FIRST gap past the threshold — not the single biggest gap
 // anywhere in the range, which (also tested against this same data) overshot past
-// legitimate closer trout water into only the highest, farthest alpine handful. If no
-// gap that size exists, or there isn't enough elevation data to work with, every
-// candidate is kept and distance sorting (which runs right after this) decides on its
-// own — this only ever narrows the pool, it never invents or excludes by name.
-function preferElevationCluster(list,budget,threshold=400){
-  if(!Array.isArray(list)||list.length<=budget)return list;
+// legitimate closer trout water into only the highest, farthest alpine handful.
+//
+// Returns a REORDERED list (higher-elevation cluster first, everything else after),
+// each tier internally sorted by distance from the origin — it does not filter or drop
+// anything, including entries with no elevation data at all (the local "Nearby Waters"
+// cache has none; those fall into the second tier rather than being excluded, matching
+// this app's fail-open pattern elsewhere). Confirmed live (2026-07-28): the first
+// version of this returned a filtered list, but callers re-sorted the result by plain
+// distance right after, which put the close local matches straight back on top since
+// nothing marked them as deprioritized — the ordering has to survive past this
+// function, not just the filtering.
+function preferElevationCluster(list,lat,lng,threshold=400){
+  const distOf=x=>x.distMi!=null?x.distMi:Math.sqrt(Math.pow((x.lat||0)-lat,2)+Math.pow((x.lng||0)-lng,2))*69;
   const withAlt=list.filter(x=>typeof x.alt==="number");
-  if(withAlt.length<budget)return list;
-  const sorted=[...withAlt].sort((a,b)=>a.alt-b.alt);
-  let splitIdx=-1;
-  for(let i=1;i<sorted.length;i++){
-    if(sorted[i].alt-sorted[i-1].alt>=threshold){splitIdx=i;break;}
-  }
-  return splitIdx<0?list:sorted.slice(splitIdx);
+  const withoutAlt=list.filter(x=>typeof x.alt!=="number");
+  let preferred=[],rest=[...withoutAlt];
+  if(withAlt.length>=6){
+    const sorted=[...withAlt].sort((a,b)=>a.alt-b.alt);
+    let splitIdx=-1;
+    for(let i=1;i<sorted.length;i++){
+      if(sorted[i].alt-sorted[i-1].alt>=threshold){splitIdx=i;break;}
+    }
+    if(splitIdx>=0){preferred=sorted.slice(splitIdx);rest=[...rest,...sorted.slice(0,splitIdx)];}
+    else rest=[...rest,...withAlt];
+  }else rest=[...rest,...withAlt];
+  preferred.sort((a,b)=>distOf(a)-distOf(b));
+  rest.sort((a,b)=>distOf(a)-distOf(b));
+  return [...preferred,...rest];
 }
 
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
@@ -6108,8 +6139,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const localResults=q.length>=2&&!q.match(/^[0-9]+$/)
     ?loadedGauges.filter(g=>tokenMatch(g.name,q)).sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,6)
     :[];
-  const mergedResults=[...localResults,...searchResults.filter(r=>!localResults.find(l=>l.siteNo===r.siteNo))];
-  const results=mergedResults.sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,8);
+  const results=searchResults.length?searchResults.slice(0,8):localResults;
   React.useEffect(()=>{
     if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);setTotalMatches(0);return;}
     // Previously returned early once 4+ local matches existed (from the 50-mile "Nearby
@@ -6170,10 +6200,8 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           }catch{}
         }
         setTotalMatches(matched.length);
-        matched=preferElevationCluster(matched,6);
         const withDist=matched.map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)}));
-        withDist.sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
-        setSearchResults(withDist.slice(0,6));
+        setSearchResults(preferElevationCluster(withDist,loc?.lat||0,loc?.lng||0).slice(0,8));
       }catch{}
       setSearching(false);
     },500);
