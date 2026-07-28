@@ -1117,6 +1117,28 @@ var NW_STALE_MS=24*60*60*1000; // ignore "latest" readings older than 24h (new A
 async function nwGet(url){
   try{var r=await fetch(url);if(!r.ok)return null;return await r.json();}catch{return null;}
 }
+
+// Nationwide gauge lookup by name. The USGS OGC API supports server-side name filtering
+// (CQL, filter-lang=cql-text — verified live 2026-07-28; note "cql2-text" is rejected),
+// so this needs NO geographic box at all: every word in the query must appear somewhere
+// in the site name, matched across the entire country. That's what lets the picker stop
+// bounding results to a radius around wherever the person happens to be standing —
+// searching for a gauge in another state now just works, same as one down the road.
+// Single quotes are stripped from tokens since they'd terminate a CQL string literal.
+async function nwSearchByName(query,limit=300){
+  var tokens=String(query||"").split(/\s+/).map(function(t){return t.replace(/'/g,"").trim();}).filter(Boolean).slice(0,6);
+  if(!tokens.length) return [];
+  var cql=tokens.map(function(t){return "monitoring_location_name LIKE '%"+t.toUpperCase()+"%'";}).join(" AND ");
+  var url=USGS_NW+"/monitoring-locations/items?f=json&limit="+limit+"&site_type_code=ST"
+    +"&filter-lang=cql-text&filter="+encodeURIComponent(cql);
+  var d=await nwGet(url);
+  return (d?.features||[]).map(function(f){
+    var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
+    var sn=p.monitoring_location_number||nwSiteNo(p.id);
+    return sn?{name:p.monitoring_location_name||("Site "+sn),siteNo:sn,lat:c[1]||0,lng:c[0]||0,
+      alt:typeof p.altitude==="number"?p.altitude:null,state:p.state_name||""}:null;
+  }).filter(Boolean);
+}
 function nwSiteNo(id){return String(id||"").replace(/^USGS-/,"");}
 function nwFresh(f,now){
   var t=Date.parse(f?.properties?.time||"");
@@ -6089,46 +6111,6 @@ function tokenMatch(name,query){
   return tokens.length>0&&tokens.every(t=>n.includes(t));
 }
 
-// When a name search returns far more matches than can be shown, a site's own elevation
-// (a real field the USGS returns per-gauge, not a curated list) is a strong, physically
-// real signal for which stretch a trout angler actually means — coldwater fisheries in
-// the Mountain West sit meaningfully higher than the same river's lowland/urban miles.
-// Confirmed live (2026-07-28) against "South Platte" near Lafayette: matches split
-// cleanly into a Denver-metro cluster (~4,900-5,500 ft) and mountain water (~6,000-
-// 10,000 ft) with a real ~500 ft jump between them — not a smooth gradient, an actual
-// gap the data itself reveals. Scans the elevation-sorted list from its LOWEST point
-// upward and cuts at the FIRST gap past the threshold — not the single biggest gap
-// anywhere in the range, which (also tested against this same data) overshot past
-// legitimate closer trout water into only the highest, farthest alpine handful.
-//
-// Returns a REORDERED list (higher-elevation cluster first, everything else after),
-// each tier internally sorted by distance from the origin — it does not filter or drop
-// anything, including entries with no elevation data at all (the local "Nearby Waters"
-// cache has none; those fall into the second tier rather than being excluded, matching
-// this app's fail-open pattern elsewhere). Confirmed live (2026-07-28): the first
-// version of this returned a filtered list, but callers re-sorted the result by plain
-// distance right after, which put the close local matches straight back on top since
-// nothing marked them as deprioritized — the ordering has to survive past this
-// function, not just the filtering.
-function preferElevationCluster(list,lat,lng,threshold=400){
-  const distOf=x=>x.distMi!=null?x.distMi:Math.sqrt(Math.pow((x.lat||0)-lat,2)+Math.pow((x.lng||0)-lng,2))*69;
-  const withAlt=list.filter(x=>typeof x.alt==="number");
-  const withoutAlt=list.filter(x=>typeof x.alt!=="number");
-  let preferred=[],rest=[...withoutAlt];
-  if(withAlt.length>=6){
-    const sorted=[...withAlt].sort((a,b)=>a.alt-b.alt);
-    let splitIdx=-1;
-    for(let i=1;i<sorted.length;i++){
-      if(sorted[i].alt-sorted[i-1].alt>=threshold){splitIdx=i;break;}
-    }
-    if(splitIdx>=0){preferred=sorted.slice(splitIdx);rest=[...rest,...sorted.slice(0,splitIdx)];}
-    else rest=[...rest,...withAlt];
-  }else rest=[...rest,...withAlt];
-  preferred.sort((a,b)=>distOf(a)-distOf(b));
-  rest.sort((a,b)=>distOf(a)-distOf(b));
-  return [...preferred,...rest];
-}
-
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const q=(gaugeInput||"").toLowerCase().trim();
   const loadedGauges=window._loadedGauges||[];
@@ -6139,69 +6121,47 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const localResults=q.length>=2&&!q.match(/^[0-9]+$/)
     ?loadedGauges.filter(g=>tokenMatch(g.name,q)).sort((a,b)=>distFrom(a)-distFrom(b)).slice(0,6)
     :[];
-  const results=searchResults.length?searchResults.slice(0,8):localResults;
+  const results=searchResults.length?searchResults:localResults;
   React.useEffect(()=>{
     if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);setTotalMatches(0);return;}
-    // Previously returned early once 4+ local matches existed (from the 50-mile "Nearby
-    // Waters" cache), skipping the wider live search entirely. That's a raw count, not a
-    // relevance signal — confirmed live (2026-07-28): searching "South Platte" near
-    // Lafayette hit this exact guard on 4 close Denver-metro reaches and never got to see
-    // any of the dozens of other matches within the actual search radius. Always run the
-    // live radius search once the query is long enough; it's debounced 500ms either way.
     const timer=setTimeout(async()=>{
       setSearching(true);
       try{
-        const p=2.5;const bbox=`${((loc?.lng||0)-p).toFixed(2)},${((loc?.lat||0)-p).toFixed(2)},${((loc?.lng||0)+p).toFixed(2)},${((loc?.lat||0)+p).toFixed(2)}`;
-        // New API: locations endpoint carries every field this list needs
-        let ts=[];
+        // Nationwide name search — no bounding box. This is a deliberate pick-your-own
+        // list: the person typed the name, so every real match is shown, sorted
+        // nearest-first purely as a convenience. Nothing is filtered out by distance or
+        // by terrain (an earlier elevation-based ranking here was removed — it hid
+        // legitimate water like the Denver-metro South Platte, which is its own fishery
+        // and not the app's call to exclude from someone's own favorites).
+        let matched=await nwSearchByName(q);
+        // Colloquial place names (e.g. "Deckers") often never appear in a gauge's
+        // official USGS name — those are usually named for a dam, a different nearby
+        // town, or a tributary junction. Geocode the query text and pull in the closest
+        // gauges to that point as ADDITIONAL results, so this works for any place name
+        // in the country without a curated stream list.
         try{
-          const locs=await nwLocations(bbox);
-          ts=Array.from(locs.entries()).map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng,alt:v.alt})).filter(x=>x.siteNo&&x.name);
+          const geo=await geocode(q);
+          if(geo&&geo.length){
+            const hit=[...geo].sort((a,b)=>
+              (Math.pow(parseFloat(a.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(a.lon)-(loc?.lng||0),2))
+              -(Math.pow(parseFloat(b.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(b.lon)-(loc?.lng||0),2))
+            )[0];
+            const glat=parseFloat(hit.lat),glng=parseFloat(hit.lon);
+            const p=0.35;
+            const bbox=`${(glng-p).toFixed(2)},${(glat-p).toFixed(2)},${(glng+p).toFixed(2)},${(glat+p).toFixed(2)}`;
+            const locs=await nwLocations(bbox);
+            const nearGeo=Array.from(locs.entries())
+              .map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng,alt:v.alt}))
+              .filter(x=>x.siteNo&&x.name)
+              .sort((a,b)=>(Math.pow(a.lat-glat,2)+Math.pow(a.lng-glng,2))-(Math.pow(b.lat-glat,2)+Math.pow(b.lng-glng,2)))
+              .slice(0,5);
+            matched=[...matched,...nearGeo.filter(g=>!matched.find(m=>m.siteNo===g.siteNo))];
+          }
         }catch{}
-        if(!ts.length){
-          // Legacy fallback (via proxy) until decommission
-          const url=`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`;
-          const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
-          const d=await r.json();
-          ts=(d.value?.timeSeries||[]).map(t=>({
-            name:t.sourceInfo?.siteName||"",
-            siteNo:(t.sourceInfo?.siteCode?.[0]?.value)||"",
-            lat:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0),
-            lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
-          })).filter(x=>x.siteNo&&x.name);
-        }
-        let matched=ts.filter(x=>tokenMatch(x.name,q));
-        // Also try geocoding the query text itself and pulling in the nearest gauge(s) to
-        // that point — not gated on token matches being empty. A query can token-match a
-        // couple of totally unrelated sites (confirmed live, 2026-07-28: "deckers" name-
-        // matches two Fourmile Creek gauges purely because the word "Deckers" also
-        // appears in THEIR names — that meant this fallback's old "only if zero matches"
-        // condition silently never fired, even though the actual place a person means,
-        // the South Platte at Deckers, never appears in any gauge's official name at all).
-        // Merging both sources and sorting by distance afterward lets whichever is
-        // actually closer win either way — generic for any place name in the country, no
-        // curated stream list.
-        if(ts.length){
-          try{
-            const geo=await geocode(q);
-            if(geo&&geo.length){
-              // Prefer whichever geocode hit is closest to the area already being
-              // searched, so a same-named place in a different state doesn't win.
-              const hit=[...geo].sort((a,b)=>
-                (Math.pow(parseFloat(a.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(a.lon)-(loc?.lng||0),2))
-                -(Math.pow(parseFloat(b.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(b.lon)-(loc?.lng||0),2))
-              )[0];
-              const glat=parseFloat(hit.lat),glng=parseFloat(hit.lon);
-              const nearGeo=[...ts].sort((a,b)=>
-                (Math.pow(a.lat-glat,2)+Math.pow(a.lng-glng,2))-(Math.pow(b.lat-glat,2)+Math.pow(b.lng-glng,2))
-              ).slice(0,3);
-              matched=[...matched,...nearGeo.filter(g=>!matched.find(m=>m.siteNo===g.siteNo))];
-            }
-          }catch{}
-        }
-        setTotalMatches(matched.length);
-        const withDist=matched.map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)}));
-        setSearchResults(preferElevationCluster(withDist,loc?.lat||0,loc?.lng||0).slice(0,8));
+        const withDist=matched.map(x=>({...x,distMi:loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null}));
+        withDist.sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
+        setTotalMatches(withDist.length);
+        setSearchResults(withDist);
       }catch{}
       setSearching(false);
     },500);
@@ -6230,23 +6190,25 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           </div>
         </div>
       )}
-      {totalMatches>results.length&&(
+      {totalMatches>0&&(
         <div style={{marginTop:6,fontSize:13,color:"var(--stone)",fontStyle:"italic"}}>
-          Showing the {results.length} closest of {totalMatches} matches — add a nearby town, dam, or landmark to narrow it down (e.g. "South Platte Cheesman").
+          {totalMatches} match{totalMatches===1?"":"es"} nationwide, nearest first{totalMatches>6?" — scroll for more":""}. Add a town, dam, or landmark to narrow (e.g. "South Platte Cheesman").
         </div>
       )}
+      <div style={{maxHeight:totalMatches>6?320:undefined,overflowY:totalMatches>6?"auto":undefined}}>
       {results.map((r,i)=>(
         <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
           <div>
             <div style={{fontSize:15,color:"var(--foam)"}}>{r.name}</div>
-            <div style={{fontSize:14,color:"var(--stone)"}}>#{r.siteNo} · {r.distMi}mi away</div>
+            <div style={{fontSize:14,color:"var(--stone)"}}>#{r.siteNo}{r.distMi!=null?" · "+r.distMi+"mi away":""}</div>
           </div>
           {r.lat&&r.lng&&<a href={`https://maps.google.com/?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
             onClick={e=>e.stopPropagation()}
             style={{fontSize:14,color:"var(--sky)",textDecoration:"none"}}>📍 Map</a>}
         </div>
       ))}
+      </div>
     </div>
   );
 }
