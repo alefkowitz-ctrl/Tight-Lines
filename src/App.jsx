@@ -226,6 +226,18 @@ const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 // underway); false once both tiers are exhausted this session (caller should fall back
 // to its own normal failure handling instead).
 function attemptAuthRecovery(){
+  // A report actively generating in the Trip Planner is real, unsaved, multi-minute
+  // work — confirmed live (2026-07-27): a tab backgrounded mid-report and resumed while
+  // still generating fires onVisible's resume tier-check, which now competes with the
+  // report's own heavy concurrent network activity for the connection; if that tier
+  // check then genuinely fails on all attempts, this function used to force a reload
+  // regardless — destroying the in-progress report and dropping the person back to a
+  // sign-in screen. Losing that is far more costly than leaving a tier check stale a
+  // little longer, so skip the reload entirely while one is in flight. The caller falls
+  // back to its own normal non-destructive handling (banner + manual retry) instead,
+  // and the very next tier check after the report finishes gets a fresh, un-skipped
+  // recovery attempt — nothing here is permanently lost, just deferred.
+  if(window._reportGenerating) return false;
   let attempts=0;
   try{ attempts = parseInt(sessionStorage.getItem("gc_auth_recover_attempted")||"0",10)||0; }catch(e){}
   if(attempts>=2) return false;
@@ -5529,6 +5541,17 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
   const [steps,setSteps]=useState([]);
   const [busy,setBusy]=useState(false);
+  // Mirrors `busy` to a window-scoped flag (same cross-tree pattern already used for
+  // window._loadedGauges) so attemptAuthRecovery() — a top-level function outside any
+  // component, shared with refreshTier's own recovery path — can tell whether a report
+  // is actively generating before deciding it's safe to force a reload. The cleanup
+  // resets the flag to false on every change AND on unmount (e.g. navigating off the
+  // Plan tab mid-generation), so a stuck flag can never permanently block a real,
+  // later, unrelated recovery from firing. See attemptAuthRecovery for why this matters.
+  useEffect(()=>{
+    window._reportGenerating=busy;
+    return ()=>{ window._reportGenerating=false; };
+  },[busy]);
   const [error,setError]=useState(null);
   const [wxData,setWxData]=useState(null);
   const [flowPts,setFlowPts]=useState([]);
@@ -6064,7 +6087,30 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
             lng:parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0),
           })).filter(x=>x.siteNo&&x.name);
         }
-        setSearchResults(ts.filter(x=>x.name.toLowerCase().includes(q)).slice(0,6));
+        let matched=ts.filter(x=>x.name.toLowerCase().includes(q));
+        // Fallback: the query may be a colloquial place name (e.g. "Deckers") that never
+        // appears in the gauge's official USGS site name — those are usually named after
+        // a dam, a different nearby town, or a tributary junction instead. Geocode the
+        // query text itself and fall back to the nearest gauge(s) to that point. This is
+        // generic for any place name anywhere in the country — no curated stream list.
+        if(matched.length===0&&ts.length){
+          try{
+            const geo=await geocode(q);
+            if(geo&&geo.length){
+              // Prefer whichever geocode hit is closest to the area already being
+              // searched, so a same-named place in a different state doesn't win.
+              const hit=[...geo].sort((a,b)=>
+                (Math.pow(parseFloat(a.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(a.lon)-(loc?.lng||0),2))
+                -(Math.pow(parseFloat(b.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(b.lon)-(loc?.lng||0),2))
+              )[0];
+              const glat=parseFloat(hit.lat),glng=parseFloat(hit.lon);
+              matched=[...ts].sort((a,b)=>
+                (Math.pow(a.lat-glat,2)+Math.pow(a.lng-glng,2))-(Math.pow(b.lat-glat,2)+Math.pow(b.lng-glng,2))
+              ).slice(0,4);
+            }
+          }catch{}
+        }
+        setSearchResults(matched.slice(0,6).map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)})));
       }catch{}
       setSearching(false);
     },500);
