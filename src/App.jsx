@@ -1125,6 +1125,32 @@ async function nwGet(url){
 // bounding results to a radius around wherever the person happens to be standing —
 // searching for a gauge in another state now just works, same as one down the road.
 // Single quotes are stripped from tokens since they'd terminate a CQL string literal.
+// Fetch a USGS URL directly from the browser, falling back to this app's own server
+// proxy if that fails. USGS rate-limits by client and returns 429 to the browser once
+// the app's other gauge traffic (nwLocations/nwLatest, which fire on load and refresh)
+// has used the budget — confirmed live 2026-07-28. Requests through /api/claude
+// originate from the server instead, dodging that per-client ceiling; this is the same
+// proxy pattern already used elsewhere in this file for external gauge endpoints.
+// Throws on total failure rather than returning null, so callers can surface a real
+// error instead of silently rendering an empty or partial list.
+async function nwGetResilient(url){
+  var lastErr="";
+  try{
+    var r=await fetch(url);
+    if(r.ok) return await r.json();
+    lastErr="USGS "+r.status;
+  }catch(e){ lastErr=e?.message||"network error"; }
+  try{
+    var pr=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proxy_url:url})});
+    if(pr.ok){
+      var pd=await pr.json();
+      if(pd&&!pd.error) return pd;
+      lastErr=(pd&&pd.error)||lastErr;
+    } else lastErr="proxy "+pr.status+(lastErr?" after "+lastErr:"");
+  }catch(e){ lastErr=(e?.message||"proxy error")+(lastErr?" after "+lastErr:""); }
+  throw new Error(lastErr||"search unavailable");
+}
+
 async function nwSearchByName(query,limit=300){
   var tokens=String(query||"").split(/\s+/).map(function(t){return t.replace(/'/g,"").trim();}).filter(Boolean).slice(0,6);
   if(!tokens.length) return [];
@@ -1134,19 +1160,34 @@ async function nwSearchByName(query,limit=300){
   var url=USGS_NW+"/monitoring-locations/items?f=json&limit="+limit+"&site_type_code=ST"
     +"&properties=monitoring_location_number,monitoring_location_name,altitude,state_name"
     +"&filter-lang=cql-text&filter="+encodeURIComponent(cql);
-  // Deliberately NOT using nwGet here: it swallows every failure and returns null, which
-  // would leave the picker silently showing only the small local placeholder list with no
-  // sign anything went wrong — exactly the ambiguity that made a "why am I only getting 4
-  // options" report impossible to diagnose. Let the caller see and surface the error.
-  var r=await fetch(url);
-  if(!r.ok) throw new Error("USGS search failed ("+r.status+")");
-  var d=await r.json();
+  var d=await nwGetResilient(url);
   return (d?.features||[]).map(function(f){
     var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
     var sn=p.monitoring_location_number||nwSiteNo(p.id);
     return sn?{name:p.monitoring_location_name||("Site "+sn),siteNo:sn,lat:c[1]||0,lng:c[0]||0,
       alt:typeof p.altitude==="number"?p.altitude:null,state:p.state_name||""}:null;
   }).filter(Boolean);
+}
+
+// Gauges nearest a lat/lng, used for colloquial place-name lookups (e.g. "Deckers",
+// which appears in no South Platte gauge's official name). Same resilient path and the
+// same trimmed field set as the name search, and a modest limit — the old version of
+// this call reused nwLocations (limit=10000, all fields) on every keystroke-debounced
+// search, which was itself feeding the rate-limiting that broke the search.
+async function nwNearPoint(lat,lng,padDeg,count){
+  var bbox=(lng-padDeg).toFixed(2)+","+(lat-padDeg).toFixed(2)+","+(lng+padDeg).toFixed(2)+","+(lat+padDeg).toFixed(2);
+  var url=USGS_NW+"/monitoring-locations/items?f=json&limit=500&site_type_code=ST"
+    +"&properties=monitoring_location_number,monitoring_location_name,altitude,state_name"
+    +"&bbox="+bbox;
+  var d=await nwGetResilient(url);
+  return (d?.features||[]).map(function(f){
+    var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
+    var sn=p.monitoring_location_number||nwSiteNo(p.id);
+    return sn?{name:p.monitoring_location_name||("Site "+sn),siteNo:sn,lat:c[1]||0,lng:c[0]||0,
+      alt:typeof p.altitude==="number"?p.altitude:null,state:p.state_name||""}:null;
+  }).filter(Boolean)
+   .sort(function(a,b){return (Math.pow(a.lat-lat,2)+Math.pow(a.lng-lng,2))-(Math.pow(b.lat-lat,2)+Math.pow(b.lng-lng,2));})
+   .slice(0,count||5);
 }
 function nwSiteNo(id){return String(id||"").replace(/^USGS-/,"");}
 function nwFresh(f,now){
@@ -6159,14 +6200,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
               -(Math.pow(parseFloat(b.lat)-(loc?.lat||0),2)+Math.pow(parseFloat(b.lon)-(loc?.lng||0),2))
             )[0];
             const glat=parseFloat(hit.lat),glng=parseFloat(hit.lon);
-            const p=0.35;
-            const bbox=`${(glng-p).toFixed(2)},${(glat-p).toFixed(2)},${(glng+p).toFixed(2)},${(glat+p).toFixed(2)}`;
-            const locs=await nwLocations(bbox);
-            const nearGeo=Array.from(locs.entries())
-              .map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng,alt:v.alt}))
-              .filter(x=>x.siteNo&&x.name)
-              .sort((a,b)=>(Math.pow(a.lat-glat,2)+Math.pow(a.lng-glng,2))-(Math.pow(b.lat-glat,2)+Math.pow(b.lng-glng,2)))
-              .slice(0,5);
+            const nearGeo=await nwNearPoint(glat,glng,0.35,5);
             matched=[...matched,...nearGeo.filter(g=>!matched.find(m=>m.siteNo===g.siteNo))];
           }
         }catch{}
