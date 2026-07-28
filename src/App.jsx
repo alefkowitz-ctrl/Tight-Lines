@@ -1127,7 +1127,7 @@ async function nwLocations(bbox){
   (d?.features||[]).forEach(function(f){
     var p=f.properties||{},c=(f.geometry||{}).coordinates||[];
     var sn=p.monitoring_location_number||nwSiteNo(p.id);
-    if(sn)m.set(sn,{name:p.monitoring_location_name||("Site "+sn),lat:c[1]||0,lng:c[0]||0});
+    if(sn)m.set(sn,{name:p.monitoring_location_name||("Site "+sn),lat:c[1]||0,lng:c[0]||0,alt:typeof p.altitude==="number"?p.altitude:null});
   });
   return m;
 }
@@ -6071,6 +6071,32 @@ function tokenMatch(name,query){
   return tokens.length>0&&tokens.every(t=>n.includes(t));
 }
 
+// When a name search returns far more matches than can be shown, a site's own elevation
+// (a real field the USGS returns per-gauge, not a curated list) is a strong, physically
+// real signal for which stretch a trout angler actually means — coldwater fisheries in
+// the Mountain West sit meaningfully higher than the same river's lowland/urban miles.
+// Confirmed live (2026-07-28) against "South Platte" near Lafayette: 89 matches split
+// cleanly into a Denver-metro cluster (~4,900-5,500 ft) and mountain water (~6,000-
+// 10,000 ft) with a real ~500 ft jump between them — not a smooth gradient, an actual
+// gap the data itself reveals. Scans the elevation-sorted list from its LOWEST point
+// upward and cuts at the FIRST gap past the threshold — not the single biggest gap
+// anywhere in the range, which (also tested against this same data) overshot past
+// legitimate closer trout water into only the highest, farthest alpine handful. If no
+// gap that size exists, or there isn't enough elevation data to work with, every
+// candidate is kept and distance sorting (which runs right after this) decides on its
+// own — this only ever narrows the pool, it never invents or excludes by name.
+function preferElevationCluster(list,budget,threshold=400){
+  if(!Array.isArray(list)||list.length<=budget)return list;
+  const withAlt=list.filter(x=>typeof x.alt==="number");
+  if(withAlt.length<budget)return list;
+  const sorted=[...withAlt].sort((a,b)=>a.alt-b.alt);
+  let splitIdx=-1;
+  for(let i=1;i<sorted.length;i++){
+    if(sorted[i].alt-sorted[i-1].alt>=threshold){splitIdx=i;break;}
+  }
+  return splitIdx<0?list:sorted.slice(splitIdx);
+}
+
 function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   const q=(gaugeInput||"").toLowerCase().trim();
   const loadedGauges=window._loadedGauges||[];
@@ -6099,7 +6125,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         let ts=[];
         try{
           const locs=await nwLocations(bbox);
-          ts=Array.from(locs.entries()).map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng})).filter(x=>x.siteNo&&x.name);
+          ts=Array.from(locs.entries()).map(([sn,v])=>({name:v.name,siteNo:sn,lat:v.lat,lng:v.lng,alt:v.alt})).filter(x=>x.siteNo&&x.name);
         }catch{}
         if(!ts.length){
           // Legacy fallback (via proxy) until decommission
@@ -6143,6 +6169,7 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
           }catch{}
         }
         setTotalMatches(matched.length);
+        matched=preferElevationCluster(matched,6);
         const withDist=matched.map(x=>({...x,distMi:x.distMi!=null?x.distMi:(loc?.lat!=null?Math.round(Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69):null)}));
         withDist.sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
         setSearchResults(withDist.slice(0,6));
