@@ -49,7 +49,16 @@ export default async function handler(req, res) {
       body: params.toString()
     });
     const data = await r.json();
-    if (data.error) return res.status(400).json({ error: { message: data.error.message || "Could not open the billing portal." } });
+    if (data.error) {
+      // A customer ID that doesn't resolve in the current mode (e.g. a leftover
+      // test-mode ID from before the live-mode switch) reads to the user exactly
+      // like "nothing to manage" — same friendly message as the missing-ID case
+      // above, rather than surfacing a raw Stripe error with a customer ID in it.
+      if (data.error.code === "resource_missing" && data.error.param === "customer") {
+        return res.status(400).json({ error: { message: "No billing account found for this login — this looks like a complimentary account with no payment history to manage." } });
+      }
+      return res.status(400).json({ error: { message: data.error.message || "Could not open the billing portal." } });
+    }
     return res.status(200).json({ url: data.url });
   } catch (e) {
     return res.status(500).json({ error: { message: e.message } });
