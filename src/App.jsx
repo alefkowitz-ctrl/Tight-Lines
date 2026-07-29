@@ -686,7 +686,10 @@ const HATCHES = {
 const WX_EMOJI={0:"☀️",1:"🌤",2:"⛅",3:"☁️",45:"🌫",48:"🌫",51:"🌦",53:"🌦",55:"🌧",61:"🌧",63:"🌧",65:"🌧",71:"🌨",73:"🌨",75:"❄️",80:"🌦",81:"🌧",95:"⛈",96:"⛈",99:"⛈"};
 const WX_DESC={0:"Clear",1:"Mainly Clear",2:"Partly Cloudy",3:"Overcast",45:"Fog",48:"Freezing Fog",51:"Light Drizzle",53:"Drizzle",55:"Heavy Drizzle",61:"Light Rain",63:"Rain",65:"Heavy Rain",71:"Light Snow",73:"Snow",75:"Heavy Snow",80:"Showers",81:"Heavy Showers",95:"Thunderstorm",96:"Hail",99:"Severe Storm"};
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Cutbow","Tiger Trout","Golden Trout","Lake Trout","Bull Trout","Steelhead","Arctic Grayling","Mountain Whitefish","Largemouth Bass","Smallmouth Bass","Other"];
+// Free-text-with-suggestions field (SpeciesInput) draws from this list, but any
+// typed value is accepted and saved as-is — this is a starting point, not a
+// closed set, so it stays scalable to river systems anywhere in the US.
+const SPECIES=["Brown Trout","Rainbow Trout","Brook Trout","Cutthroat Trout","Cutbow","Tiger Trout","Golden Trout","Lake Trout","Bull Trout","Dolly Varden","Splake","Steelhead","Chinook Salmon","Coho Salmon","Sockeye Salmon","Pink Salmon","Chum Salmon","Kokanee Salmon","Arctic Grayling","Mountain Whitefish","Largemouth Bass","Smallmouth Bass","Rock Bass","Spotted Bass","Bluegill","Crappie","Northern Pike","Muskellunge (Muskie)","Walleye","Yellow Perch","Channel Catfish","Carp"];
 
 // Day-of-year median flow (P50) from the legacy USGS stat service — there is
 // no day-of-year-median equivalent on the new api.waterdata.usgs.gov
@@ -817,20 +820,20 @@ async function aiFetch(body, kind="cheap", opts={}){
 // superset (includes AI trip planning + the CRM tools) — a guide paying more should
 // never end up with less than a Consumer Pro angler.
 const TIER_INFO = {
-  consumer_pro: { name:"Consumer Pro", price:"$4.99/mo", blurb:"Full AI trip predictions — hatch windows, best times, fly recommendations, and more for any river." },
-  guide_pro: { name:"Guide Pro", price:"$19.99/mo", blurb:"Everything in Consumer Pro, plus the full Guide CRM — client logs, trip history, and season trends." }
+  consumer_pro: { name:"Consumer Pro", price:"$4.99/mo", priceAnnual:"$49.99/yr", blurb:"Full AI trip predictions — hatch windows, best times, fly recommendations, and more for any river." },
+  guide_pro: { name:"Guide Pro", price:"$19.99/mo", priceAnnual:"$199.00/yr", blurb:"Everything in Consumer Pro, plus the full Guide CRM — client logs, trip history, and season trends." }
 };
 const PLAN_TIERS = new Set(["consumer_pro","guide_pro","fly_shop_basic","fly_shop_pro"]);
 const GUIDE_TIERS = new Set(["guide_pro"]);
 
 // Starts a Stripe Checkout session for the given tier and redirects to it.
 // Same session-token gateway pattern as aiFetch, so auth handling stays in one place.
-async function startCheckout(tier){
+async function startCheckout(tier,billing="monthly"){
   let auth={};
   try{
     if(sb){const {data}=await sb.auth.getSession();const t=data&&data.session&&data.session.access_token;if(t)auth={Authorization:"Bearer "+t};}
   }catch(e){void 0;}
-  const res=await fetch("/api/create-checkout-session",{method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({tier})});
+  const res=await fetch("/api/create-checkout-session",{method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({tier,billing})});
   let d;try{d=await res.json();}catch(e){throw new Error("Could not start checkout.");}
   if(d.error) throw new Error(d.error.message||"Could not start checkout.");
   if(d.url) window.location.href=d.url; else throw new Error("Checkout session did not return a URL.");
@@ -850,11 +853,30 @@ async function startPortal(){
   if(d.url) window.location.href=d.url; else throw new Error("Portal session did not return a URL.");
 }
 
+// Monthly/Annual switcher, shared by every upgrade entry point (paywall, trial-expired
+// banner, Settings) so the toggle looks and behaves identically everywhere.
+function BillingToggle({billing,onChange}){
+  return(
+    <div style={{display:"flex",gap:6,marginBottom:14}}>
+      {[["monthly","Monthly"],["annual","Annual — save ~17%"]].map(([b,label])=>(
+        <button key={b} onClick={()=>onChange(b)}
+          style={{flex:1,padding:"8px 10px",borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)",fontWeight:billing===b?600:400,
+            background:billing===b?"var(--gold)":"rgba(255,255,255,0.08)",
+            color:billing===b?"#0c1e25":"var(--foam)",
+            border:billing===b?"1px solid var(--gold)":"1px solid rgba(255,255,255,0.15)"}}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Locked-tab paywall — shown in place of a feature the user's current tier doesn't include.
 function UpgradeLock({tierKey, featureLabel}){
   const info = TIER_INFO[tierKey];
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState("");
+  const [billing,setBilling]=useState("monthly");
   // Returning from Stripe via the browser's back button often restores this page from
   // the back-forward cache rather than reloading it — React state (including "busy")
   // stays frozen exactly as it was when the redirect happened. Reset it on restore.
@@ -863,15 +885,17 @@ function UpgradeLock({tierKey, featureLabel}){
     window.addEventListener("pageshow",onPageShow);
     return ()=>window.removeEventListener("pageshow",onPageShow);
   },[]);
+  const priceLabel = billing==="annual"&&info.priceAnnual ? info.priceAnnual : info.price;
   return(
     <div style={{textAlign:"center",padding:"60px 24px",maxWidth:420,margin:"0 auto"}}>
       <div style={{fontSize:40,marginBottom:14}}>🔒</div>
       <div style={{fontFamily:"var(--font-head)",fontSize:20,color:"var(--gold)",marginBottom:10}}>{featureLabel} is a {info.name} feature</div>
       <div style={{fontSize:15,color:"var(--stone)",lineHeight:1.6,marginBottom:20}}>{info.blurb}</div>
+      {info.priceAnnual&&<BillingToggle billing={billing} onChange={setBilling}/>}
       {err&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>{err}</div>}
-      <button disabled={busy} onClick={async()=>{setBusy(true);setErr("");try{await startCheckout(tierKey);}catch(e){setErr(e.message);setBusy(false);}}}
+      <button disabled={busy} onClick={async()=>{setBusy(true);setErr("");try{await startCheckout(tierKey,billing);}catch(e){setErr(e.message);setBusy(false);}}}
         style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"12px 28px",color:"#0c1e25",fontSize:16,fontWeight:600,cursor:busy?"default":"pointer",opacity:busy?0.7:1,fontFamily:"var(--font-body)"}}>
-        {busy?"Starting checkout…":`Upgrade to ${info.name} — ${info.price}`}
+        {busy?"Starting checkout…":`Upgrade to ${info.name} — ${priceLabel}`}
       </button>
     </div>
   );
@@ -2359,6 +2383,55 @@ function LocationSearch({onSelect,onTextChange,initialValue="",placeholder="Sear
   );
 }
 
+// Free-text species field with tap-to-fill suggestions from SPECIES. Mirrors
+// LocationSearch's input+suggestion-list pattern (same sugg-list/sugg CSS,
+// same click-outside-to-close behavior) so any species can be typed — not
+// locked to a fixed list, and not region-specific.
+function SpeciesInput({value,onChange,placeholder="Species — type or pick a suggestion",style,inputStyle}){
+  const [query,setQuery]=useState(value||"");
+  const [open,setOpen]=useState(false);
+  const wrap=useRef(null);
+
+  useEffect(()=>{setQuery(value||"");},[value]);
+  useEffect(()=>{
+    const fn=e=>{if(wrap.current&&!wrap.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",fn);
+    return()=>document.removeEventListener("mousedown",fn);
+  },[]);
+
+  const q=query.trim().toLowerCase();
+  const matches=(q?SPECIES.filter(s=>s.toLowerCase().includes(q)):SPECIES).slice(0,6);
+
+  function handleChange(val){
+    setQuery(val);
+    onChange(val);
+    setOpen(true);
+  }
+
+  function pick(s){
+    setQuery(s);
+    onChange(s);
+    setOpen(false);
+  }
+
+  return(
+    <div ref={wrap} style={{position:"relative",...style}}>
+      <input className="inp" style={{fontSize:15,...inputStyle}} value={query} placeholder={placeholder}
+        onChange={e=>handleChange(e.target.value)}
+        onFocus={()=>setOpen(true)}
+        autoComplete="off" spellCheck={false}/>
+      {open&&matches.length>0&&(
+        <div className="sugg-list" style={{right:0}}>
+          {matches.map(s=>(
+            <div key={s} className="sugg" onMouseDown={()=>pick(s)}>
+              <span className="sugg-label">{s}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 
@@ -4724,11 +4797,8 @@ function GuideBook({user, loc}){
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                         <div>
                           <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
-                          <select className="inp" style={{marginBottom:0,fontSize:15}} value={cd.species||""}
-                            onChange={e=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],species:e.target.value};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}>
-                            <option value="">Select…</option>
-                            {SPECIES.map(s=><option key={s}>{s}</option>)}
-                          </select>
+                          <SpeciesInput value={cd.species||""} inputStyle={{marginBottom:0}}
+                            onChange={val=>{const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});d[i]={...d[i],species:val};const upd={...selectedTrip,catchDetails:d};setSelectedTrip(upd);setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)})));if(sb)sb.from("trips").update({catch_details:d}).eq("id",selectedTrip.id);}}/>
                         </div>
                         <div>
                           <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
@@ -6474,6 +6544,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   };
   const [settingsUpgradeBusy,setSettingsUpgradeBusy]=useState(null);
   const [settingsUpgradeErr,setSettingsUpgradeErr]=useState("");
+  const [settingsBilling,setSettingsBilling]=useState("monthly");
   const [redeemCode,setRedeemCode]=useState("");
   const [redeemBusy,setRedeemBusy]=useState(false);
   const [redeemMsg,setRedeemMsg]=useState(null);
@@ -7499,13 +7570,14 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                 </button>}
                 {tier!=="guide_pro"&&<>
                   {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
-                  {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
+                  <BillingToggle billing={settingsBilling} onChange={setSettingsBilling}/>
+                  {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro",settingsBilling);}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
                     style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                    {settingsUpgradeBusy==="consumer_pro"?"Starting…":"Upgrade to Consumer Pro — $4.99/mo"}
+                    {settingsUpgradeBusy==="consumer_pro"?"Starting…":`Upgrade to Consumer Pro — ${settingsBilling==="annual"?TIER_INFO.consumer_pro.priceAnnual:TIER_INFO.consumer_pro.price}`}
                   </button>}
-                  <button disabled={settingsUpgradeBusy==="guide_pro"} onClick={async()=>{setSettingsUpgradeBusy("guide_pro");setSettingsUpgradeErr("");try{await startCheckout("guide_pro");}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
+                  <button disabled={settingsUpgradeBusy==="guide_pro"} onClick={async()=>{setSettingsUpgradeBusy("guide_pro");setSettingsUpgradeErr("");try{await startCheckout("guide_pro",settingsBilling);}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
                     style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                    {settingsUpgradeBusy==="guide_pro"?"Starting…":"Upgrade to Guide Pro — $19.99/mo"}
+                    {settingsUpgradeBusy==="guide_pro"?"Starting…":`Upgrade to Guide Pro — ${settingsBilling==="annual"?TIER_INFO.guide_pro.priceAnnual:TIER_INFO.guide_pro.price}`}
                   </button>
                   <div style={{fontSize:13,color:"var(--gold)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Have a code?</div>
                   <div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -7825,11 +7897,8 @@ ${shopPins}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                     <div>
                       <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
-                      <select className="inp" style={{marginBottom:0,fontSize:15}} value={c.species||""}
-                        onChange={e=>updateCatch(c.id,{species:e.target.value})}>
-                        <option value="">Select…</option>
-                        {SPECIES.map(s=><option key={s}>{s}</option>)}
-                      </select>
+                      <SpeciesInput value={c.species||""} inputStyle={{marginBottom:0}}
+                        onChange={val=>updateCatch(c.id,{species:val})}/>
                     </div>
                     <div>
                       <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
@@ -7952,9 +8021,7 @@ ${shopPins}
           {form.sizeEstimating&&<div style={{fontSize:15,color:"var(--gold)",fontStyle:"italic",marginBottom:8,padding:"8px 12px",background:"rgba(209,154,74,0.1)",borderRadius:8}}>🤖 Identifying fish…</div>}
           {form.idNote&&!form.sizeEstimating&&<div style={{fontSize:15,color:"var(--red)",marginBottom:8,padding:"8px 12px",background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.3)",borderRadius:8}}>⚠️ {form.idNote}</div>}
           <label className="lbl">Species</label>
-          <select className="inp" value={form.species} onChange={e=>setForm(f=>({...f,species:e.target.value}))}>
-            {SPECIES.map(s=><option key={s} value={s}>{s}</option>)}
-          </select>
+          <SpeciesInput value={form.species} onChange={val=>setForm(f=>({...f,species:val}))}/>
           <label className="lbl">Length (inches)</label>
           <input className="inp" type="number" placeholder="e.g. 18" value={form.length} onChange={e=>setForm(f=>({...f,length:e.target.value}))}/>
           <label className="lbl">Flies Used</label>
