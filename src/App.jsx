@@ -7568,8 +7568,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                   style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:10,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                   {settingsUpgradeBusy==="portal"?"Opening…":"⚙ Manage Subscription"}
                 </button>}
+                {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
                 {tier!=="guide_pro"&&<>
-                  {settingsUpgradeErr&&<div style={{fontSize:12,color:"var(--red)",marginBottom:6}}>{settingsUpgradeErr}</div>}
                   <BillingToggle billing={settingsBilling} onChange={setSettingsBilling}/>
                   {tier==="free"&&<button disabled={settingsUpgradeBusy==="consumer_pro"} onClick={async()=>{setSettingsUpgradeBusy("consumer_pro");setSettingsUpgradeErr("");try{await startCheckout("consumer_pro",settingsBilling);}catch(e){setSettingsUpgradeErr(e.message);setSettingsUpgradeBusy(null);}}}
                     style={{display:"block",width:"100%",textAlign:"left",background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:8,padding:"8px 10px",color:"var(--foam)",fontSize:14,marginBottom:6,cursor:"pointer",fontFamily:"var(--font-body)"}}>
