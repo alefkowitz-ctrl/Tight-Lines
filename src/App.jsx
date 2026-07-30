@@ -5489,10 +5489,12 @@ async function labReviewReport(report,loc,ground,dateStr){
 // labReviewReport. Fails open: a timeout/error/parse-miss returns null and the
 // report ships without a restriction note rather than guessing either way.
 async function labVerifyRestrictions(rivers,loc,dateStr){
+  const dbg={outcome:"not-run",checked:0,found:0};
   try{
-    if(!Array.isArray(rivers)||!rivers.length)return null;
+    if(!Array.isArray(rivers)||!rivers.length){dbg.outcome="no-rivers";console.log("[restrictions]",dbg);return{result:null,debug:dbg};}
     const named=rivers.filter(r=>r&&r.name);
-    if(!named.length)return null;
+    if(!named.length){dbg.outcome="no-named-rivers";console.log("[restrictions]",dbg);return{result:null,debug:dbg};}
+    dbg.checked=named.length;
     const riverList=named.map(r=>{
       const ap=Array.isArray(r.accessPoints)?r.accessPoints.join("; "):(r.accessPoints||"");
       return r.name+(ap?" (access: "+ap+")":"");
@@ -5505,11 +5507,20 @@ async function labVerifyRestrictions(rivers,loc,dateStr){
       "Only report a restriction you can find from an official state wildlife agency page or a specific, recent (this season) news source — do not guess or infer one from general heat/drought conditions alone.",
       'Return ONLY JSON, no markdown: {"restrictions":[{"name":"river name exactly as given above","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure","reach":"which stretch, a few words","asOf":"date or recency of your source, briefly"}]}. Omit any river with no restriction found — do not include a "clear" entry for it. Empty array if none found.'
     ].filter(Boolean).join(" ");
-    const race=Promise.race([askClaude(ctx,true,2200,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
-    const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
+    let raw;
+    try{
+      raw=await Promise.race([askClaude(ctx,true,2600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
+    }catch(te){
+      dbg.outcome=(te&&te.message==="timeout")?"timeout":"api-error";
+      dbg.error=String((te&&te.message)||te).slice(0,120);
+      console.warn("[restrictions]",dbg);
+      return{result:null,debug:dbg};
+    }
+    const clean=String(raw||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
     const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
-    if(a===-1||b<=a)return null;
-    const o=JSON.parse(clean.slice(a,b+1));
+    if(a===-1||b<=a){dbg.outcome="no-json-in-response";dbg.raw=clean.slice(0,150);console.warn("[restrictions]",dbg);return{result:null,debug:dbg};}
+    let o;
+    try{o=JSON.parse(clean.slice(a,b+1));}catch(pe){dbg.outcome="parse-fail";dbg.raw=clean.slice(a,a+150);console.warn("[restrictions]",dbg);return{result:null,debug:dbg};}
     const list=Array.isArray(o.restrictions)?o.restrictions:[];
     const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
     const out=list.map(r=>{
@@ -5518,8 +5529,16 @@ async function labVerifyRestrictions(rivers,loc,dateStr){
       const status=(r&&r.status==="closure")?"closure":"hootowl";
       return {name,status,hours:clip(r&&r.hours,40),reach:clip(r&&r.reach,80),asOf:clip(r&&r.asOf,40)};
     }).filter(Boolean).slice(0,8);
-    return out.length?out:null;
-  }catch(_r){return null;}
+    dbg.found=out.length;
+    dbg.outcome=out.length?"found":"clear";
+    console.log("[restrictions]",dbg,out.length?out:"");
+    return{result:out.length?out:null,debug:dbg};
+  }catch(_r){
+    dbg.outcome="exception";
+    dbg.error=String((_r&&_r.message)||_r).slice(0,120);
+    console.warn("[restrictions]",dbg);
+    return{result:null,debug:dbg};
+  }
 }
 // Fold omissions into the overview as a clearly-marked footer (corrections are applied
 // directly to the report content at the call site, not surfaced as a separate callout).
@@ -6022,7 +6041,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
             reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips},loc,searchTxt,ds).catch(()=>null); // run the report review (omissions + in-place corrections) in parallel with finalize + gauge-load
-            restrictionsPromise=labVerifyRestrictions(rpt.rivers,loc,ds).catch(()=>null); // per-river hoot-owl/closure check, same parallel timing as the review pass
+            restrictionsPromise=labVerifyRestrictions(rpt.rivers,loc,ds).catch(e=>({result:null,debug:{outcome:"promise-reject",error:String((e&&e.message)||e).slice(0,120)}})); // per-river hoot-owl/closure check, same parallel timing as the review pass
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
@@ -6101,16 +6120,17 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         }
         if(restrictionsPromise&&builtReport){
           try{
-            const restrictions=await restrictionsPromise;
-            if(restrictions&&restrictions.length&&Array.isArray(builtReport.rivers)){
+            const rres=await restrictionsPromise;
+            const restrictions=rres&&rres.result;
+            const nb2={...builtReport,restrictionDebug:(rres&&rres.debug)||{outcome:"no-response"}};
+            if(restrictions&&restrictions.length&&Array.isArray(nb2.rivers)){
               const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-              const nb2={...builtReport};
               nb2.rivers=nb2.rivers.map(rv=>{
                 const m=restrictions.find(r=>{const a=nrm(r.name),b=nrm(rv.name);return a&&b&&(a===b||a.includes(b)||b.includes(a));});
                 return m?{...rv,restriction:m}:rv;
               });
-              builtReport=nb2;setReport(builtReport);
             }
+            builtReport=nb2;setReport(builtReport);
           }catch(_rx){void 0;}
         }
         // Persist the finished report so navigating away doesn't lose it
@@ -6209,6 +6229,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — "+(report.searchNote||"no current local reports found"):"Synthesized from live USGS flows, weather & current conditions"}</div>
+          {report.restrictionDebug&&<div style={{fontSize:11,color:"var(--stone)",fontFamily:"monospace",marginBottom:6,padding:"4px 8px",background:"rgba(0,0,0,0.2)",borderRadius:6,wordBreak:"break-all"}}>restriction check: {report.restrictionDebug.outcome}{report.restrictionDebug.checked?` · checked ${report.restrictionDebug.checked}`:""}{report.restrictionDebug.found?` · found ${report.restrictionDebug.found}`:""}{report.restrictionDebug.error?` · ${report.restrictionDebug.error}`:""}{report.restrictionDebug.raw?` · raw: ${report.restrictionDebug.raw}`:""}</div>}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
             <button className="btn" style={{flex:1,padding:"8px 10px",fontSize:14,background:"rgba(0,0,0,0.2)"}}
               onClick={()=>{
