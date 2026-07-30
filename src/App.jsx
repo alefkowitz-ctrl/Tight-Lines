@@ -5511,6 +5511,7 @@ async function labVerifyRestrictions(rivers,loc,dateStr){
     let raw;
     try{
       raw=await Promise.race([askClaude(ctx,true,2600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
+      console.log("[restrictions] raw response (first 300 chars):",String(raw||"").slice(0,300));
     }catch(te){
       dbg.outcome=(te&&te.message==="timeout")?"timeout":"api-error";
       dbg.error=String((te&&te.message)||te).slice(0,120);
