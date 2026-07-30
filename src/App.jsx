@@ -2633,6 +2633,7 @@ function plannerReportToText(loc, date, report){
       if(r.crowdLevel) meta.push(`${r.crowdLevel} crowds`);
       if(r.driveMin!=null) meta.push(`~${r.driveMin} min drive`);
       if(meta.length) lines.push(meta.join(" · "));
+      if(r.restriction) lines.push(`⚠️ ${r.restriction.status==="closure"?"CLOSED TO FISHING":"HOOT OWL RESTRICTION"}${r.restriction.hours?" — "+r.restriction.hours:""}${r.restriction.reach?" ("+r.restriction.reach+")":""}`);
       if(r.why) lines.push(`✓ ${strip(r.why)}`);
       if(r.accessPoints?.length) lines.push("Access Points: "+r.accessPoints.join(", "));
       if(r.conditions) lines.push(strip(r.conditions));
@@ -2675,6 +2676,7 @@ function generatePlannerReportPDF(loc, date, report){
     <div class="section">
       <div class="section-title">${strip(r.name)}</div>
       ${meta.length?`<div style="font-size:13px;color:#2c5f6e;margin-bottom:8px;">${meta.join(" &nbsp;·&nbsp; ")}</div>`:""}
+      ${r.restriction?`<div style="font-size:13px;color:#8c4936;font-weight:600;margin-bottom:8px;">⚠️ ${r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}${r.restriction.hours?" — "+strip(r.restriction.hours):""}${r.restriction.reach?" ("+strip(r.restriction.reach)+")":""}</div>`:""}
       ${r.why?`<div style="font-size:14px;color:#4a5a3f;font-style:italic;margin-bottom:8px;">✓ ${strip(r.why)}</div>`:""}
       ${r.conditions?`<div class="report-text" style="margin-bottom:8px;"><p>${paragraph(r.conditions)}</p></div>`:""}
       ${r.techniques?`<div style="font-size:13px;color:#555;margin-bottom:8px;">${strip(r.techniques).replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>`:""}
@@ -5476,6 +5478,49 @@ async function labReviewReport(report,loc,ground,dateStr){
     return {omissions,fixes};
   }catch(_r){return null;}
 }
+// Deterministic per-river regulatory-closure check (App Dev 40). Runs on the FINAL
+// picks only, after synthesis — not every candidate gauge. Root cause this fixes:
+// the only prior closure detection was HEAT_SHOP_RE regex-matching whatever text the
+// general shop-report search happened to return; a river with no closure mentioned
+// in THAT day's search results is not the same as no closure existing, and even a
+// hit only set one blanket flag for the whole report, not a per-river note. This is
+// a separate, targeted search for exactly the rivers in the final list. One combined
+// call for all picks (not one per river) to keep cost/latency down, same shape as
+// labReviewReport. Fails open: a timeout/error/parse-miss returns null and the
+// report ships without a restriction note rather than guessing either way.
+async function labVerifyRestrictions(rivers,loc,dateStr){
+  try{
+    if(!Array.isArray(rivers)||!rivers.length)return null;
+    const named=rivers.filter(r=>r&&r.name);
+    if(!named.length)return null;
+    const riverList=named.map(r=>{
+      const ap=Array.isArray(r.accessPoints)?r.accessPoints.join("; "):(r.accessPoints||"");
+      return r.name+(ap?" (access: "+ap+")":"");
+    }).join(" | ");
+    const ctx=[
+      "You are checking current fishing regulations for a trip report near "+((loc&&loc.label)||"the area")+" for "+(dateStr||"today")+".",
+      "Search for CURRENT hoot-owl restrictions, fishing closures, or other emergency angling restrictions (drought/heat-related or otherwise) from the relevant state wildlife agency and recent news, for each of these specific waters:",
+      riverList+".",
+      "A hoot-owl restriction prohibits fishing 2pm-midnight; a closure prohibits fishing entirely. These are often tied to a specific stretch of a river, not the whole named river — if you find one, state EXACTLY which stretch it covers (bridges, towns, or landmarks) so it can be checked against the access points given above. Do not apply a restriction found on one stretch to a different stretch of the same river unless your source says it covers the whole river.",
+      "Only report a restriction you can find from an official state wildlife agency page or a specific, recent (this season) news source — do not guess or infer one from general heat/drought conditions alone.",
+      'Return ONLY JSON, no markdown: {"restrictions":[{"name":"river name exactly as given above","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure","reach":"which stretch, a few words","asOf":"date or recency of your source, briefly"}]}. Omit any river with no restriction found — do not include a "clear" entry for it. Empty array if none found.'
+    ].filter(Boolean).join(" ");
+    const race=Promise.race([askClaude(ctx,true,2200,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
+    const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+    if(a===-1||b<=a)return null;
+    const o=JSON.parse(clean.slice(a,b+1));
+    const list=Array.isArray(o.restrictions)?o.restrictions:[];
+    const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
+    const out=list.map(r=>{
+      const name=clip(r&&r.name,80);
+      if(!name)return null;
+      const status=(r&&r.status==="closure")?"closure":"hootowl";
+      return {name,status,hours:clip(r&&r.hours,40),reach:clip(r&&r.reach,80),asOf:clip(r&&r.asOf,40)};
+    }).filter(Boolean).slice(0,8);
+    return out.length?out:null;
+  }catch(_r){return null;}
+}
 // Fold omissions into the overview as a clearly-marked footer (corrections are applied
 // directly to the report content at the call site, not surfaced as a separate callout).
 function applyReviewNotes(overview,review){
@@ -5855,7 +5900,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
     }
     setBusy(true);setError(null);setSteps([]);
     setWxData(null);setFlowPts([]);setGauges([]);setShops([]);setReport(null);
-    let builtReport=null,finalGauges=null,reviewPromise=null;
+    let builtReport=null,finalGauges=null,reviewPromise=null,restrictionsPromise=null;
     try{
       addStep("Finding location…","active");
       let lat=loc.lat,lng=loc.lng;
@@ -5977,6 +6022,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             const sb2=t=>scrubBannedFlowWords(clean2(t));
             const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
             reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips},loc,searchTxt,ds).catch(()=>null); // run the report review (omissions + in-place corrections) in parallel with finalize + gauge-load
+            restrictionsPromise=labVerifyRestrictions(rpt.rivers,loc,ds).catch(()=>null); // per-river hoot-owl/closure check, same parallel timing as the review pass
             builtReport={searchNote,dataSource:searchTxt.length>200?"current":(fishableGauges.length||pgScaled.length)?"flows-live":"estimated",overview:sb2(rpt.overview),recommendation:sb2(rpt.recommendation),bestFor:bf2,rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:pgScaled,loc,searchTxt),hatches:sb2(rpt.hatches),bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])};
             // review was kicked off above and runs concurrently; its footer is folded in after gauge-load, just before saving
             setReport(builtReport);
@@ -6052,6 +6098,20 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
               if(changed){builtReport=nb;setReport(builtReport);}
             }
           }catch(_rv){void 0;}
+        }
+        if(restrictionsPromise&&builtReport){
+          try{
+            const restrictions=await restrictionsPromise;
+            if(restrictions&&restrictions.length&&Array.isArray(builtReport.rivers)){
+              const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+              const nb2={...builtReport};
+              nb2.rivers=nb2.rivers.map(rv=>{
+                const m=restrictions.find(r=>{const a=nrm(r.name),b=nrm(rv.name);return a&&b&&(a===b||a.includes(b)||b.includes(a));});
+                return m?{...rv,restriction:m}:rv;
+              });
+              builtReport=nb2;setReport(builtReport);
+            }
+          }catch(_rx){void 0;}
         }
         // Persist the finished report so navigating away doesn't lose it
         if(builtReport){
@@ -6194,7 +6254,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.restriction&&<div style={{fontSize:14,color:"#ffb4a3",background:"rgba(140,73,54,0.25)",border:"1px solid rgba(140,73,54,0.5)",borderRadius:8,padding:"6px 10px",marginBottom:6,fontWeight:600}}>⚠️ {r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}{r.restriction.hours?" — "+r.restriction.hours:""}{r.restriction.reach?" ("+r.restriction.reach+")":""}</div>}{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
