@@ -5495,17 +5495,18 @@ async function labVerifyRestrictions(rivers,loc,dateStr){
     const named=rivers.filter(r=>r&&r.name);
     if(!named.length){dbg.outcome="no-named-rivers";console.log("[restrictions]",dbg);return{result:null,debug:dbg};}
     dbg.checked=named.length;
-    const riverList=named.map(r=>{
+    const riverList=named.map((r,i)=>{
       const ap=Array.isArray(r.accessPoints)?r.accessPoints.join("; "):(r.accessPoints||"");
-      return r.name+(ap?" (access: "+ap+")":"");
-    }).join(" | ");
+      return (i+1)+". "+r.name+(ap?" — access points: "+ap:" — no access points given");
+    }).join("\n");
     const ctx=[
       "You are checking current fishing regulations for a trip report near "+((loc&&loc.label)||"the area")+" for "+(dateStr||"today")+".",
-      "Search for CURRENT hoot-owl restrictions, fishing closures, or other emergency angling restrictions (drought/heat-related or otherwise) from the relevant state wildlife agency and recent news, for each of these specific waters:",
-      riverList+".",
-      "A hoot-owl restriction prohibits fishing 2pm-midnight; a closure prohibits fishing entirely. These are often tied to a specific stretch of a river, not the whole named river — if you find one, state EXACTLY which stretch it covers (bridges, towns, or landmarks) so it can be checked against the access points given above. Do not apply a restriction found on one stretch to a different stretch of the same river unless your source says it covers the whole river.",
+      "Here is a numbered list of specific waters, each with its own access points:\n"+riverList,
+      "Search for CURRENT hoot-owl restrictions, fishing closures, or other emergency angling restrictions (drought/heat-related or otherwise) from the relevant state wildlife agency and recent news.",
+      "IMPORTANT: evaluate each numbered entry INDEPENDENTLY using its own access points, not just its river name. Multiple entries above can share the same river name but describe different, non-contiguous stretches of it — for example one entry may be upstream of a dam or reservoir and another downstream of it, which are physically different pieces of water even though they share a name. A restriction found for one stretch of a named river must NOT be applied to a different entry on the same river unless the restricted reach clearly overlaps with THAT entry's own access points.",
+      "A hoot-owl restriction prohibits fishing 2pm-midnight; a closure prohibits fishing entirely.",
       "Only report a restriction you can find from an official state wildlife agency page or a specific, recent (this season) news source — do not guess or infer one from general heat/drought conditions alone.",
-      'Return ONLY JSON, no markdown: {"restrictions":[{"name":"river name exactly as given above","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure","reach":"which stretch, a few words","asOf":"date or recency of your source, briefly"}]}. Omit any river with no restriction found — do not include a "clear" entry for it. Empty array if none found.'
+      'Return ONLY JSON, no markdown: {"restrictions":[{"name":"copy the water\'s name EXACTLY as given in the numbered list above, character for character, unchanged","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure","reach":"the restricted stretch, a few words, as your source states it","asOf":"date or recency of your source, briefly"}]}. Only include an entry if you are confident the restricted reach overlaps with that specific entry\'s own access points — if you are unsure whether it is the same stretch, omit it rather than guess. Empty array if none found.'
     ].filter(Boolean).join(" ");
     let raw;
     try{
@@ -6122,13 +6123,17 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
           try{
             const rres=await restrictionsPromise;
             const restrictions=rres&&rres.result;
+            let matched=0;
             const nb2={...builtReport,restrictionDebug:(rres&&rres.debug)||{outcome:"no-response"}};
             if(restrictions&&restrictions.length&&Array.isArray(nb2.rivers)){
               const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
               nb2.rivers=nb2.rivers.map(rv=>{
-                const m=restrictions.find(r=>{const a=nrm(r.name),b=nrm(rv.name);return a&&b&&(a===b||a.includes(b)||b.includes(a));});
+                const m=restrictions.find(r=>nrm(r.name)===nrm(rv.name));
+                if(m)matched++;
                 return m?{...rv,restriction:m}:rv;
               });
+              nb2.restrictionDebug={...nb2.restrictionDebug,matched};
+              console.log("[restrictions] matched",matched,"of",restrictions.length,"reported");
             }
             builtReport=nb2;setReport(builtReport);
           }catch(_rx){void 0;}
@@ -6229,7 +6234,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div className="card">
           <div className="ctitle">🎣 Fishing Report</div>
           <div className="csub">{report.dataSource==="estimated"?"Based on typical seasonal conditions — no live data found":report.dataSource==="flows-live"?"Based on live USGS flows & weather — "+(report.searchNote||"no current local reports found"):"Synthesized from live USGS flows, weather & current conditions"}</div>
-          {report.restrictionDebug&&<div style={{fontSize:11,color:"var(--stone)",fontFamily:"monospace",marginBottom:6,padding:"4px 8px",background:"rgba(0,0,0,0.2)",borderRadius:6,wordBreak:"break-all"}}>restriction check: {report.restrictionDebug.outcome}{report.restrictionDebug.checked?` · checked ${report.restrictionDebug.checked}`:""}{report.restrictionDebug.found?` · found ${report.restrictionDebug.found}`:""}{report.restrictionDebug.error?` · ${report.restrictionDebug.error}`:""}{report.restrictionDebug.raw?` · raw: ${report.restrictionDebug.raw}`:""}</div>}
+          {report.restrictionDebug&&<div style={{fontSize:11,color:"var(--stone)",fontFamily:"monospace",marginBottom:6,padding:"4px 8px",background:"rgba(0,0,0,0.2)",borderRadius:6,wordBreak:"break-all"}}>restriction check: {report.restrictionDebug.outcome}{report.restrictionDebug.checked?` · checked ${report.restrictionDebug.checked}`:""}{report.restrictionDebug.found?` · found ${report.restrictionDebug.found}`:""}{report.restrictionDebug.found?` · matched ${report.restrictionDebug.matched||0}`:""}{report.restrictionDebug.error?` · ${report.restrictionDebug.error}`:""}{report.restrictionDebug.raw?` · raw: ${report.restrictionDebug.raw}`:""}</div>}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
             <button className="btn" style={{flex:1,padding:"8px 10px",fontSize:14,background:"rgba(0,0,0,0.2)"}}
               onClick={()=>{
