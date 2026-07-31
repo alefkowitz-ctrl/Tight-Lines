@@ -5504,9 +5504,10 @@ async function labVerifyRestrictions(rivers,loc,dateStr){
       "Here is a numbered list of specific waters, each with its own access points:\n"+riverList,
       "Search for CURRENT hoot-owl restrictions, fishing closures, or other emergency angling restrictions (drought/heat-related or otherwise) from the relevant state wildlife agency and recent news.",
       "IMPORTANT: evaluate each numbered entry INDEPENDENTLY using its own access points, not just its river name. Multiple entries above can share the same river name but describe different, non-contiguous stretches of it — for example one entry may be upstream of a dam or reservoir and another downstream of it, which are physically different pieces of water even though they share a name. A restriction found for one stretch of a named river must NOT be applied to a different entry on the same river unless the restricted reach clearly overlaps with THAT entry's own access points.",
+      "EXCEPTION: Closures (fishing completely prohibited, all day) apply to whole rivers, not specific stretches. If you find a closure for a river name that matches any entry for that river, report it without requiring reach overlap verification. Hoot-owl restrictions (2pm-midnight only) ARE reach-specific and require you to verify the restricted reach overlaps with that entry's access points.",
       "A hoot-owl restriction prohibits fishing 2pm-midnight; a closure prohibits fishing entirely.",
       "Only report a restriction you can find from an official state wildlife agency page or a specific, recent (this season) news source — do not guess or infer one from general heat/drought conditions alone.",
-      'Return ONLY JSON, no markdown: {"restrictions":[{"name":"copy the water\'s name EXACTLY as given in the numbered list above, character for character, unchanged","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure","reach":"the restricted stretch, a few words, as your source states it","asOf":"date or recency of your source, briefly"}]}. Only include an entry if you are confident the restricted reach overlaps with that specific entry\'s own access points — if you are unsure whether it is the same stretch, omit it rather than guess. Empty array if none found.'
+      'Return ONLY JSON, no markdown: {"restrictions":[{"name":"copy the water\'s name EXACTLY as given in the numbered list above, character for character, unchanged","status":"hootowl or closure","hours":"e.g. 2pm-midnight, or all day for a closure — omit this field if status is closure","reach":"the restricted stretch, a few words, as your source states it — omit this field if status is closure (closures cover whole river)","asOf":"date or recency of your source, briefly"}]}. For closures: report if the river name matches, even if you aren\'t 100% certain every access point on that river is affected (closures are whole-river). For hoot-owls: only include if you verified the restricted reach overlaps with that entry\'s access points. Empty array if none found.'
     ].filter(Boolean).join(" ");
     let raw;
     try{
@@ -6129,7 +6130,16 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
             if(restrictions&&restrictions.length&&Array.isArray(nb2.rivers)){
               const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
               nb2.rivers=nb2.rivers.map(rv=>{
-                const m=restrictions.find(r=>nrm(r.name)===nrm(rv.name));
+                const m=restrictions.find(r=>{
+                  const rn=nrm(r.name), vn=nrm(rv.name);
+                  if(r.status==="closure"){
+                    // Closures apply whole-river: allow loose match (includes)
+                    return rn&&vn&&(rn===vn||rn.includes(vn)||vn.includes(rn));
+                  }else{
+                    // Hoot-owls are reach-specific: exact match only
+                    return rn&&vn&&rn===vn;
+                  }
+                });
                 if(m)matched++;
                 return m?{...rv,restriction:m}:rv;
               });
