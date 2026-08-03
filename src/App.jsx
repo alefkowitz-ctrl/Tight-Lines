@@ -5185,7 +5185,7 @@ function TripPlannerLoading({steps,onCancel,destination}){
   );
 }
 
-function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
+function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openReportId,onOpenedReportId,user}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const driveMinutes=120;
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
@@ -5215,6 +5215,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
   const [saveNote,setSaveNote]=useState(null);
   const pendingSaveRef=useRef(null); // holds the last failed save payload so Retry/auto-retry can resend it
   const [retrying,setRetrying]=useState(false);
+
+  // ── Background/email report state ──────────────────────────────────────────
+  const [showEmailPopup,setShowEmailPopup]=useState(false);
+  const [emailInput,setEmailInput]=useState(user?.email||"");
+  const [emailSubmitting,setEmailSubmitting]=useState(false);
+  const [emailSubmitError,setEmailSubmitError]=useState("");
+  const [emailSubmitSuccess,setEmailSubmitSuccess]=useState(false);
 
   // Shared by the initial save and by manual/auto retry — keeps the exact payload
   // around on failure instead of discarding it, so a retry resends the same report.
@@ -5287,6 +5294,40 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
       applySavedReport(data.payload);
     }catch(e){setError("Couldn't load that report: "+(e.message||"unknown error"));}
     finally{setOpeningReportId(null);}
+  }
+
+  // Deep link from a background-report email: open it once sb is ready, then tell the
+  // parent to clear the id so this doesn't refire on unrelated re-renders.
+  useEffect(()=>{
+    if(!openReportId||!sb)return;
+    openSavedReport({id:openReportId});
+    if(onOpenedReportId)onOpenedReportId();
+  },[openReportId,sb]);
+
+  // Kicks off a background report: same rate-limited planner_reports ledger as the
+  // on-screen path, but the actual generation runs server-side (survives closing the
+  // app) and the finished report arrives by email instead of on screen.
+  async function emailReportInBackground(){
+    if(!loc.label.trim()){setEmailSubmitError("Please enter a destination.");return;}
+    setEmailSubmitting(true);setEmailSubmitError("");
+    try{
+      let lat=loc.lat,lng=loc.lng;
+      if(lat==null||lng==null){
+        const results=await geocode(loc.label);
+        if(!results.length){setEmailSubmitError("Couldn't find that location.");setEmailSubmitting(false);return;}
+        lat=parseFloat(results[0].lat);lng=parseFloat(results[0].lon);
+      }
+      let auth={};
+      try{if(sb){const {data}=await sb.auth.getSession();const t=data&&data.session&&data.session.access_token;if(t)auth={Authorization:"Bearer "+t};}}catch{}
+      const r=await fetch("/api/plan-trip-background",{method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({label:loc.label,lat,lng,date,driveMinutes,notifyEmail:emailInput})});
+      let d;try{d=await r.json();}catch{throw new Error("The server didn't respond as expected — please try again.");}
+      if(!r.ok||d.error){throw new Error((d&&d.error&&d.error.message)||"Couldn't start the report — please try again.");}
+      setEmailSubmitSuccess(true);
+    }catch(e){
+      setEmailSubmitError(e.message||"Something went wrong — please try again.");
+    }finally{
+      setEmailSubmitting(false);
+    }
   }
 
   // Load today's saved reports (specific columns only — payload is fetched on tap)
@@ -5498,7 +5539,39 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc}){
         <div style={{fontSize:14,color:"var(--stone)",marginBottom:12}}>Shows all fishable streams within a <span style={{color:"var(--gold)"}}>2 hour drive</span></div>
         {error&&<div className="err">{error}</div>}
         <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
+        <button onClick={()=>{setEmailInput(user?.email||"");setEmailSubmitError("");setEmailSubmitSuccess(false);setShowEmailPopup(true);}} disabled={busy}
+          style={{display:"block",width:"100%",textAlign:"center",background:"none",border:"none",color:"var(--sky)",textDecoration:"underline",cursor:busy?"default":"pointer",fontSize:14,fontFamily:"var(--font-body)",marginTop:10,opacity:busy?0.5:1}}>
+          Or email me this report instead →
+        </button>
       </div>
+
+      {showEmailPopup&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          onClick={()=>{if(!emailSubmitting){setShowEmailPopup(false);}}}>
+          <div className="card" style={{maxWidth:400,width:"100%",margin:0}} onClick={e=>e.stopPropagation()}>
+            {emailSubmitSuccess?(
+              <>
+                <div className="ctitle">✓ On its way</div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:16,lineHeight:1.5}}>We'll email your {loc.label} report to {emailInput} — usually within a few minutes. Feel free to close the app.</div>
+                <button className="gen" onClick={()=>{setShowEmailPopup(false);setEmailSubmitSuccess(false);}}>Done</button>
+              </>
+            ):(
+              <>
+                <div className="ctitle">📧 Email Me This Report</div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:12,lineHeight:1.5}}>We'll build your {loc.label||"trip"} report in the background and email it to you — no need to keep the app open while it runs.</div>
+                <label className="lbl">Email address</label>
+                <input className="inp" type="email" value={emailInput} onChange={e=>setEmailInput(e.target.value)} style={{marginBottom:12}}/>
+                {emailSubmitError&&<div className="err" style={{marginBottom:12}}>{emailSubmitError}</div>}
+                <button className="gen" onClick={emailReportInBackground} disabled={emailSubmitting||!emailInput}>{emailSubmitting?"Starting…":"Send Me This Report"}</button>
+                <button onClick={()=>setShowEmailPopup(false)} disabled={emailSubmitting}
+                  style={{display:"block",width:"100%",textAlign:"center",background:"none",border:"none",color:"var(--stone)",marginTop:10,cursor:emailSubmitting?"default":"pointer",fontSize:14,fontFamily:"var(--font-body)"}}>
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {error&&<div style={{background:"rgba(150,80,80,0.15)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:10}}>{error}</div>}
 
@@ -5944,6 +6017,18 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
 function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
+  // Deep link from a background-report email (?report=<id>&tab=plan): switch to the
+  // Trip Planner tab and hand the id down for TripPlanner to load, same pattern as the
+  // ?checkout= handling in Root above.
+  const [pendingReportId,setPendingReportId]=useState(null);
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const rid=params.get("report");
+    if(!rid)return;
+    window.history.replaceState({},"",window.location.pathname);
+    setTab("plan");
+    setPendingReportId(rid);
+  },[]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
   const [showSettings,setShowSettings]=useState(false);
   const settingsWrapRef=useRef(null);
@@ -7385,7 +7470,7 @@ ${shopPins}
           ))}
           </>}
 
-          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
+          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
           {tab==="guide"&&!hideGuide&&((tierChecking&&tier==="free")?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
         </div>
 
