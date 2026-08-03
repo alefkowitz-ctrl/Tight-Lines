@@ -5217,11 +5217,11 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
   const [retrying,setRetrying]=useState(false);
 
   // ── Background/email report state ──────────────────────────────────────────
-  const [showEmailPopup,setShowEmailPopup]=useState(false);
+  // genPopupStep: null (closed) | "choice" (wait vs. email) | "email" (address entry) | "success"
+  const [genPopupStep,setGenPopupStep]=useState(null);
   const [emailInput,setEmailInput]=useState(user?.email||"");
   const [emailSubmitting,setEmailSubmitting]=useState(false);
   const [emailSubmitError,setEmailSubmitError]=useState("");
-  const [emailSubmitSuccess,setEmailSubmitSuccess]=useState(false);
 
   // Shared by the initial save and by manual/auto retry — keeps the exact payload
   // around on failure instead of discarding it, so a retry resends the same report.
@@ -5322,7 +5322,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
       const r=await fetch("/api/plan-trip-background",{method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify({label:loc.label,lat,lng,date,driveMinutes,notifyEmail:emailInput})});
       let d;try{d=await r.json();}catch{throw new Error("The server didn't respond as expected — please try again.");}
       if(!r.ok||d.error){throw new Error((d&&d.error&&d.error.message)||"Couldn't start the report — please try again.");}
-      setEmailSubmitSuccess(true);
+      setGenPopupStep("success");
     }catch(e){
       setEmailSubmitError(e.message||"Something went wrong — please try again.");
     }finally{
@@ -5538,35 +5538,44 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
         <div style={{fontSize:14,color:"var(--stone)",marginBottom:12}}>Shows all fishable streams within a <span style={{color:"var(--gold)"}}>2 hour drive</span></div>
         {error&&<div className="err">{error}</div>}
-        <button className="gen" onClick={generate} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Report"}</button>
-        <button onClick={()=>{setEmailInput(user?.email||"");setEmailSubmitError("");setEmailSubmitSuccess(false);setShowEmailPopup(true);}} disabled={busy}
-          style={{display:"block",width:"100%",textAlign:"center",background:"none",border:"none",color:"var(--sky)",textDecoration:"underline",cursor:busy?"default":"pointer",fontSize:14,fontFamily:"var(--font-body)",marginTop:10,opacity:busy?0.5:1}}>
-          Or email me this report instead →
-        </button>
+        <button className="gen" onClick={()=>{setEmailInput(user?.email||"");setEmailSubmitError("");setGenPopupStep("choice");}} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Forecast"}</button>
       </div>
 
-      {showEmailPopup&&(
+      {genPopupStep&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
-          onClick={()=>{if(!emailSubmitting){setShowEmailPopup(false);}}}>
+          onClick={()=>{if(!emailSubmitting){setGenPopupStep(null);}}}>
           <div className="card" style={{maxWidth:400,width:"100%",margin:0}} onClick={e=>e.stopPropagation()}>
-            {emailSubmitSuccess?(
+            {genPopupStep==="choice"&&(
               <>
-                <div className="ctitle">✓ On its way</div>
-                <div style={{fontSize:14,color:"var(--stone)",marginBottom:16,lineHeight:1.5}}>We'll email your {loc.label} report to {emailInput} — usually within a few minutes. Feel free to close the app.</div>
-                <button className="gen" onClick={()=>{setShowEmailPopup(false);setEmailSubmitSuccess(false);}}>Done</button>
+                <div className="ctitle">🗓 Get Your Forecast</div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:16,lineHeight:1.5}}>Waiting here usually takes 2–5 minutes. Or we can build it in the background and email you when it's ready — no need to keep the app open.</div>
+                <button className="gen" onClick={()=>{setGenPopupStep(null);generate();}} style={{marginBottom:10}}>Wait Here (2–5 min)</button>
+                <button className="gen" onClick={()=>setGenPopupStep("email")}>Email It To Me Instead</button>
+                <button onClick={()=>setGenPopupStep(null)}
+                  style={{display:"block",width:"100%",textAlign:"center",background:"none",border:"none",color:"var(--stone)",marginTop:10,cursor:"pointer",fontSize:14,fontFamily:"var(--font-body)"}}>
+                  Cancel
+                </button>
               </>
-            ):(
+            )}
+            {genPopupStep==="email"&&(
               <>
-                <div className="ctitle">📧 Email Me This Report</div>
-                <div style={{fontSize:14,color:"var(--stone)",marginBottom:12,lineHeight:1.5}}>We'll build your {loc.label||"trip"} report in the background and email it to you — no need to keep the app open while it runs.</div>
+                <div className="ctitle">📧 Email Me This Forecast</div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:12,lineHeight:1.5}}>We'll build your {loc.label||"trip"} forecast in the background and email it to you — no need to keep the app open while it runs.</div>
                 <label className="lbl">Email address</label>
                 <input className="inp" type="email" value={emailInput} onChange={e=>setEmailInput(e.target.value)} style={{marginBottom:12}}/>
                 {emailSubmitError&&<div className="err" style={{marginBottom:12}}>{emailSubmitError}</div>}
-                <button className="gen" onClick={emailReportInBackground} disabled={emailSubmitting||!emailInput}>{emailSubmitting?"Starting…":"Send Me This Report"}</button>
-                <button onClick={()=>setShowEmailPopup(false)} disabled={emailSubmitting}
+                <button className="gen" onClick={emailReportInBackground} disabled={emailSubmitting||!emailInput}>{emailSubmitting?"Starting…":"Send Me This Forecast"}</button>
+                <button onClick={()=>setGenPopupStep("choice")} disabled={emailSubmitting}
                   style={{display:"block",width:"100%",textAlign:"center",background:"none",border:"none",color:"var(--stone)",marginTop:10,cursor:emailSubmitting?"default":"pointer",fontSize:14,fontFamily:"var(--font-body)"}}>
-                  Cancel
+                  ← Back
                 </button>
+              </>
+            )}
+            {genPopupStep==="success"&&(
+              <>
+                <div className="ctitle">✓ On its way</div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:16,lineHeight:1.5}}>We'll email your {loc.label} forecast to {emailInput} — usually within a few minutes. Feel free to close the app.</div>
+                <button className="gen" onClick={()=>setGenPopupStep(null)}>Done</button>
               </>
             )}
           </div>
