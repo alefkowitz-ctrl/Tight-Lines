@@ -586,6 +586,42 @@ export function filterFishableGauges(pgScaled,lat,lng){
   }),25,lat,lng);
 }
 
+// Shared name normalizer — was two separate inline copies (in the review-fold and the
+// restrictions-fold below); unified here as the single source both use.
+export function nrmName(s){return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");}
+
+// Strips a trailing parenthetical reach descriptor for loose name matching, e.g.
+// "Colorado River (Kremmling to Dotsero tailwater)" -> "Colorado River". Used by
+// reconcileBestBet to match the free-text "recommendation" field back to the river
+// entry it's actually describing.
+export function coreRiverName(name){
+  return String(name||"").replace(/\s*\([^)]*\)\s*/g,"").trim();
+}
+
+// Auto-swaps the "Best Bet Today" recommendation when the pick it's actually about
+// turns out to be ineligible — beyond day-trip range (labGovernor) or closed to fishing
+// today (labVerifyRestrictions). Deterministic, no AI: matches the free-text
+// recommendation back to a river by name (core name, parenthetical reach stripped),
+// and if that river is ineligible, replaces the recommendation with the next eligible
+// river's own already-vetted "why" text plus a note explaining the swap. Fail-open:
+// if no match is found, or every river is ineligible, the original recommendation is
+// left untouched rather than guessing.
+export function reconcileBestBet(report){
+  if(!report||!report.recommendation||!Array.isArray(report.rivers)||!report.rivers.length)return report;
+  const recNorm=nrmName(report.recommendation);
+  const ineligible=r=>r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");
+  const matched=report.rivers.find(r=>{
+    const core=nrmName(coreRiverName(r.name));
+    return core&&recNorm.includes(core);
+  });
+  if(!matched||!ineligible(matched))return report; // no match, or the pick is fine — leave it alone
+  const alt=report.rivers.find(r=>r!==matched&&!ineligible(r));
+  if(!alt)return report; // nothing eligible to swap to — leave the original, flagged pick as-is
+  const reason=matched.restriction&&matched.restriction.status==="closure"?"closed to fishing today":"beyond realistic day-trip range today";
+  const note="⚠ "+matched.name+" is "+reason+" — swapping today's best bet to "+alt.name+" instead. ";
+  return {...report,recommendation:(note+(alt.why||alt.conditions||"See its river card below for details.")).trim()};
+}
+
 // ── The orchestrator ─────────────────────────────────────────────────────────
 // Takes ALREADY-FETCHED destination/weather/gauge data (each caller fetches this its
 // own way — see the file-header note) and runs the full search → synthesize → verify
@@ -691,7 +727,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
       if(fx.bestTimes){nb.bestTimes=eThermal?scrubAfternoonPush(sb2(fx.bestTimes)):sb2(fx.bestTimes);changed=true;}
       if(fx.tips){nb.tips=eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(fx.tips))).trim():sb2(fx.tips);changed=true;}
       if(Array.isArray(fx.rivers)&&fx.rivers.length&&Array.isArray(nb.rivers)){
-        const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+        const nrm=nrmName;
         nb.rivers=nb.rivers.map(rv=>{
           const m=fx.rivers.find(f=>{const a=nrm(f.name),b=nrm(rv.name);return a&&b&&(a===b||a.startsWith(b)||b.startsWith(a));});
           if(m&&Array.isArray(m.flies)&&m.flies.length){const cleaned=cleanFlyList(m.flies);if(cleaned.length){changed=true;return {...rv,flies:cleaned};}}
@@ -710,7 +746,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
     let matched=0;
     const nb2={...builtReport,restrictionDebug:(rres&&rres.debug)||{outcome:"no-response"}};
     if(restrictions&&restrictions.length&&Array.isArray(nb2.rivers)){
-      const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+      const nrm=nrmName;
       nb2.rivers=nb2.rivers.map(rv=>{
         const m=restrictions.find(r=>{
           const rn=nrm(r.name), vn=nrm(rv.name);
@@ -728,6 +764,10 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
     }
     builtReport=nb2;
   }catch(_rx){void 0;}
+
+  // Must run last: needs the final outOfRange (labGovernor) and restriction
+  // (labVerifyRestrictions, just folded in above) flags to know what's eligible.
+  builtReport=reconcileBestBet(builtReport);
 
   return builtReport;
 }
