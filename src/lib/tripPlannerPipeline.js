@@ -279,11 +279,10 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
   try{
     const items=rivers.map((r,i)=>(i+1)+") "+String(r.name||"?")+(r.type?" ["+r.type+"]":"")+(r.gaugeSnap?" (gauge: "+r.gaugeSnap+")":"")).join("  ");
     const vp=["You are a skeptical senior fly fishing guide fact-checking a trip plan near "+((loc&&loc.label)||"the area")+".",
-      "For EACH numbered water below, use current public sources to decide whether it is a COLDWATER TROUT fishery, or a WARMWATER/bass/smallmouth water that is NOT trout water.",
-      "Be conservative: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery. If you are not certain, answer 'unsure' — never guess 'warmwater'.",
-      "If a water is described as a tailwater, also note whether the named dam appears wrong.",
+      "For EACH numbered water below, use current public sources to decide TWO things: (1) whether it is a COLDWATER TROUT fishery, or a WARMWATER/bass/smallmouth water that is NOT trout water; (2) whether it is a FREESTONE stream or a TAILWATER (flows directly below a dam or reservoir) — the water's own bracketed label may be wrong, so verify it independently rather than assuming the label given is correct.",
+      "Be conservative on both: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery — if uncertain, answer 'unsure' rather than guessing. Only report a 'type' when your sources clearly establish it one way or the other; omit the field entirely if you're not sure, rather than guessing.",
       "Return ONLY a JSON array, one object per item, SAME ORDER, no markdown: ",
-      '[{"n":1,"verdict":"trout|warmwater|unsure","note":"max 12 words"}].',
+      '[{"n":1,"verdict":"trout|warmwater|unsure","type":"freestone|tailwater"}]. Omit "type" if unsure.',
       "Waters: "+items].join(" ");
     const race=Promise.race([aiCtx.askAI(vp,true,1500,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").trim();
@@ -295,10 +294,18 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
   const decided=rivers.map((r,i)=>{
     const v=byN.get(i+1)||{};const verdict=String(v.verdict||"").toLowerCase();
     const drop=flags[i].avoid||verdict==="warmwater";
-    let why=r.why;
+    let why=r.why,type=r.type;
     if(!drop&&verdict==="unsure")why=(NOTE_UNSURE+" "+String(r.why||"")).trim();
-    if(!drop&&v&&v.note&&/\b(wrong|incorrect|mislabel\w*|not (?:a )?trout|actually below|should be)\b/i.test(String(v.note)))why=("⚠ "+String(v.note).trim()+" "+String(why||"")).trim();
-    return {r:{...r,why},drop};
+    // Deterministic type correction (no visible warning) — same "just fix it" pattern as
+    // damNameReconcile, rather than surfacing a confusing "mislabeled" sentence to the reader.
+    // Catches cases enforceStreamTypes' gauge-name pattern match alone can miss, e.g. a genuine
+    // tailwater whose gauge name doesn't literally spell out "BLW ... RES/DAM".
+    if(!drop){
+      const vType=String(v.type||"").toLowerCase();
+      if(vType==="tailwater"&&!/tailwater/i.test(String(type||"")))type="Tailwater";
+      else if(vType==="freestone"&&!/freestone/i.test(String(type||""))){type="Freestone";why=scrubDamClaims(why);}
+    }
+    return {r:{...r,why,type},drop};
   });
   const kept=decided.filter(d=>!d.drop).map(d=>d.r);
   if(kept.length)return kept;
