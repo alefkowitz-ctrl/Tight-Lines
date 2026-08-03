@@ -154,10 +154,13 @@ export default async function handler(req, res) {
       body: JSON.stringify({ report_date: reportDate, loc_label: label, lat, lng, status: "processing", notify_email: notifyEmail, payload: null })
     });
     const insData = await insRes.json();
-    if (!insRes.ok || !Array.isArray(insData) || !insData[0]) return res.status(500).json({ error: { message: "Couldn't start the report — please try again." } });
+    if (!insRes.ok || !Array.isArray(insData) || !insData[0]) {
+      const detail = (insData && (insData.message || insData.hint || insData.details)) || ("HTTP " + insRes.status);
+      return res.status(500).json({ error: { message: "Couldn't start the report — " + detail } });
+    }
     rowId = insData[0].id;
   } catch (e) {
-    return res.status(500).json({ error: { message: "Couldn't start the report — please try again." } });
+    return res.status(500).json({ error: { message: "Couldn't start the report — " + (e && e.message || "unknown error") } });
   }
 
   // Respond now — the popup shows "we'll email you" and the tab can be closed. Everything
