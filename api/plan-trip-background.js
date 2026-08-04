@@ -75,22 +75,33 @@ async function askAIServer(prompt, useSearch = false, maxTokens = 1200, kind = "
   return texts.join(" ");
 }
 
+// The user's JWT is captured when the request comes in, but the save happens 3+ minutes
+// later — long enough that a token already near the end of its lifetime expires mid-job,
+// which is exactly what was failing here (report generated fine, PATCH came back 4xx).
+// The service-role key doesn't expire, so the delayed writes use it instead. It bypasses
+// RLS entirely, so every service-role query below MUST scope by user_id itself — that
+// safety is no longer being enforced by the database.
+const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
 // Returns true only if the row was actually confirmed updated. PostgREST returns a
 // normal 200/204 "success" even when an UPDATE matches zero rows (e.g. an RLS policy
 // silently filtering it out) — the earlier version of this function didn't check for
 // that, so a save that silently didn't happen looked identical to one that did, and the
 // email still went out pointing at a report with no data. return=representation lets us
 // tell the difference: an empty array means nothing was actually updated.
-async function patchReport(rowId, jwt, fields) {
+// Scoped by BOTH id and user_id: with the service-role key there's no RLS backstop, so
+// this query is the only thing preventing a bad rowId from touching another user's row.
+async function patchReport(rowId, userId, fields) {
   try {
-    const r = await fetch(SB_URL + "/rest/v1/planner_reports?id=eq." + rowId, {
+    const key = SB_SERVICE || SB_ANON;
+    const r = await fetch(SB_URL + "/rest/v1/planner_reports?id=eq." + rowId + "&user_id=eq." + userId, {
       method: "PATCH",
-      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, "Content-Type": "application/json", Prefer: "return=representation" },
+      headers: { apikey: key, Authorization: "Bearer " + key, "Content-Type": "application/json", Prefer: "return=representation" },
       body: JSON.stringify(fields)
     });
     if (!r.ok) { console.error("[plan-trip-background] patchReport HTTP " + r.status, await r.text().catch(() => "")); return false; }
     const d = await r.json().catch(() => null);
-    if (!Array.isArray(d) || !d[0]) { console.error("[plan-trip-background] patchReport matched 0 rows for id " + rowId + " — check the UPDATE RLS policy on planner_reports"); return false; }
+    if (!Array.isArray(d) || !d[0]) { console.error("[plan-trip-background] patchReport matched 0 rows for id " + rowId); return false; }
     return true;
   } catch (e) {
     console.error("[plan-trip-background] patchReport threw", e && e.message);
@@ -147,6 +158,7 @@ export default async function handler(req, res) {
   if (lat == null || lng == null || !label) return res.status(400).json({ error: { message: "Missing location." } });
   if (!notifyEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(notifyEmail))) return res.status(400).json({ error: { message: "A valid email address is required." } });
   if (!process.env.RESEND_API_KEY) return res.status(500).json({ error: { message: "Email delivery isn't configured yet." } });
+  if (!SB_SERVICE) console.warn("[plan-trip-background] SUPABASE_SERVICE_ROLE_KEY is not set — falling back to the user's JWT, which will likely expire mid-job and fail to save the finished report.");
 
   // Same rate-limit gate as the on-screen path, same ledger table.
   const gate = await todayCount("planner_reports", jwt);
@@ -159,7 +171,7 @@ export default async function handler(req, res) {
   // Reserve the credit immediately by inserting the row now (status=processing) —
   // matches the existing pattern where the saved row itself IS the rate-limit ledger.
   const reportDate = new Date().toISOString().split("T")[0];
-  let rowId;
+  let rowId, rowUserId;
   try {
     const insRes = await fetch(SB_URL + "/rest/v1/planner_reports", {
       method: "POST",
@@ -172,6 +184,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: { message: "Couldn't start the report — " + detail } });
     }
     rowId = insData[0].id;
+    // Read the owner back off the inserted row rather than trusting the JWT's claim —
+    // this is the value the service-role writes below scope against, and it's what the
+    // database itself recorded as the owner.
+    rowUserId = insData[0].user_id || jwtSub(jwt);
   } catch (e) {
     return res.status(500).json({ error: { message: "Couldn't start the report — " + (e && e.message || "unknown error") } });
   }
@@ -204,7 +220,11 @@ export default async function handler(req, res) {
 
       let savedGauges = [];
       try {
-        const sgRes = await fetch(SB_URL + "/rest/v1/saved_gauges?select=*", { headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt } });
+        const sgKey = SB_SERVICE || SB_ANON;
+        const sgUrl = SB_SERVICE
+          ? SB_URL + "/rest/v1/saved_gauges?select=*&user_id=eq." + rowUserId  // service-role bypasses RLS — scope explicitly
+          : SB_URL + "/rest/v1/saved_gauges?select=*";                          // anon+JWT: RLS scopes it
+        const sgRes = await fetch(sgUrl, { headers: { apikey: sgKey, Authorization: "Bearer " + (SB_SERVICE || jwt) } });
         if (sgRes.ok) savedGauges = await sgRes.json();
       } catch { /* home-waters note just won't include anything — non-critical */ }
 
@@ -217,11 +237,11 @@ export default async function handler(req, res) {
       );
 
       const payload = { v: 1, ts: Date.now(), loc: { label, lat, lng }, date, wxData: wx, gauges: pgScaled, report };
-      const saved = await patchReport(rowId, jwt, { status: "complete", payload });
+      const saved = await patchReport(rowId, rowUserId, { status: "complete", payload });
       if (!saved) throw new Error("Report finished but couldn't be saved — check the planner_reports UPDATE policy in Supabase.");
       await sendReportEmail(resend, notifyEmail, label, ds, report, rowId);
     } catch (e) {
-      await patchReport(rowId, jwt, { status: "failed", error_message: String((e && e.message) || e).slice(0, 500) });
+      await patchReport(rowId, rowUserId, { status: "failed", error_message: String((e && e.message) || e).slice(0, 500) });
       try { await sendFailureEmail(resend, notifyEmail, label); } catch { /* best effort */ }
     }
   })());
