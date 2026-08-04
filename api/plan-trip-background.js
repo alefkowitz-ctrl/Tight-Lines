@@ -75,14 +75,27 @@ async function askAIServer(prompt, useSearch = false, maxTokens = 1200, kind = "
   return texts.join(" ");
 }
 
+// Returns true only if the row was actually confirmed updated. PostgREST returns a
+// normal 200/204 "success" even when an UPDATE matches zero rows (e.g. an RLS policy
+// silently filtering it out) — the earlier version of this function didn't check for
+// that, so a save that silently didn't happen looked identical to one that did, and the
+// email still went out pointing at a report with no data. return=representation lets us
+// tell the difference: an empty array means nothing was actually updated.
 async function patchReport(rowId, jwt, fields) {
   try {
-    await fetch(SB_URL + "/rest/v1/planner_reports?id=eq." + rowId, {
+    const r = await fetch(SB_URL + "/rest/v1/planner_reports?id=eq." + rowId, {
       method: "PATCH",
-      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, "Content-Type": "application/json", Prefer: "return=minimal" },
+      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt, "Content-Type": "application/json", Prefer: "return=representation" },
       body: JSON.stringify(fields)
     });
-  } catch (e) { /* best effort — the row staying "processing" forever is a visible-enough symptom to debug from later */ }
+    if (!r.ok) { console.error("[plan-trip-background] patchReport HTTP " + r.status, await r.text().catch(() => "")); return false; }
+    const d = await r.json().catch(() => null);
+    if (!Array.isArray(d) || !d[0]) { console.error("[plan-trip-background] patchReport matched 0 rows for id " + rowId + " — check the UPDATE RLS policy on planner_reports"); return false; }
+    return true;
+  } catch (e) {
+    console.error("[plan-trip-background] patchReport threw", e && e.message);
+    return false;
+  }
 }
 
 function firstSentence(text, maxLen = 220) {
@@ -204,7 +217,8 @@ export default async function handler(req, res) {
       );
 
       const payload = { v: 1, ts: Date.now(), loc: { label, lat, lng }, date, wxData: wx, gauges: pgScaled, report };
-      await patchReport(rowId, jwt, { status: "complete", payload });
+      const saved = await patchReport(rowId, jwt, { status: "complete", payload });
+      if (!saved) throw new Error("Report finished but couldn't be saved — check the planner_reports UPDATE policy in Supabase.");
       await sendReportEmail(resend, notifyEmail, label, ds, report, rowId);
     } catch (e) {
       await patchReport(rowId, jwt, { status: "failed", error_message: String((e && e.message) || e).slice(0, 500) });
