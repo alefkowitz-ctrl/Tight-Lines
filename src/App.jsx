@@ -5300,8 +5300,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
   // parent to clear the id so this doesn't refire on unrelated re-renders.
   useEffect(()=>{
     if(!openReportId||!sb)return;
-    openSavedReport({id:openReportId});
-    if(onOpenedReportId)onOpenedReportId();
+    (async()=>{
+      await openSavedReport({id:openReportId});
+      if(onOpenedReportId)onOpenedReportId();
+    })();
   },[openReportId,sb]);
 
   // Kicks off a background report: same rate-limited planner_reports ledger as the
