@@ -32,7 +32,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   // live text right next to it. Adam, App Dev 29: wants the text-ring version, not the
   // plain emblem, as the visible logo.
   const badge = mark ? (
-    <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern"
+    <img src="/logo-badge.png" alt="Guide's Choice Fishing — Find the Pattern"
       style={{ height: px(150), width: px(150), objectFit: "contain", display: "block" }} />
   ) : null;
   const title = (
@@ -2430,7 +2430,7 @@ function generateTripReportPDF(guest, trip, reportText){
   if(trip.waterTemp) conditionItems.push(`<div class="cond-item"><span class="cond-icon">💧</span><span class="cond-val">${trip.waterTemp}°F</span><span class="cond-lbl">Water Temp</span></div>`);
   if(trip.windSpeed) conditionItems.push(`<div class="cond-item"><span class="cond-icon">💨</span><span class="cond-val">${trip.windSpeed} mph ${trip.windDir||""}</span><span class="cond-lbl">Wind</span></div>`);
   if(trip.pressure) conditionItems.push(`<div class="cond-item"><span class="cond-icon">📊</span><span class="cond-val">${trip.pressure}"</span><span class="cond-lbl">Pressure ${trip.pressureTrend||""}</span></div>`);
-  if(trip.streamCFS) conditionItems.push(`<div class="cond-item"><span class="cond-icon">🌊</span><span class="cond-val">${Number(trip.streamCFS).toLocaleString()} CFS</span><span class="cond-lbl">${trip.streamCondition||"Flow"}</span></div>`);
+  if(trip.streamCFS) conditionItems.push(`<div class="cond-item"><span class="cond-icon">🌊</span><span class="cond-val">${Number(trip.streamCFS).toLocaleString()} CFS</span><span class="cond-lbl">Flow</span></div>`);
 
   // Build flies list
   const fliesList = (trip.flies||[]).length > 0
@@ -2527,7 +2527,7 @@ ${conditionItems.length>0?`
 <div class="section">
   <div class="section-title">Conditions on the Water</div>
   <div class="conditions-grid">${conditionItems.join("")}</div>
-  ${trip.streamGaugeName?`<div class="stream-bar"><div>🏞 <span class="stream-name">${trip.streamGaugeName}</span></div>${trip.streamCFS?`<div class="stream-stats">${Number(trip.streamCFS).toLocaleString()} CFS · ${trip.streamCondition||""}</div>`:""}</div>`:""}
+  ${trip.streamGaugeName?`<div class="stream-bar"><div>🏞 <span class="stream-name">${trip.streamGaugeName}</span></div>${trip.streamCFS?`<div class="stream-stats">${Number(trip.streamCFS).toLocaleString()} CFS</div>`:""}</div>`:""}
 </div>
 <div style="height:1px;background:#e0ebee;margin:0 40px;"></div>
 `:""}
@@ -3553,6 +3553,7 @@ function GuideBook({user, loc}){
   const [guestsLoading, setGuestsLoading] = useState(true);
   const [migrationStatus, setMigrationStatus] = useState(null);
   const [editingTripCatchIdx, setEditingTripCatchIdx] = useState(null);
+  const [cropTripPhotoIdx, setCropTripPhotoIdx] = useState(null);
   // Ref so handleTripPhoto always gets current loc, not stale closure value
   const locRef = useRef(loc);
   useEffect(()=>{locRef.current=loc;},[loc]);
@@ -3757,6 +3758,39 @@ function GuideBook({user, loc}){
       void 0;
       setSelectedTrip(st=>({...st,photosLoading:false}));
     }
+  }
+
+  // Called by PhotoCropModal for a trip catch photo. Trip photos are a different data
+  // model from the standalone Catch Log (a trip_photos table row per photo, ordered by
+  // sort_order and index-aligned with trips.catch_details — see loadTripPhotos above),
+  // so this mirrors the Remove-photo handler's persist-then-update-state pattern instead
+  // of reusing handleCropSave from the standalone catches flow.
+  async function handleTripCropSave(idx,dataUrl){
+    const oldUrl=selectedTrip.photos[idx];
+    const uploaded=sb?await uploadPhotoToStorage(dataUrl,`trips/${selectedTrip.id}`):null;
+    if(sb&&!uploaded){
+      window.alert("Couldn't save that crop — check your connection and try again.");
+      return;
+    }
+    const newUrl=uploaded||dataUrl;
+    const newPhotos=[...selectedTrip.photos];
+    newPhotos[idx]=newUrl;
+    if(sb){
+      // Persist FIRST, then update the screen — never the other way around
+      const{error:e1}=await sb.from("trip_photos").update({photo:newUrl}).eq("trip_id",selectedTrip.id).eq("photo",oldUrl);
+      if(e1){ window.alert("Could not save the crop — please try again. ("+e1.message+")"); return; }
+    }
+    const upd={...selectedTrip,photos:newPhotos};
+    setSelectedTrip(upd);
+    setGuests(gs=>{
+      const next=gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===selectedTrip.id?upd:t)}));
+      try{
+        const safe=next.map(g=>({...g,trips:(g.trips||[]).map(t=>({...t,photos:[],catchDetails:(t.catchDetails||[]).map(d2=>({...d2,photo:null}))}))}));
+        localStorage.setItem("tl_guests_"+user.id,JSON.stringify(safe));
+      }catch(ce){void 0;}
+      return next;
+    });
+    setCropTripPhotoIdx(null);
   }
 
   async function saveTripPhotos(tripId, photos){
@@ -4022,7 +4056,7 @@ function GuideBook({user, loc}){
         trip.weatherConditions&&("Weather: "+trip.weatherConditions),
         trip.airTemp&&("Air: "+trip.airTemp+"°F"),
         trip.waterTemp&&("Water: "+trip.waterTemp+"°F"),
-        trip.streamCFS&&("Flow: "+trip.streamCFS+" CFS "+( trip.streamCondition||"")),
+        trip.streamCFS&&("Flow: "+trip.streamCFS+" CFS"),
         trip.windSpeed&&("Wind: "+trip.windSpeed+"mph "+( trip.windDir||"")),
         trip.pressure&&("Pressure: "+trip.pressure+'"'),
       ].filter(Boolean).join(", ");
@@ -4500,7 +4534,7 @@ function GuideBook({user, loc}){
             <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
             {selectedTrip.streamGaugeName&&<div style={{fontSize:15,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {selectedTrip.streamGaugeName}</div>}
             <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:15,color:"var(--sky)"}}>
-              {selectedTrip.streamCFS&&<span>💧 {Number(selectedTrip.streamCFS).toLocaleString()} CFS · {selectedTrip.streamCondition}</span>}
+              {selectedTrip.streamCFS&&<span>💧 {Number(selectedTrip.streamCFS).toLocaleString()} CFS</span>}
               {selectedTrip.waterTemp&&<span>🌡 Water: {selectedTrip.waterTemp}°F</span>}
               {selectedTrip.weatherConditions&&<span>{selectedTrip.weatherConditions}</span>}
               {selectedTrip.airTemp&&<span>🌡 Air: {selectedTrip.airTemp}°F</span>}
@@ -4741,6 +4775,10 @@ function GuideBook({user, loc}){
                         style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"7px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
                         ✏️ Edit
                       </button>
+                      <button onClick={e=>{e.stopPropagation();setCropTripPhotoIdx(i);}}
+                        style={{flex:1,background:"rgba(44,95,110,0.2)",border:"1px solid rgba(44,95,110,0.4)",borderRadius:8,padding:"7px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                        ✂️ Crop
+                      </button>
                       <button onClick={async e=>{e.stopPropagation();if(!window.confirm("Remove this photo and catch data?"))return;
                         const delPhoto=p;
                         const newPhotos=selectedTrip.photos.filter((_,j)=>j!==i);
@@ -4938,6 +4976,11 @@ function GuideBook({user, loc}){
             📤 Share as Text
           </button>
         </div>
+      )}
+      {cropTripPhotoIdx!==null&&selectedTrip.photos[cropTripPhotoIdx]&&(
+        <PhotoCropModal key={cropTripPhotoIdx} photoUrl={selectedTrip.photos[cropTripPhotoIdx]}
+          onSave={dataUrl=>handleTripCropSave(cropTripPhotoIdx,dataUrl)}
+          onCancel={()=>setCropTripPhotoIdx(null)}/>
       )}
     </div>
   );
@@ -5868,7 +5911,7 @@ function PhotoJournal({catches,onPhotoClick}){
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
             {lc.map((c2,i)=>(
-              <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo)}>
+              <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo,c2.id)}>
                 <img src={c2.photo} alt={c2.species} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px"}}>
                   <div style={{fontSize:14,color:"white",fontFamily:"var(--font-body)"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
@@ -6025,6 +6068,197 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   );
 }
 
+// Loads an image via fetch()+createImageBitmap (falls back to a data-URL <img> on
+// older browsers) instead of an <img crossOrigin> tag. Drawing a blob: URL source is
+// always same-origin, so the canvas never taints even if the photo's storage host
+// doesn't send CORS headers for direct <img> loads. Module-level (not just inside App)
+// so both the share-card builder and the photo crop tool can reuse it.
+async function loadImageSource(url){
+  const resp=await fetch(url);
+  if(!resp.ok) throw new Error("image fetch failed");
+  const blob=await resp.blob();
+  if(window.createImageBitmap){
+    try{ return await createImageBitmap(blob); }catch(e){ void 0; }
+  }
+  const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(blob);});
+  return await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=dataUrl;});
+}
+
+// ── Photo Crop Modal ────────────────────────────────────────────────────────
+// iPhone-style pinch/pan crop: a fixed-aspect-ratio viewport the photo is zoomed and
+// repositioned within (not a free-form resizable crop box — that's a bigger feature;
+// this covers "reframe so the fish shows up better", which is what was reported).
+// Portal-rendered straight to document.body (same stacking-context fix as the Settings
+// dropdown / TripPlannerLoading) so it always renders above any card/lightbox it was
+// opened from, regardless of that ancestor's own z-index. zIndex:10050 clears the video
+// modal's 10000/10001 and the lightbox's 9999, since crop can be opened from either.
+const CROP_RATIOS=[
+  {key:"3:2",label:"Card",w:3,h:2},
+  {key:"1:1",label:"Square",w:1,h:1},
+  {key:"orig",label:"Original",w:null,h:null},
+];
+function PhotoCropModal({photoUrl,onSave,onCancel}){
+  const [ratioKey,setRatioKey]=useState("3:2");
+  const [natSize,setNatSize]=useState(null);
+  const [zoom,setZoom]=useState(1);
+  const [offset,setOffset]=useState({x:0,y:0});
+  const [frameSize,setFrameSize]=useState({w:320,h:213});
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState(null);
+  const [dragging,setDragging]=useState(false);
+  const pointers=useRef(new Map());
+  const gestureRef=useRef(null);
+
+  const ratio=CROP_RATIOS.find(r=>r.key===ratioKey)||CROP_RATIOS[0];
+
+  useEffect(()=>{
+    function computeFrame(){
+      const maxW=Math.min(window.innerWidth*0.92,440);
+      const maxH=window.innerHeight*0.5;
+      let rw=ratio.w,rh=ratio.h;
+      if(!rw){ if(natSize){rw=natSize.w;rh=natSize.h;} else {rw=1;rh=1;} }
+      let w=maxW,h=w*(rh/rw);
+      if(h>maxH){ h=maxH; w=h*(rw/rh); }
+      setFrameSize({w:Math.round(w),h:Math.round(h)});
+    }
+    computeFrame();
+    window.addEventListener("resize",computeFrame);
+    return()=>window.removeEventListener("resize",computeFrame);
+  },[ratioKey,natSize]);
+
+  useEffect(()=>{ setZoom(1); setOffset({x:0,y:0}); },[ratioKey,photoUrl]);
+
+  function onImgLoad(e){
+    setNatSize({w:e.target.naturalWidth,h:e.target.naturalHeight});
+  }
+
+  const baseScale=natSize?Math.max(frameSize.w/natSize.w,frameSize.h/natSize.h):1;
+  const scale=baseScale*zoom;
+  const dispW=natSize?natSize.w*scale:frameSize.w;
+  const dispH=natSize?natSize.h*scale:frameSize.h;
+  const maxOffX=Math.max(0,(dispW-frameSize.w)/2);
+  const maxOffY=Math.max(0,(dispH-frameSize.h)/2);
+
+  function clamp(o,mx,my){ return {x:Math.max(-mx,Math.min(mx,o.x)),y:Math.max(-my,Math.min(my,o.y))}; }
+  function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+
+  function onPointerDown(e){
+    e.preventDefault();
+    try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}
+    pointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.current.size===1){
+      gestureRef.current={mode:"pan",startPt:{x:e.clientX,y:e.clientY},startOffset:offset};
+    } else if(pointers.current.size>=2){
+      const pts=[...pointers.current.values()];
+      gestureRef.current={mode:"pinch",startDist:dist(pts[0],pts[1])||1,startZoom:zoom,startOffset:offset};
+    }
+    setDragging(true);
+  }
+  function onPointerMove(e){
+    if(!pointers.current.has(e.pointerId))return;
+    e.preventDefault();
+    pointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const g=gestureRef.current;
+    if(!g)return;
+    if(g.mode==="pan"){
+      const dx=e.clientX-g.startPt.x, dy=e.clientY-g.startPt.y;
+      setOffset(clamp({x:g.startOffset.x+dx,y:g.startOffset.y+dy},maxOffX,maxOffY));
+    } else if(g.mode==="pinch"&&pointers.current.size>=2){
+      const pts=[...pointers.current.values()];
+      const d=dist(pts[0],pts[1])||1;
+      const newZoom=Math.max(1,Math.min(4,g.startZoom*(d/g.startDist)));
+      setZoom(newZoom);
+      setOffset(o=>clamp(o,maxOffX,maxOffY));
+    }
+  }
+  function onPointerUp(e){
+    pointers.current.delete(e.pointerId);
+    if(pointers.current.size===0){ gestureRef.current=null; setDragging(false); }
+    else {
+      const [pt]=[...pointers.current.values()];
+      gestureRef.current={mode:"pan",startPt:pt,startOffset:offset};
+    }
+  }
+  function nudgeZoom(delta){
+    setZoom(z=>Math.max(1,Math.min(4,z+delta)));
+    setOffset(o=>clamp(o,maxOffX,maxOffY));
+  }
+
+  async function handleUse(){
+    if(!natSize){ setError("Photo still loading — try again in a second."); return; }
+    setSaving(true); setError(null);
+    try{
+      const cropW=frameSize.w/scale, cropH=frameSize.h/scale;
+      let cropX=natSize.w/2 - cropW/2 - offset.x/scale;
+      let cropY=natSize.h/2 - cropH/2 - offset.y/scale;
+      cropX=Math.max(0,Math.min(natSize.w-cropW,cropX));
+      cropY=Math.max(0,Math.min(natSize.h-cropH,cropY));
+      const outMaxDim=1600;
+      const outScale=Math.min(1,outMaxDim/Math.max(cropW,cropH));
+      const outW=Math.max(1,Math.round(cropW*outScale)), outH=Math.max(1,Math.round(cropH*outScale));
+      const source=await loadImageSource(photoUrl);
+      const canvas=document.createElement("canvas");
+      canvas.width=outW;canvas.height=outH;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(source,cropX,cropY,cropW,cropH,0,0,outW,outH);
+      const dataUrl=canvas.toDataURL("image/jpeg",0.9);
+      await onSave(dataUrl);
+    }catch(e){
+      setError("Couldn't process that crop — try again.");
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+  }
+
+  return createPortal(
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:10050,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"20px 16px",touchAction:"none"}}>
+      <div style={{width:"100%",maxWidth:480,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <button onClick={onCancel} disabled={saving} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:saving?"default":"pointer",fontFamily:"var(--font-body)",padding:"8px 4px"}}>Cancel</button>
+        <div style={{fontFamily:"var(--font-head)",fontSize:16,color:"var(--foam)",letterSpacing:0.5}}>Crop Photo</div>
+        <button onClick={handleUse} disabled={saving||!natSize} style={{background:"none",border:"none",color:"var(--gold)",fontSize:16,fontWeight:600,cursor:(saving||!natSize)?"default":"pointer",fontFamily:"var(--font-body)",padding:"8px 4px",opacity:(saving||!natSize)?0.5:1}}>{saving?"Saving…":"Use Photo"}</button>
+      </div>
+
+      <div
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={{position:"relative",width:frameSize.w,height:frameSize.h,overflow:"hidden",borderRadius:12,background:"#000",cursor:dragging?"grabbing":"grab",touchAction:"none",border:"1px solid rgba(209,154,74,0.4)"}}>
+        <img src={photoUrl} onLoad={onImgLoad} alt="Crop preview" draggable={false}
+          style={{position:"absolute",left:"50%",top:"50%",width:natSize?natSize.w*scale:"auto",height:natSize?natSize.h*scale:"auto",maxWidth:"none",
+            transform:`translate(-50%,-50%) translate(${offset.x}px,${offset.y}px)`,userSelect:"none",pointerEvents:"none"}}/>
+        {dragging&&(
+          <div style={{position:"absolute",inset:0,pointerEvents:"none"}}>
+            {[1,2].map(i=><div key={"v"+i} style={{position:"absolute",top:0,bottom:0,left:`${i*100/3}%`,width:1,background:"rgba(255,255,255,0.5)"}}/>)}
+            {[1,2].map(i=><div key={"h"+i} style={{position:"absolute",left:0,right:0,top:`${i*100/3}%`,height:1,background:"rgba(255,255,255,0.5)"}}/>)}
+          </div>
+        )}
+      </div>
+
+      <div style={{display:"flex",gap:8,marginTop:16}}>
+        {CROP_RATIOS.map(r=>(
+          <button key={r.key} onClick={()=>setRatioKey(r.key)} disabled={saving}
+            style={{background:ratioKey===r.key?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.06)",border:"1px solid "+(ratioKey===r.key?"var(--gold)":"rgba(255,255,255,0.15)"),borderRadius:20,padding:"6px 16px",color:ratioKey===r.key?"var(--gold)":"var(--stone)",fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:12,marginTop:16,width:"100%",maxWidth:320}}>
+        <button onClick={()=>nudgeZoom(-0.25)} disabled={saving} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:32,height:32,color:"var(--foam)",fontSize:18,cursor:"pointer",flexShrink:0}}>−</button>
+        <input type="range" min={1} max={4} step={0.01} value={zoom}
+          onChange={e=>{const z=parseFloat(e.target.value);setZoom(z);setOffset(o=>clamp(o,maxOffX,maxOffY));}}
+          style={{flex:1}}/>
+        <button onClick={()=>nudgeZoom(0.25)} disabled={saving} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:32,height:32,color:"var(--foam)",fontSize:18,cursor:"pointer",flexShrink:0}}>+</button>
+      </div>
+      <div style={{fontSize:13,color:"var(--stone)",marginTop:10,textAlign:"center"}}>Drag to reposition · Pinch or use +/− to zoom</div>
+      {error&&<div style={{fontSize:14,color:"var(--red)",marginTop:10,textAlign:"center"}}>{error}</div>}
+    </div>,
+    document.body
+  );
+}
+
 function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking}){
   const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
@@ -6118,10 +6352,15 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [editCatchFlyInput,setEditCatchFlyInput]=useState("");
   const [editingTripCatchIdx,setEditingTripCatchIdx]=useState(null);
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
+  const [lightboxCatchId,setLightboxCatchId]=useState(null);
+  const [cropCatchId,setCropCatchId]=useState(null);
   useEffect(()=>{
-    window._setLightbox=setLightboxPhoto;
+    // Trip-photo viewers (Guide tab) call this with just a URL — no catch id in that
+    // context, so the lightbox's crop button correctly stays hidden for those. Crop is
+    // scoped to standalone Catch Log entries for now (see GUIDES_CHOICE_CONTEXT.md).
+    window._setLightbox=(url)=>{ setLightboxCatchId(null); setLightboxPhoto(url); };
     return()=>{window._setLightbox=null;};
-  },[setLightboxPhoto]);
+  },[]);
 
 
   // Lightbox via DOM - avoids JSX nesting issues
@@ -6138,10 +6377,14 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       document.body.appendChild(el);
     }
     el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;";
-    el.innerHTML='<img src="'+lightboxPhoto+'" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="catch"/><button style="position:fixed;top:20px;right:20px;background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;width:44px;height:44px;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>';
-    el.onclick=(e)=>{ setLightboxPhoto(null); };
+    el.innerHTML='<img src="'+lightboxPhoto+'" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="catch"/>'
+      +(lightboxCatchId?'<button id="gc-lightbox-crop" style="position:fixed;top:20px;right:76px;background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;width:44px;height:44px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;" aria-label="Crop photo" title="Crop photo">✂️</button>':'')
+      +'<button id="gc-lightbox-close" style="position:fixed;top:20px;right:20px;background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;width:44px;height:44px;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>';
+    el.onclick=(e)=>{ setLightboxPhoto(null); setLightboxCatchId(null); };
+    const cropBtn=document.getElementById("gc-lightbox-crop");
+    if(cropBtn) cropBtn.onclick=(e)=>{ e.stopPropagation(); setCropCatchId(lightboxCatchId); setLightboxPhoto(null); setLightboxCatchId(null); };
     return()=>{ const el2=document.getElementById("gc-lightbox"); if(el2) el2.remove(); };
-  },[lightboxPhoto]);
+  },[lightboxPhoto,lightboxCatchId]);
   // Init loc from localStorage so Guide tab has it immediately
   const [loc,setLoc]=useState(()=>{try{const s=localStorage.getItem("tl_loc");return s?JSON.parse(s):null;}catch{return null;}});
   const [weather,setWeather]=useState(null);
@@ -6238,7 +6481,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     if(!sb||String(id).startsWith("local")) return;
     try{
       await sb.from("catches").update({
-        species:updates.species, length:updates.length, flies:updates.flies,
+        species:updates.species, length:updates.length, flies:updates.flies, photo:updates.photo,
         notes:updates.notes, gps:updates.gps, time:updates.time,
         air_temp:updates.airTemp, weather_desc:updates.weatherDesc,
         wind_speed:updates.windSpeed, wind_dir:updates.windDir,
@@ -6398,21 +6641,29 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     setCatches(cs=>cs.filter(x=>x.id!==id));
   }
 
-  // ── Catch card social share ─────────────────────────────────────────────
-  // Loads an image via fetch()+createImageBitmap (falls back to a data-URL <img>
-  // on older browsers) instead of an <img crossOrigin> tag. Drawing a blob: URL
-  // source is always same-origin, so the canvas never taints even if the photo's
-  // storage host doesn't send CORS headers for direct <img> loads.
-  async function loadImageSource(url){
-    const resp=await fetch(url);
-    if(!resp.ok) throw new Error("image fetch failed");
-    const blob=await resp.blob();
-    if(window.createImageBitmap){
-      try{ return await createImageBitmap(blob); }catch(e){ void 0; }
+  // Called by PhotoCropModal with the cropped JPEG data URL. Re-runs it through the
+  // same upload pipeline the original photo used (uploadPhotoToStorage → "catches"
+  // folder) so the crop replaces the canonical photo everywhere it's referenced (catch
+  // card, share card, photo journal, lightbox all read the same catch.photo field) —
+  // rather than adding a second image to track. Offline/local-only catches (not yet
+  // synced to Supabase) have no storage to upload to, so those just keep the cropped
+  // photo inline, same as the rest of the offline-catch flow.
+  async function handleCropSave(catchId,dataUrl){
+    if(!sb||String(catchId).startsWith("local")){
+      updateCatch(catchId,{photo:dataUrl});
+      setCropCatchId(null);
+      return;
     }
-    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(blob);});
-    return await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=dataUrl;});
+    const uploaded=await uploadPhotoToStorage(dataUrl,"catches");
+    if(!uploaded){
+      alert("Couldn't save that crop — check your connection and try again.");
+      return;
+    }
+    await updateCatch(catchId,{photo:uploaded});
+    setCropCatchId(null);
   }
+
+  // ── Catch card social share ─────────────────────────────────────────────
   function loadSameOriginImage(src){
     return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;});
   }
@@ -6435,7 +6686,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     const headline=(c.species||"Catch")+(c.length?` · ${c.length}"`:"");
     const riverName=(c.streamGaugeName||"").split(" ").slice(0,4).join(" ");
     const subline=[riverName,c.time].filter(Boolean).join("  ·  ");
-    const flowPart=c.streamCFS?`${c.streamCFS} CFS${c.streamCondition?" · "+c.streamCondition:""}`:"";
+    const flowPart=c.streamCFS?`${c.streamCFS} CFS`:"";
     const wxPart=[c.airTemp?`${c.airTemp}°F`:"",c.weatherDesc||""].filter(Boolean).join(" · ");
     const windPart=c.windSpeed?`${c.windSpeed}mph ${c.windDir||""}`.trim():"";
     const condLine=[flowPart,wxPart,windPart].filter(Boolean).join("   ·   ");
@@ -6490,17 +6741,26 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       const wmY=H-50,logoSize=52;
       if(logo) ctx.drawImage(logo,pad,wmY-logoSize+14,logoSize,logoSize);
       ctx.fillStyle="#c2b49a";ctx.font="600 26px Oswald, sans-serif";
-      ctx.fillText("GUIDE'S CHOICE",pad+(logo?logoSize+14:0),wmY);
+      ctx.fillText("GUIDE'S CHOICE FISHING",pad+(logo?logoSize+14:0),wmY);
     } else {
-      const pillW=310,pillH=64,pad=32;
+      // Pill is sized to fit "GUIDE'S CHOICE FISHING" at the base font size, with a
+      // shrink-to-fit fallback (same technique as the statLines loop above) in case a
+      // font-load fallback renders wider than Oswald's measured metrics.
+      const pillW=372,pillH=64,pad=32;
       const px=W-pad-pillW,py=H-pad-pillH;
       ctx.fillStyle="rgba(31,35,29,0.6)";
       roundRectPath(ctx,px,py,pillW,pillH,16);ctx.fill();
       const logoSize=38;
       if(logo) ctx.drawImage(logo,px+16,py+(pillH-logoSize)/2,logoSize,logoSize);
       ctx.textAlign="left";ctx.textBaseline="middle";
-      ctx.fillStyle="#f2efe6";ctx.font="600 24px Oswald, sans-serif";
-      ctx.fillText("GUIDE'S CHOICE",px+16+(logo?logoSize+12:0),py+pillH/2+1);
+      ctx.fillStyle="#f2efe6";
+      const wmText="GUIDE'S CHOICE FISHING";
+      const textX=px+16+(logo?logoSize+12:0);
+      const maxTextW=(px+pillW-16)-textX;
+      let wmFs=24;
+      ctx.font=`600 ${wmFs}px Oswald, sans-serif`;
+      while(ctx.measureText(wmText).width>maxTextW&&wmFs>14){ wmFs-=1; ctx.font=`600 ${wmFs}px Oswald, sans-serif`; }
+      ctx.fillText(wmText,textX,py+pillH/2+1);
     }
     return await new Promise(res=>cv.toBlob(res,"image/jpeg",0.92));
   }
@@ -7333,11 +7593,18 @@ ${shopPins}
                 </div>
               );
             })()}
-            {catchLogTab==="photos"?<PhotoJournal catches={catches} onPhotoClick={setLightboxPhoto}/>:<CatchPatterns catches={catches}/>}
+            {catchLogTab==="photos"?<PhotoJournal catches={catches} onPhotoClick={(url,id)=>{setLightboxPhoto(url);setLightboxCatchId(id||null);}}/>:<CatchPatterns catches={catches}/>}
           {catchLogTab==="list"&&catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catchLogTab==="list"&&catches.map(c=>(
               <div className="cc" key={c.id}>
-                {c.photo?<img src={c.photo} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);}}/>:<div className="c-ph">🐟</div>}
+                {c.photo?(
+                  <div style={{position:"relative"}}>
+                    <img src={c.photo} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);setLightboxCatchId(c.id);}}/>
+                    <button onClick={e=>{e.stopPropagation();setCropCatchId(c.id);}}
+                      style={{position:"absolute",top:8,right:8,width:32,height:32,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"1px solid rgba(255,255,255,0.3)",color:"var(--foam)",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
+                      aria-label="Crop photo" title="Crop photo">✂️</button>
+                  </div>
+                ):<div className="c-ph">🐟</div>}
                 <div className="cb">
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <div className="csp">{c.species}</div>
@@ -7363,7 +7630,7 @@ ${shopPins}
                     <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
                       {c.waterTemp&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
                       {c.streamGaugeName&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
-                      {c.streamCFS&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS {c.streamCondition?("· "+c.streamCondition):""}</span>}
+                      {c.streamCFS&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS</span>}
                       {c.airTemp&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
                       {c.weatherDesc&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>{c.weatherDesc}</span>}
                       {c.windSpeed&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>💨 {c.windSpeed}mph {c.windDir||""}</span>}
@@ -7504,6 +7771,14 @@ ${shopPins}
         )}
       </div>
 
+      {cropCatchId&&(()=>{
+        const cropCatch=catches.find(c2=>c2.id===cropCatchId);
+        if(!cropCatch?.photo){ setCropCatchId(null); return null; }
+        return <PhotoCropModal key={cropCatchId} photoUrl={cropCatch.photo}
+          onSave={dataUrl=>handleCropSave(cropCatchId,dataUrl)}
+          onCancel={()=>setCropCatchId(null)}/>;
+      })()}
+
       <div className={`slide${addOpen?" on":""}`}>
         <div className="slide-hdr">
           <button className="back" onClick={()=>setAddOpen(false)}>← Back</button>
@@ -7549,7 +7824,7 @@ ${shopPins}
               <div style={{fontSize:14,color:"var(--gold)",marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Auto-recorded Conditions</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                 {form.streamGaugeName&&<span style={{fontSize:14,color:"var(--sky)"}}>📍 {form.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
-                {form.streamCFS&&<span style={{fontSize:14,color:"var(--foam)"}}>💧 {form.streamCFS} CFS {form.streamCondition?"· "+form.streamCondition:""}</span>}
+                {form.streamCFS&&<span style={{fontSize:14,color:"var(--foam)"}}>💧 {form.streamCFS} CFS</span>}
                 {form.waterTemp&&<span style={{fontSize:14,color:"#7ec8c8"}}>🌡 Water: {form.waterTemp}°F</span>}
                 {form.airTemp&&<span style={{fontSize:14,color:"var(--stone)"}}>☀️ Air: {form.airTemp}°F</span>}
                 {form.weatherDesc&&<span style={{fontSize:14,color:"var(--stone)"}}>{form.weatherDesc}</span>}
@@ -7584,7 +7859,7 @@ function AuthLoadingScreen(){
   return(
     <div style={{minHeight:"100vh",background:"var(--deep)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{textAlign:"center"}}>
-        <img src="/logo-badge.png" alt="Guide's Choice — Find the Pattern" style={{width:88,height:88,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
+        <img src="/logo-badge.png" alt="Guide's Choice Fishing — Find the Pattern" style={{width:88,height:88,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
         <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--sky)",animation:"pulse 1.5s infinite"}}>Loading…</div>
         {showEscape&&<div style={{marginTop:20}}>
           <div style={{fontSize:14,color:"var(--stone)",marginBottom:10}}>Taking longer than usual.</div>
@@ -7705,7 +7980,7 @@ function SplashScreen({onDone}){
             </g>
           </svg>
           )}
-          <div style={{marginBottom:8}}><Logo layout="stacked" mark={false} scale={1} /></div>
+          <div style={{marginBottom:8}}><Logo layout="stacked" scale={0.85} /></div>
           <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
           <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(209,154,74,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:18,marginBottom:8}}>🔒</div>
