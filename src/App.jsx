@@ -7934,13 +7934,14 @@ function SplashScreen({onDone}){
     )}
       {s.isSplash?(
         <>
+          <div style={{marginBottom:14}}><Logo layout="stacked" scale={0.5} /></div>
+          <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:32,color:"var(--foam)",textAlign:"center",lineHeight:1.15,maxWidth:300,marginBottom:10}}>Know Before You Go</div>
+          <p style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",textAlign:"center",lineHeight:1.5,maxWidth:280,marginBottom:22}}>Nearby streams, ranked best to worst by live flows, weather, and current conditions.</p>
+          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"14px 40px",fontSize:17,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1,marginBottom:16}}>Get Started →</button>
           {vidOk&&(
-            <button onClick={()=>setVidOpen(true)} style={{position:"relative",height:"min(40vh,360px)",aspectRatio:"9/16",marginBottom:18,borderRadius:16,overflow:"hidden",border:"1px solid rgba(209,154,74,0.35)",background:"#000",flexShrink:0,padding:0,cursor:"pointer",display:"block"}}>
-              <img src={WELCOME_VIDEO_THUMB} onError={()=>setVidOk(false)} alt="Watch the walkthrough" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",opacity:0.85}}/>
-              <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:64,height:64,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"2px solid var(--gold)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <div style={{width:0,height:0,borderTop:"13px solid transparent",borderBottom:"13px solid transparent",borderLeft:"22px solid var(--gold)",marginLeft:5}}/>
-              </div>
-              <div style={{position:"absolute",bottom:10,left:0,right:0,textAlign:"center",fontFamily:"var(--font-body)",fontSize:14,color:"var(--foam)",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>Watch the quick tour</div>
+            <button onClick={()=>setVidOpen(true)} style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(209,154,74,0.35)",borderRadius:20,padding:"8px 18px",color:"var(--foam)",fontSize:14,fontFamily:"var(--font-body)",cursor:"pointer",marginBottom:18}}>
+              <span style={{width:0,height:0,borderTop:"6px solid transparent",borderBottom:"6px solid transparent",borderLeft:"9px solid var(--gold)"}}/>
+              Watch the 30-second tour
             </button>
           )}
           {vidOpen&&(
@@ -7955,39 +7956,11 @@ function SplashScreen({onDone}){
               <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"var(--font-body)",zIndex:10001}}>✕ Close</button>
             </div>
           )}
-          {!vidOk&&(
-          <svg viewBox="0 0 340 180" width="300" height="160" style={{marginBottom:20}}>
-            <defs>
-              <linearGradient id="skg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0a1a2e"/><stop offset="100%" stopColor="#1a3a4a"/></linearGradient>
-              <linearGradient id="wtg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1a4a5a"/><stop offset="100%" stopColor="#0d2a35"/></linearGradient>
-            </defs>
-            <rect width="340" height="180" fill="url(#skg)"/>
-            {[[20,15],[60,8],[100,20],[140,10],[180,18],[220,8],[260,15],[300,10],[320,22],[40,30],[80,25],[160,28],[240,25],[310,30]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1" fill="white" opacity="0.7"/>)}
-            <circle cx="290" cy="25" r="14" fill="#d09a4a" opacity="0.9"/>
-            <circle cx="296" cy="21" r="11" fill="#0a1a2e" opacity="0.85"/>
-            <polygon points="0,100 60,40 120,100" fill="#1e3d2e" opacity="0.9"/>
-            <polygon points="60,100 130,35 200,100" fill="#1a3a2a" opacity="0.95"/>
-            <polygon points="140,100 220,45 300,100" fill="#1e3d2e" opacity="0.85"/>
-            <polygon points="240,100 300,50 340,100" fill="#1a3a2a" opacity="0.9"/>
-            <path d="M0,130 Q85,118 170,128 Q255,138 340,125 L340,180 L0,180 Z" fill="url(#wtg)"/>
-            <g transform="translate(155,95)">
-              <ellipse cx="0" cy="18" rx="6" ry="10" fill="#0d1f26"/>
-              <circle cx="0" cy="5" r="6" fill="#0d1f26"/>
-              <ellipse cx="0" cy="1" rx="9" ry="2.5" fill="#0d1f26"/>
-              <rect x="-5" y="-6" width="10" height="8" rx="2" fill="#0d1f26"/>
-              <line x1="6" y1="10" x2="50" y2="-15" stroke="#d09a4a" strokeWidth="1.5"/>
-              <path d="M50,-15 Q80,-5 95,20" stroke="#d09a4a" strokeWidth="0.8" fill="none" opacity="0.8"/>
-            </g>
-          </svg>
-          )}
-          <div style={{marginBottom:8}}><Logo layout="stacked" scale={0.85} /></div>
-          <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",letterSpacing:3,textTransform:'uppercase',marginBottom:24}}>Fly Fishing Journal</div>
-          <div style={{background:'rgba(0,0,0,0.35)',border:'1px solid rgba(209,154,74,0.25)',borderRadius:16,padding:'18px 22px',maxWidth:320,textAlign:'center',marginBottom:24}}>
-            <div style={{fontSize:18,marginBottom:8}}>🔒</div>
-            <p style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--foam)",lineHeight:1.65,margin:0}}>Your spots stay your spots. Catch locations are encrypted and never shared.</p>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:18}}>
+            <span style={{fontSize:13}}>🔒</span>
+            <span style={{fontFamily:"var(--font-body)",fontSize:12.5,color:"var(--stone)"}}>Your spots stay private — encrypted, never shared.</span>
           </div>
-          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1}}>Get Started →</button>
-          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{marginTop:12,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip intro</button>
+          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip intro</button>
         </>
       ):(
         <>
