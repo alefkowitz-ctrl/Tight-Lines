@@ -87,13 +87,32 @@ export function scrubBannedFlowWords(text){
   return String(text).replace(/\bgoldilocks\b/gi,"well-suited").replace(/\b(ideal|perfect)(ly)?\b/gi,(m,w,ly)=>ly?"well":"well-suited");
 }
 
-// When a river's Tailwater badge is demoted, dam claims in its prose must go too
+// When a river's Tailwater badge is demoted, dam claims in its prose must go too.
+// This only ever runs once a pick has already been determined NOT to be a tailwater, so
+// ANY sentence naming a specific controlling dam/reservoir or describing regulated releases
+// at that point is fabricated — not just the two literal phrases originally covered here.
+// (2026-08-08: the narrower version missed "Cold, steady releases from Ralston Reservoir
+// above Golden maintain water temperature..." for Clear Creek, since that sentence never
+// contained the words "dam-controlled" or "tailwater conditions".)
 export function scrubDamClaims(text){
   if(!text)return text;
   let t=String(text);
+  t=t.replace(/[^.!?;]*\b[A-Z][A-Za-z'.-]*(?:\s+[A-Z][A-Za-z'.-]*){0,3}\s+(?:Reservoir|Dam)\b[^.!?;]*[.!?;]?/g,"");
   t=t.replace(/[^.!?;]*\bdam[\s-]?control(?:led|s)?\b[^.!?;]*[.!?;]?/gi,"");
   t=t.replace(/[^.!?;]*\btailwater\s+conditions?\b[^.!?;]*[.!?;]?/gi,"");
+  t=t.replace(/[^.!?;]*\b(?:bottom[- ]release|regulated\s+releases?|controlled\s+releases?|releases?\s+from\s+(?:the\s+)?(?:dam|reservoir))\b[^.!?;]*[.!?;]?/gi,"");
+  t=t.replace(/[^.!?;]*\bbelow\s+the\s+dam\b[^.!?;]*[.!?;]?/gi,"");
   return t.replace(/\s{2,}/g," ").replace(/^\s*[,;]\s*/,"").trim();
+}
+
+// Same purpose as scrubDamClaims, for the accessPoints array — entries are short standalone
+// phrases rather than full sentences, so a matching entry is dropped outright instead of
+// trimmed mid-phrase.
+function scrubDamAccessPoints(accessPoints){
+  if(!Array.isArray(accessPoints))return accessPoints;
+  const hit=/\b[A-Z][A-Za-z'.-]*(?:\s+[A-Z][A-Za-z'.-]*){0,3}\s+(?:Reservoir|Dam)\b|\bdam[\s-]?control(?:led|s)?\b|\btailwater\b|\bbelow\s+the\s+dam\b/i;
+  const kept=accessPoints.filter(a=>!hit.test(String(a||"")));
+  return kept.length?kept:accessPoints; // never empty solely because of the scrub
 }
 
 // ── Fly-name integrity ────────────────────────────────────────────────────
@@ -281,8 +300,9 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
     const vp=["You are a skeptical senior fly fishing guide fact-checking a trip plan near "+((loc&&loc.label)||"the area")+".",
       "For EACH numbered water below, use current public sources to decide TWO things: (1) whether it is a COLDWATER TROUT fishery, or a WARMWATER/bass/smallmouth water that is NOT trout water; (2) whether it is a FREESTONE stream or a TAILWATER (flows directly below a dam or reservoir) — the water's own bracketed label may be wrong, so verify it independently rather than assuming the label given is correct.",
       "Be conservative on both: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery — if uncertain, answer 'unsure' rather than guessing. Only report a 'type' when your sources clearly establish it one way or the other; omit the field entirely if you're not sure, rather than guessing.",
+      "If 'type' is 'tailwater', you MUST also return 'dam' with the actual name of the specific dam or reservoir it flows below, confirmed by your sources — a stream name is often a common one shared by unrelated drainages elsewhere, so do not name a dam from memory or general knowledge, only from what your sources confirm for THIS water. If you cannot confirm the specific dam/reservoir by name, omit 'type' entirely rather than asserting 'tailwater' without one.",
       "Return ONLY a JSON array, one object per item, SAME ORDER, no markdown: ",
-      '[{"n":1,"verdict":"trout|warmwater|unsure","type":"freestone|tailwater"}]. Omit "type" if unsure.',
+      '[{"n":1,"verdict":"trout|warmwater|unsure","type":"freestone|tailwater","dam":""}]. Omit "type" if unsure. Omit "dam" entirely unless "type" is "tailwater".',
       "Waters: "+items].join(" ");
     const race=Promise.race([aiCtx.askAI(vp,true,1500,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),85000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").trim();
@@ -294,7 +314,7 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
   const decided=rivers.map((r,i)=>{
     const v=byN.get(i+1)||{};const verdict=String(v.verdict||"").toLowerCase();
     const drop=flags[i].avoid||verdict==="warmwater";
-    let why=r.why,type=r.type;
+    let why=r.why,type=r.type,conditions=r.conditions,techniques=r.techniques,accessPoints=r.accessPoints;
     if(!drop&&verdict==="unsure")why=(NOTE_UNSURE+" "+String(r.why||"")).trim();
     // Deterministic type correction (no visible warning) — same "just fix it" pattern as
     // damNameReconcile, rather than surfacing a confusing "mislabeled" sentence to the reader.
@@ -302,10 +322,22 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
     // tailwater whose gauge name doesn't literally spell out "BLW ... RES/DAM".
     if(!drop){
       const vType=String(v.type||"").toLowerCase();
-      if(vType==="tailwater"&&!/tailwater/i.test(String(type||"")))type="Tailwater";
-      else if(vType==="freestone"&&!/freestone/i.test(String(type||""))){type="Freestone";why=scrubDamClaims(why);}
+      const vDam=String(v.dam||"").trim();
+      // A bare "tailwater" verdict with no named dam doesn't override an existing type — same
+      // fail-safe posture as "unsure". (2026-08-08: an unnamed tailwater verdict here is what
+      // let a fabricated "Ralston Reservoir" survive for Clear Creek at Golden — the verdict
+      // alone was trusted with nothing to back it up.)
+      if(vType==="tailwater"&&vDam&&!/tailwater/i.test(String(type||""))){
+        type="Tailwater";
+      }else if(vType==="freestone"&&!/freestone/i.test(String(type||""))){
+        type="Freestone";
+        why=scrubDamClaims(why);
+        conditions=scrubDamClaims(conditions);
+        techniques=scrubDamClaims(techniques);
+        accessPoints=scrubDamAccessPoints(accessPoints);
+      }
     }
-    return {r:{...r,why,type},drop};
+    return {r:{...r,why,type,conditions,techniques,accessPoints},drop};
   });
   const kept=decided.filter(d=>!d.drop).map(d=>d.r);
   if(kept.length)return kept;
@@ -432,7 +464,7 @@ function enforceStreamTypes(rivers,keepVerified=false){
     if(typeof r.type==="string"&&/tailwater/i.test(r.type)){
       const g=String(r.gaugeSnap||"");
       const verified=keepVerified&&/tailwater/i.test(String(r.verified||""));
-      if(!damRe.test(g)&&!verified)return{...r,type:"Freestone",why:scrubDamClaims(r.why),conditions:scrubDamClaims(r.conditions),techniques:scrubDamClaims(r.techniques)};
+      if(!damRe.test(g)&&!verified)return{...r,type:"Freestone",why:scrubDamClaims(r.why),conditions:scrubDamClaims(r.conditions),techniques:scrubDamClaims(r.techniques),accessPoints:scrubDamAccessPoints(r.accessPoints)};
     }
     return r;
   });
