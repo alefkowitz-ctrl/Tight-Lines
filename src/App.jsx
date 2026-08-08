@@ -7913,7 +7913,7 @@ function SplashScreen({onDone}){
       icon:"🗺",
       title:"Find the Best Water",
       subtitle:"Plan Tab",
-      body:"Enter your location and how long you'll drive. Get every fishable stream ranked best to worst with crowd levels, access points, and fly recommendations.",
+      body:"Enter your location and how long you'll drive. Get nearby streams ranked best to worst with crowd levels, access points, and fly recommendations.",
       tip:"Ranked using live USGS flows, weather, and current conditions.",
     },
     {
