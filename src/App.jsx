@@ -728,6 +728,23 @@ function flowVsAverage(cfs,avgCfs){
   return{label,pct:Math.round(pct*100),avgCfs:Math.round(avgCfs)};
 }
 function fmtCoord(lat,lng){return`${Math.abs(lat).toFixed(4)}°${lat>=0?"N":"S"}, ${Math.abs(lng).toFixed(4)}°${lng>=0?"E":"W"}`;}
+// Inverse of fmtCoord — also handles a plain "lat, lng" fallback. Shared parser so
+// GPS-string-to-coordinates logic isn't reimplemented at each call site.
+function parseGpsCoords(gpsStr){
+  if(!gpsStr) return null;
+  const dmsMatch=gpsStr.match(/([\d.]+)[°\s]*([NS])[\s,]+([\d.]+)[°\s]*([EW])/i);
+  let lat,lng;
+  if(dmsMatch){
+    lat=parseFloat(dmsMatch[1])*(dmsMatch[2].toUpperCase()==="S"?-1:1);
+    lng=parseFloat(dmsMatch[3])*(dmsMatch[4].toUpperCase()==="W"?-1:1);
+  } else {
+    const nums=gpsStr.match(/-?[\d.]+/g);
+    if(!nums||nums.length<2) return null;
+    lat=parseFloat(nums[0]);lng=parseFloat(nums[1]);
+  }
+  if(lat==null||lng==null||isNaN(lat)||isNaN(lng)) return null;
+  return{lat,lng};
+}
 function extractJSON(text){
   const c=text.replace(/```json|```/g,"").trim();
   try{const m=c.match(/\{[\s\S]*\}/);if(m)return JSON.parse(m[0]);}catch{}
@@ -1519,6 +1536,33 @@ async function fetchFlowAvgBatch(siteNos){
   return out;
 }
 
+// Finds the single closest USGS stream gauge to a point regardless of whether it's
+// currently reporting data — used as a confidence check. If the truly nearest gauge
+// has no live/historical reading, we know a "nearest gauge WITH data" match may
+// actually be the wrong nearby water body (e.g. a tributary next to the real river),
+// so callers should show no flow rather than guess. Returns null if the lookup fails,
+// which callers should also treat as "can't confirm" rather than assume success.
+async function fetchNearestGaugeSiteAnyStatus(lat,lng,radiusDeg){
+  try{
+    const p=radiusDeg;
+    const bbox=`${(lng-p).toFixed(4)},${(lat-p).toFixed(4)},${(lng+p).toFixed(4)},${(lat+p).toFixed(4)}`;
+    const r=await fetch(`https://waterservices.usgs.gov/nwis/site/?format=mapper&bBox=${bbox}&siteType=ST&siteStatus=all`);
+    if(!r.ok) return null;
+    const xml=await r.text();
+    const re=/<site\s+sno="([^"]+)"\s+sna="([^"]+)"\s+cat="[^"]*"\s+lat="([^"]+)"\s+lng="([^"]+)"/g;
+    let m,best=null,bestDist=Infinity;
+    while((m=re.exec(xml))){
+      const siteLat=parseFloat(m[3]),siteLng=parseFloat(m[4]);
+      const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
+      if(dist<bestDist){bestDist=dist;best={siteNo:m[1],name:m[2],dist};}
+    }
+    return best;
+  }catch{return null;}
+}
+// Tolerance for comparing distances between the two site lookups (coordinate
+// rounding, not a real difference in location) — about 0.07 miles.
+const GAUGE_CONFIDENCE_EPS=0.001;
+
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const hr=parseInt(hourStr)||12;
@@ -1569,6 +1613,50 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
         const nearDist=parsed[0].dist;
         const candidates=parsed.filter(x=>x.dist-nearDist<=0.05);
         const best=candidates.reduce((a,b)=>b.cfs>a.cfs?b:a,candidates[0]);
+        // Confidence check: is there a gauge even closer than "best" that just isn't
+        // reporting data? If so, "best" might be the wrong water body entirely — don't
+        // guess, leave flow blank instead.
+        const trueNearest=await fetchNearestGaugeSiteAnyStatus(lat,lng,0.3);
+        if(trueNearest&&trueNearest.dist>=best.dist-GAUGE_CONFIDENCE_EPS){
+          results.streamCFS=String(Math.round(best.cfs));
+          results.streamCondition=cfsLabel(best.cfs).label;
+          results.streamGaugeName=best.name;
+        }
+      }
+    }
+  }catch{}
+  return results;
+}
+
+// Live counterpart to fetchHistoricalConditions — same return shape, but for a
+// catch from today, where the archive/daily-values endpoints don't have finalized
+// data yet. Reuses the existing live weather + live USGS fetchers.
+async function fetchLiveNearestConditions(lat,lng){
+  const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  try{
+    const[wx,usgs]=await Promise.all([fetchWeather(lat,lng),fetchUSGSLive(lat,lng)]);
+    const c=wx.current;
+    results.airTemp=String(Math.round(c.temperature_2m));
+    results.weatherDesc=WX_DESC[c.weather_code]||"";
+    results.windSpeed=String(Math.round(c.wind_speed_10m));
+    results.windDir=windDir(c.wind_direction_10m);
+    results.pressure=(c.surface_pressure*0.02953).toFixed(2);
+    const ts=(usgs.value?.timeSeries)??[];
+    const parsed=ts.map(t=>{
+      const raw=t.values?.[0]?.value?.[0]?.value;
+      const cfs=raw!=null?parseFloat(raw):null;
+      const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
+      const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
+      const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
+      return{name:t.sourceInfo?.siteName??"",cfs,dist};
+    }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
+    if(parsed.length){
+      const nearDist=parsed[0].dist;
+      const candidates=parsed.filter(x=>x.dist-nearDist<=0.05);
+      const best=candidates.reduce((a,b)=>b.cfs>a.cfs?b:a,candidates[0]);
+      // Same confidence check as fetchHistoricalConditions — see comment there.
+      const trueNearest=await fetchNearestGaugeSiteAnyStatus(lat,lng,0.3);
+      if(trueNearest&&trueNearest.dist>=best.dist-GAUGE_CONFIDENCE_EPS){
         results.streamCFS=String(Math.round(best.cfs));
         results.streamCondition=cfsLabel(best.cfs).label;
         results.streamGaugeName=best.name;
@@ -6496,18 +6584,33 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     const queue=JSON.parse(localStorage.getItem('tl_sync_queue')||'[]');
     if(!queue.length) return;
     const remaining=[];
+    const today=new Date().toISOString().split("T")[0];
     for(const item of queue){
       try{
-        // Auto-fill conditions from cached data at catch time if missing
-        const cached=JSON.parse(localStorage.getItem('tl_cached_conditions')||'{}');
-        if(cached.weather&&!item.airTemp) item.airTemp=String(cached.weather.temp);
-        if(cached.weather&&!item.weatherDesc) item.weatherDesc=cached.weather.desc;
-        if(cached.gauges?.length&&!item.streamCFS){
-          const g=cached.gauges[0];
-          item.streamCFS=String(Math.round(g.cfs||0));
-          item.streamCondition=g.label||"";
-          item.streamGaugeName=g.name||"";
-          if(g.waterTempF) item.waterTemp=String(g.waterTempF);
+        // Fill in conditions with a fresh, confidence-checked lookup keyed to the
+        // catch's own GPS and time — not a stale cached snapshot from whenever the
+        // app last had a location fix. We're back online by the time this runs, so
+        // a live/historical lookup (same one "Update Catch Data" uses) is available
+        // and more accurate than guessing from an old cache.
+        if(!item.streamCFS||!item.airTemp){
+          const coords=parseGpsCoords(item.gps);
+          if(coords){
+            const d=new Date((item.time||"").replace(" at "," "));
+            const dateStr=!isNaN(d)?d.toISOString().split("T")[0]:null;
+            if(dateStr){
+              const hourStr=String(d.getHours()).padStart(2,"0");
+              const conds=dateStr<today?await fetchHistoricalConditions(coords.lat,coords.lng,dateStr,hourStr):await fetchLiveNearestConditions(coords.lat,coords.lng);
+              if(!item.airTemp&&conds.airTemp) item.airTemp=conds.airTemp;
+              if(!item.weatherDesc&&conds.weatherDesc) item.weatherDesc=conds.weatherDesc;
+              if(!item.streamCFS&&conds.streamCFS){
+                item.streamCFS=conds.streamCFS;
+                item.streamCondition=conds.streamCondition;
+                item.streamGaugeName=conds.streamGaugeName;
+              }
+              // No confident flow reading found (or the nearest gauge isn't reporting)
+              // — leave flow blank rather than guessing at the wrong water body.
+            }
+          }
         }
         const{data,error}=await sb.from('catches').insert({user_id:user.id,...catchDataToDbRow(item)}).select().single();
         if(!error&&data){
@@ -6564,25 +6667,29 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         }
       }catch(idErr){void 0;}
     }
-    const toEnrich=catches.filter(c2=>!c2.streamCFS&&c2.gps&&c2.gps!=="Location not recorded");
+    const toEnrich=catches.filter(c2=>(!c2.streamCFS||c2.streamCFS==="0")&&c2.gps&&c2.gps!=="Location not recorded");
     void 0;
+    const today=new Date().toISOString().split("T")[0];
     for(const catch2 of toEnrich){
-      if(catch2.streamCFS||!catch2.gps) continue;
-      const gpsStr=catch2.gps||"";
-      let lat=null,lng=null;
-      // Try "39.9691°N, 106.3642°W" format
-      const dmsMatch=gpsStr.match(/([\d.]+)[°\s]*([NS])[\s,]+([\d.]+)[°\s]*([EW])/i);
-      if(dmsMatch){lat=parseFloat(dmsMatch[1])*(dmsMatch[2].toUpperCase()==="S"?-1:1);lng=parseFloat(dmsMatch[3])*(dmsMatch[4].toUpperCase()==="W"?-1:1);}
-      else{const nums=gpsStr.match(/-?[\d.]+/g);if(nums&&nums.length>=2){lat=parseFloat(nums[0]);lng=parseFloat(nums[1]);}}
-      if(!lat||!lng||isNaN(lat)||isNaN(lng)) continue;
-      if(isNaN(lat)||isNaN(lng)) continue;
+      if((catch2.streamCFS&&catch2.streamCFS!=="0")||!catch2.gps) continue;
+      const coords=parseGpsCoords(catch2.gps);
+      if(!coords) continue;
+      const{lat,lng}=coords;
       try{
         const d=new Date((catch2.time||"").replace(" at "," "));
         const dateStr=!isNaN(d)?d.toISOString().split("T")[0]:null;
         if(!dateStr) continue;
-        const conds=await fetchHistoricalConditions(lat,lng,dateStr,"12");
+        // Past catches: historical archive (has finalized data). Today's catch: the
+        // archive/daily-values endpoints aren't finalized yet, so use live gauges.
+        const conds=dateStr<today?await fetchHistoricalConditions(lat,lng,dateStr,"12"):await fetchLiveNearestConditions(lat,lng);
         if(conds.streamCFS){
           await updateCatch(catch2.id,{streamCFS:conds.streamCFS,streamCondition:conds.streamCondition,streamGaugeName:conds.streamGaugeName,airTemp:conds.airTemp||catch2.airTemp,weatherDesc:conds.weatherDesc||catch2.weatherDesc});
+          updated++;
+        } else if(catch2.streamCFS==="0"){
+          // Known-fabricated zero and we still can't confidently verify a real
+          // reading (e.g. the nearest gauge to this spot isn't reporting) — clear
+          // it to blank/N/A rather than leave the wrong number showing.
+          await updateCatch(catch2.id,{streamCFS:"",streamCondition:"",streamGaugeName:""});
           updated++;
         }
       }catch{}
@@ -6818,13 +6925,6 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     window.addEventListener('offline',goOffline);
     return()=>{window.removeEventListener('online',goOnline);window.removeEventListener('offline',goOffline);};
   },[]);
-
-  // Cache conditions to localStorage when loaded
-  useEffect(()=>{
-    if(weather&&loc){
-      try{localStorage.setItem('tl_cached_conditions',JSON.stringify({weather,gauges,loc,cachedAt:Date.now()}));}catch{}
-    }
-  },[weather,gauges]);
 
   // Load saved gauges from Supabase
   useEffect(()=>{
