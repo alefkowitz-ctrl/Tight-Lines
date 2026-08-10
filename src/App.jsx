@@ -4029,6 +4029,7 @@ function GuideBook({user, loc}){
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
+  const [savingTrip, setSavingTrip] = useState(false);
   const [report, setReport] = useState(null);
   const photoRef = useRef();
 
@@ -4044,14 +4045,21 @@ function GuideBook({user, loc}){
   }
 
   async function saveTrip(){
-    const data=await saveTripToDb(selectedGuest.id, tripForm);
-    if(data){
-      const trip={id:data.id,...tripForm};
-      setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?{...g,trips:[...(g.trips||[]),trip]}:g));
-      setSelectedGuest(g=>({...g,trips:[...(g.trips||[]),trip]}));
+    if(savingTrip) return; // Prevents a fast double-tap (or slow network + impatient
+    // second tap) from firing two inserts and creating a duplicate trip.
+    setSavingTrip(true);
+    try{
+      const data=await saveTripToDb(selectedGuest.id, tripForm);
+      if(data){
+        const trip={id:data.id,...tripForm};
+        setGuests(gs=>gs.map(g=>g.id===selectedGuest.id?{...g,trips:[...(g.trips||[]),trip]}:g));
+        setSelectedGuest(g=>({...g,trips:[...(g.trips||[]),trip]}));
+      }
+      setTripForm(tripForm0);
+      setView("guest");
+    } finally {
+      setSavingTrip(false);
     }
-    setTripForm(tripForm0);
-    setView("guest");
   }
 
   async function handleTripPhoto(e){
@@ -4523,7 +4531,7 @@ function GuideBook({user, loc}){
             ))}
           </div>
         )}
-        <button className="btn btnp" onClick={saveTrip}>Save Trip</button>
+        <button className="btn btnp" disabled={savingTrip} onClick={saveTrip} style={{opacity:savingTrip?0.6:1,cursor:savingTrip?"default":"pointer"}}>{savingTrip?"⏳ Saving…":"Save Trip"}</button>
       </div>
     </div>
   );
@@ -7857,15 +7865,9 @@ ${shopPins}
                     <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
                     <input className="inp" style={{marginBottom:0,fontSize:15}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
-                    </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+                    <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
                   </div>
                 </div>
               )}
