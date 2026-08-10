@@ -1539,9 +1539,9 @@ async function fetchFlowAvgBatch(siteNos){
 // Finds the single closest USGS stream gauge to a point regardless of whether it's
 // currently reporting data — used as a confidence check. If the truly nearest gauge
 // has no live/historical reading, we know a "nearest gauge WITH data" match may
-// actually be the wrong nearby water body (e.g. a tributary next to the real river),
-// so callers should show no flow rather than guess. Returns null if the lookup fails,
-// which callers should also treat as "can't confirm" rather than assume success.
+// actually be the wrong nearby water body (e.g. a tributary next to the real river).
+// Used to identify which named stream a catch is actually on. Returns null if the
+// lookup fails, which callers should treat as "can't identify the stream."
 async function fetchNearestGaugeSiteAnyStatus(lat,lng,radiusDeg){
   try{
     const p=radiusDeg;
@@ -1559,9 +1559,44 @@ async function fetchNearestGaugeSiteAnyStatus(lat,lng,radiusDeg){
     return best;
   }catch{return null;}
 }
-// Tolerance for comparing distances between the two site lookups (coordinate
-// rounding, not a real difference in location) — about 0.07 miles.
-const GAUGE_CONFIDENCE_EPS=0.001;
+// Extracts the core water-body name from a USGS site name like "CLEAR CREEK AT
+// GOLDEN, CO" -> "CLEAR CREEK", so two gauges can be recognized as being on the
+// same named stream even when USGS abbreviates it differently ("CLEAR C") or
+// gives it a different qualifier phrase. A tributary like "NORTH CLEAR CREEK"
+// normalizes to a different, distinct name — it does NOT match "CLEAR CREEK".
+function normalizeStreamName(rawName){
+  if(!rawName) return "";
+  const QUALIFIERS=/\b(AT|NEAR|NR|ABOVE|ABV|BELOW|BLW|BL|AB|MOUTH|CONFLUENCE)\b/;
+  let core=rawName.split(QUALIFIERS)[0].trim();
+  core=core.replace(/,.*$/,"").trim();
+  core=core
+    .replace(/\bCR\b/g,"CREEK")
+    .replace(/\bC\b/g,"CREEK")
+    .replace(/\bRV\b/g,"RIVER")
+    .replace(/\bR\b/g,"RIVER")
+    .replace(/\bFK\b/g,"FORK")
+    .replace(/\bBR\b/g,"BRANCH")
+    .replace(/\s+/g," ")
+    .trim()
+    .toUpperCase();
+  return core;
+}
+// Given gauges that have valid current data, picks the nearest one that's on the
+// SAME named stream as the catch (identified via the nearest gauge overall, active
+// or not). This lets a real reading further downstream on the correct river win
+// over a closer reading that's actually a different, unrelated tributary. If no
+// gauge on the matched stream has data, returns null — callers show blank/N/A
+// rather than attach a reading from an unrelated nearby water body.
+async function pickSameStreamGauge(lat,lng,candidatesWithData){
+  if(!candidatesWithData.length) return null;
+  const trueNearest=await fetchNearestGaugeSiteAnyStatus(lat,lng,0.3);
+  if(!trueNearest) return null;
+  const targetStream=normalizeStreamName(trueNearest.name);
+  const sameStream=candidatesWithData
+    .filter(x=>normalizeStreamName(x.name)===targetStream)
+    .sort((a,b)=>a.dist-b.dist);
+  return sameStream[0]||null;
+}
 
 async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
   const results={airTemp:"",weatherDesc:"",windSpeed:"",windDir:"",pressure:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
@@ -1608,20 +1643,11 @@ async function fetchHistoricalConditions(lat, lng, dateStr, hourStr){
         const siteNo=(t.sourceInfo?.siteCode?.[0]?.value)||"";
         return{name:t.sourceInfo?.siteName??"",cfs,dist,siteNo};
       }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
-      if(parsed.length){
-        // Prefer higher-flow gauge when another is within 0.05° (tributary vs mainstem tiebreaker)
-        const nearDist=parsed[0].dist;
-        const candidates=parsed.filter(x=>x.dist-nearDist<=0.05);
-        const best=candidates.reduce((a,b)=>b.cfs>a.cfs?b:a,candidates[0]);
-        // Confidence check: is there a gauge even closer than "best" that just isn't
-        // reporting data? If so, "best" might be the wrong water body entirely — don't
-        // guess, leave flow blank instead.
-        const trueNearest=await fetchNearestGaugeSiteAnyStatus(lat,lng,0.3);
-        if(trueNearest&&trueNearest.dist>=best.dist-GAUGE_CONFIDENCE_EPS){
-          results.streamCFS=String(Math.round(best.cfs));
-          results.streamCondition=cfsLabel(best.cfs).label;
-          results.streamGaugeName=best.name;
-        }
+      const best=await pickSameStreamGauge(lat,lng,parsed);
+      if(best){
+        results.streamCFS=String(Math.round(best.cfs));
+        results.streamCondition=cfsLabel(best.cfs).label;
+        results.streamGaugeName=best.name;
       }
     }
   }catch{}
@@ -1641,26 +1667,26 @@ async function fetchLiveNearestConditions(lat,lng){
     results.windSpeed=String(Math.round(c.wind_speed_10m));
     results.windDir=windDir(c.wind_direction_10m);
     results.pressure=(c.surface_pressure*0.02953).toFixed(2);
+    const now=Date.now();
     const ts=(usgs.value?.timeSeries)??[];
     const parsed=ts.map(t=>{
       const raw=t.values?.[0]?.value?.[0]?.value;
+      const dateTime=t.values?.[0]?.value?.[0]?.dateTime;
       const cfs=raw!=null?parseFloat(raw):null;
+      // A "latest" instantaneous-value query returns whatever the last recorded
+      // reading was even if the site stopped reporting years ago — reject
+      // anything older than 24h so an abandoned gauge can't pass as current data.
+      const ageHours=dateTime?(now-new Date(dateTime).getTime())/3600000:Infinity;
       const sLat=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.latitude||0);
       const sLng=parseFloat(t.sourceInfo?.geoLocation?.geogLocation?.longitude||0);
       const dist=Math.sqrt(Math.pow(sLat-lat,2)+Math.pow(sLng-lng,2));
-      return{name:t.sourceInfo?.siteName??"",cfs,dist};
-    }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3).sort((a,b)=>a.dist-b.dist);
-    if(parsed.length){
-      const nearDist=parsed[0].dist;
-      const candidates=parsed.filter(x=>x.dist-nearDist<=0.05);
-      const best=candidates.reduce((a,b)=>b.cfs>a.cfs?b:a,candidates[0]);
-      // Same confidence check as fetchHistoricalConditions — see comment there.
-      const trueNearest=await fetchNearestGaugeSiteAnyStatus(lat,lng,0.3);
-      if(trueNearest&&trueNearest.dist>=best.dist-GAUGE_CONFIDENCE_EPS){
-        results.streamCFS=String(Math.round(best.cfs));
-        results.streamCondition=cfsLabel(best.cfs).label;
-        results.streamGaugeName=best.name;
-      }
+      return{name:t.sourceInfo?.siteName??"",cfs,dist,ageHours};
+    }).filter(x=>x.cfs!=null&&!isNaN(x.cfs)&&x.cfs>=0&&x.cfs<500000&&x.dist<=0.3&&x.ageHours<=24).sort((a,b)=>a.dist-b.dist);
+    const best=await pickSameStreamGauge(lat,lng,parsed);
+    if(best){
+      results.streamCFS=String(Math.round(best.cfs));
+      results.streamCondition=cfsLabel(best.cfs).label;
+      results.streamGaugeName=best.name;
     }
   }catch{}
   return results;
