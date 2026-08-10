@@ -6489,6 +6489,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [showEndTripForm,setShowEndTripForm]=useState(false);
   const [endTripForm,setEndTripForm]=useState({techniques:[],notes:""});
   const [savingPersonalTrip,setSavingPersonalTrip]=useState(false);
+  const personalTripPhotoRef=useRef(null);
+  const [addingTripPhotos,setAddingTripPhotos]=useState(false);
   const [sharingCatchId,setSharingCatchId]=useState(null);
   const [sharingBusy,setSharingBusy]=useState(false);
   const [editCatchFlyInput,setEditCatchFlyInput]=useState("");
@@ -6529,6 +6531,11 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   },[lightboxPhoto,lightboxCatchId]);
   // Init loc from localStorage so Guide tab has it immediately
   const [loc,setLoc]=useState(()=>{try{const s=localStorage.getItem("tl_loc");return s?JSON.parse(s):null;}catch{return null;}});
+  // Ref so handleActiveTripPhoto always reads current loc, not a stale closure
+  // value, during its multi-second async photo processing — same pattern GuideBook
+  // uses for its own trip photo handler.
+  const locRef=useRef(loc);
+  useEffect(()=>{locRef.current=loc;},[loc]);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
   // Auto-detect user location on every load (cached loc shows immediately, then refreshes)
@@ -6600,6 +6607,15 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       trip_id:cd.tripId||null
     };
   }
+  // catches state is insertion order, not date order — fine for most logic, but
+  // batch trip-photo processing runs several photos in parallel, so whichever
+  // finishes its AI ID + conditions lookup first gets inserted first, regardless of
+  // the photo's actual date. The log itself should always read chronologically.
+  function catchTimeMs(c){
+    const d=new Date((c.time||"").replace(" at "," "));
+    return isNaN(d)?0:d.getTime();
+  }
+  const catchesByDate=[...catches].sort((a,b)=>catchTimeMs(b)-catchTimeMs(a));
 
   // Load catches from Supabase on mount
   useEffect(()=>{
@@ -6718,6 +6734,103 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   }
   function toggleTripEndTechnique(s){
     setEndTripForm(f=>({...f,techniques:f.techniques.includes(s)?f.techniques.filter(x=>x!==s):[...f.techniques,s]}));
+  }
+
+  // Batch photo add for an active trip — same pipeline as the guide trip's Add
+  // Photos (EXIF parse, downscale, AI fish ID, conditions lookup, all in parallel),
+  // but each photo becomes a real catches-table row via addCatch (tripId attached)
+  // instead of a separate catchDetails blob on the trip. That keeps every catch —
+  // trip-linked or not — in the same place: the catch log, editable and shareable
+  // the same way regardless of how it was added.
+  async function handleActiveTripPhoto(e){
+    const files=Array.from(e.target.files);
+    e.target.value="";
+    if(!files.length||!activeTripRef.current) return;
+    setAddingTripPhotos(true);
+    let devLocPromise=null;
+    const getDeviceLoc=()=>{
+      if(!devLocPromise){
+        devLocPromise=(async()=>{
+          const currentLoc=locRef.current;
+          if(currentLoc?.lat&&currentLoc?.lng)return{lat:currentLoc.lat,lng:currentLoc.lng};
+          try{
+            const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,maximumAge:60000,enableHighAccuracy:false}));
+            return{lat:pos.coords.latitude,lng:pos.coords.longitude};
+          }catch(ge){return null;}
+        })();
+      }
+      return devLocPromise;
+    };
+    const items=[];
+    for(const file of files){
+      const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+      const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
+      let photoTime=null,photoGps="",photoLat=null,photoLng=null;
+      try{
+        const abuf=await file.arrayBuffer();
+        const exif=parseExif(abuf);
+        photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
+      }catch(xe){void 0;}
+      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      items.push({dataUrl,t,photoGps,photoLat,photoLng});
+    }
+    await mapLimit(items,3,async(it)=>{
+      try{
+        const idPromise=(async()=>{
+          try{
+            const b64=await resizeForID(it.dataUrl,800,0.7);
+            const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+            if(r&&r.species&&r.species!=="Unidentified")return r;
+            return{species:"Unidentified",length:""};
+          }catch(ie){return{species:"Unidentified",length:""};}
+        })();
+        const condPromise=(async()=>{
+          try{
+            let fetchLat=it.photoLat,fetchLng=it.photoLng,fetchGps=it.photoGps;
+            if(!fetchLat||!fetchLng){
+              const dl=await getDeviceLoc();
+              if(dl){fetchLat=dl.lat;fetchLng=dl.lng;fetchGps=fetchLat.toFixed(4)+"\u00b0N, "+Math.abs(fetchLng).toFixed(4)+"\u00b0W";}
+            }
+            if(!fetchLat||!fetchLng)return null;
+            let dateStr=null,hourStr="12";
+            const d2=new Date(it.t.replace(" at "," "));
+            if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+            const today=new Date().toISOString().split("T")[0];
+            const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr):await fetchLiveNearestConditions(fetchLat,fetchLng);
+            return{gps:fetchGps||"",conds};
+          }catch(ce){return null;}
+        })();
+        const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
+        const c=condRes?.conds;
+        const catchData={
+          species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,
+          gps:(condRes&&condRes.gps)||it.photoGps||"Location not recorded",time:it.t,notes:"",
+          airTemp:c?.airTemp||null,weatherDesc:c?.weatherDesc||null,windSpeed:c?.windSpeed||null,
+          windDir:c?.windDir||null,pressure:c?.pressure||null,streamCFS:c?.streamCFS||null,
+          streamCondition:c?.streamCondition||null,streamGaugeName:c?.streamGaugeName||null,
+          waterTemp:null,tripId:activeTripRef.current?.id||null
+        };
+        await addCatch(catchData);
+      }catch(err){void 0;}
+    });
+    setAddingTripPhotos(false);
+  }
+
+  async function deletePersonalTrip(id){
+    const isActive=activeTripRef.current?.id===id;
+    if(!window.confirm(isActive
+      ?"Delete this trip in progress? Catches already logged to it will stay in your catch log, just no longer linked to a trip."
+      :"Delete this trip? Catches logged to it will stay in your catch log, just no longer linked to a trip.")) return;
+    if(isActive) setActiveTrip(null);
+    setPersonalTrips(ts=>ts.filter(t=>t.id!==id));
+    setCatches(cs=>cs.map(c=>c.tripId===id?{...c,tripId:null}:c));
+    if(!sb) return;
+    try{
+      await sb.from("personal_trips").delete().eq("id",id);
+      // DB foreign key already sets trip_id to null on linked catches automatically
+      // (on delete set null) — the setCatches above just keeps local state in sync
+      // with that immediately instead of waiting for a reload.
+    }catch(e){void 0;}
   }
 
   async function updateCatch(id, updates){
@@ -7759,7 +7872,7 @@ ${shopPins}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
                 <button className="btn" style={{padding:"6px 12px",fontSize:15}} onClick={()=>{
-                  const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catches.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
+                  const rows=[["Species","Length","Flies","GPS","Date","Notes"],...catchesByDate.map(c=>[c.species,c.length,c.flies.join("|"),c.gps,c.time,c.notes])];
                   const csv=rows.map(r=>r.map(v=>`"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="tight-lines-catches.csv";a.click();
                 }}>⬇ CSV</button>
@@ -7850,11 +7963,15 @@ ${shopPins}
                 </div>
               );
             })()}
-            {catchLogTab==="photos"?<PhotoJournal catches={catches} onPhotoClick={(url,id)=>{setLightboxPhoto(url);setLightboxCatchId(id||null);}}/>:catchLogTab==="trips"?(
+            {catchLogTab==="photos"?<PhotoJournal catches={catchesByDate} onPhotoClick={(url,id)=>{setLightboxPhoto(url);setLightboxCatchId(id||null);}}/>:catchLogTab==="trips"?(
               <div>
+                <input ref={personalTripPhotoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleActiveTripPhoto}/>
                 {activeTrip?(
                   <div className="card" style={{border:"1px solid rgba(209,154,74,0.4)",marginBottom:12}}>
-                    <div className="ctitle">🎣 Trip in progress</div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div className="ctitle">🎣 Trip in progress</div>
+                      <button onClick={()=>deletePersonalTrip(activeTrip.id)} style={{background:"none",border:"none",color:"var(--stone)",fontSize:18,cursor:"pointer",padding:4}}>🗑</button>
+                    </div>
                     <div style={{fontSize:15,color:"var(--stone)",marginTop:6}}>
                       Started {new Date(activeTrip.startTime).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
                       {activeTrip.location?` · ${activeTrip.location}`:""}
@@ -7863,7 +7980,10 @@ ${shopPins}
                       🐟 {catches.filter(c=>c.tripId===activeTrip.id).length} catch{catches.filter(c=>c.tripId===activeTrip.id).length!==1?"es":""} logged this trip
                     </div>
                     {activeTrip.techniques?.length>0&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>🎣 {activeTrip.techniques.join(", ")}</div>}
-                    <button className="btn btnp" disabled={savingPersonalTrip} onClick={()=>setShowEndTripForm(true)} style={{width:"100%",marginTop:10,opacity:savingPersonalTrip?0.6:1}}>
+                    <button className="btn" disabled={addingTripPhotos} onClick={()=>personalTripPhotoRef.current.click()} style={{width:"100%",marginTop:10,opacity:addingTripPhotos?0.6:1}}>
+                      {addingTripPhotos?"⏳ Adding photos…":"📷 Add Photos"}
+                    </button>
+                    <button className="btn btnp" disabled={savingPersonalTrip} onClick={()=>setShowEndTripForm(true)} style={{width:"100%",marginTop:8,opacity:savingPersonalTrip?0.6:1}}>
                       {savingPersonalTrip?"⏳ Ending…":"End Trip"}
                     </button>
                   </div>
@@ -7928,7 +8048,10 @@ ${shopPins}
                         <span style={{fontFamily:"var(--font-head)",fontSize:17,color:"var(--gold)",fontStyle:"italic"}}>
                           {new Date(t.startTime).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
                         </span>
-                        {t.skunked&&<span style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Skunked</span>}
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {t.skunked&&<span style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Skunked</span>}
+                          <button onClick={()=>deletePersonalTrip(t.id)} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:"pointer",padding:2}}>🗑</button>
+                        </div>
                       </div>
                       {t.location&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>📍 {t.location}</div>}
                       <div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>
@@ -7943,7 +8066,7 @@ ${shopPins}
               </div>
             ):<CatchPatterns catches={catches}/>}
           {catchLogTab==="list"&&catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
-            {catchLogTab==="list"&&catches.map(c=>(
+            {catchLogTab==="list"&&catchesByDate.map(c=>(
               <div className="cc" key={c.id}>
                 {c.photo?(
                   <div style={{position:"relative"}}>
