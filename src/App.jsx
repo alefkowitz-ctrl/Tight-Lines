@@ -4030,18 +4030,24 @@ function GuideBook({user, loc}){
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
+  const [savingGuest, setSavingGuest] = useState(false);
   const [report, setReport] = useState(null);
   const photoRef = useRef();
 
   async function saveGuest(){
-    if(!guestForm.name.trim()) return;
-    const {name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel,handedness}=guestForm;
-    const data=await saveGuestToDb({name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel,handedness});
-    // Use returned DB data or create local record as fallback
-    const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
-    setGuests(gs=>[...gs,{...guest,trips:[]}]);
-    setGuestForm(guestForm0);
-    setView("list");
+    if(!guestForm.name.trim()||savingGuest) return;
+    setSavingGuest(true);
+    try{
+      const {name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skillLevel,handedness}=guestForm;
+      const data=await saveGuestToDb({name,birthday,address,address2,city,state,zip,email,phone,notes,dietary,skill_level:skillLevel,handedness});
+      // Use returned DB data or create local record as fallback
+      const guest = data || {id:"local-"+Date.now(),name,birthday,address,email,phone,notes,dietary};
+      setGuests(gs=>[...gs,{...guest,trips:[]}]);
+      setGuestForm(guestForm0);
+      setView("list");
+    } finally {
+      setSavingGuest(false);
+    }
   }
 
   async function saveTrip(){
@@ -4342,7 +4348,7 @@ function GuideBook({user, loc}){
         </div>
         <label className="lbl">Notes</label>
         <textarea className="inp" rows={3} style={{resize:"none"}} placeholder="Fishing experience, preferences, anything to remember…" value={guestForm.notes} onChange={e=>setGuestForm(f=>({...f,notes:e.target.value}))}/>
-        <button className="btn btnp" onClick={saveGuest}>Save Guest</button>
+        <button className="btn btnp" disabled={savingGuest} onClick={saveGuest} style={{opacity:savingGuest?0.6:1,cursor:savingGuest?"default":"pointer"}}>{savingGuest?"⏳ Saving…":"Save Guest"}</button>
       </div>
     </div>
   );
