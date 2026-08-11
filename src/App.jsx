@@ -955,11 +955,11 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
     techniquesLogged:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
     weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null, anglerNotes:t.notes||t.guideNotes||null
   }));
-  // Species/flies/time ARE genuinely linked per catch — pass the real per-catch list
-  // instead of a flattened trip-wide dedup, so the model has actual joined facts to
+  // Species/flies/time/length ARE genuinely linked per catch — pass the real per-catch
+  // list instead of a flattened trip-wide dedup, so the model has actual joined facts to
   // reason from instead of two parallel lists it has to guess a correspondence between.
   const catchList=(currentCatches||[]).map(c=>({
-    species:c.species||null, flies:c.flies||[], time:c.time||null,
+    species:c.species||null, length:c.length||null, flies:c.flies||[], time:c.time||null,
     airTemp:c.airTemp||null, streamCFS:c.streamCFS||null, weather:c.weatherDesc||null
   }));
   const cur={
@@ -974,11 +974,12 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
   const prompt=`You are an experienced fly fishing guide giving ${subjectLabel} honest, specific intel after a day on the water.
 
 STRICT GROUNDING RULES:
-- Every species, fly, and result you mention must come from the logged data below — never invent one.
-- "techniquesLogged" and the top-level "flies" list are recorded for the WHOLE TRIP only — they are NOT linked to specific catches or to each other. The "catches" array is the only place flies are actually tied to a result. NEVER state or imply a specific fly was fished "under" a specific technique (e.g. never say "X and Y under Euro nymphing") unless that link is explicit in the data — techniques and the trip-level fly list are separate facts, not a paired breakdown.
-- "weather" fields are auto-estimated from a public weather API for a rough time/location, not measured on the water — they can be wrong. "anglerNotes" is what the angler actually typed about their own day and is the more reliable source. If the two conflict, trust anglerNotes and don't repeat the auto-estimated version.
-- NEVER state or imply a specific weather event (rain, drizzle, snow, storm) happened unless that word is literally present in anglerNotes or a weather field for that trip/catch. Do not infer precipitation from a change in sky condition, temperature, or flow alone — a flow bump can have many causes (upstream release, tributary, etc.) and is not itself evidence of rain.
-- You SHOULD use real fly-fishing expertise to explain WHY results happened, tied to the actual conditions and time of day in the data (e.g. a bump right around a warm midday stretch, or a fly making sense for that flow) — but only reasoning FROM logged facts, never adding facts that aren't there.
+- Every species, length, fly, and result you mention must come from the logged data below — never invent one.
+- "techniquesLogged" and the top-level "flies" list are recorded for the WHOLE TRIP only — they are NOT linked to specific catches or to each other. The "catches" array is the only place flies are actually tied to a specific fish. NEVER state or imply a specific fly was fished "under" a specific technique (e.g. never say "X and Y under Euro nymphing") unless that link is explicit in the data.
+- "anglerNotes" is free text the angler typed and often names flies, rigs, or a rough sequence of events in prose — it is real and you should draw on it for color and detail. But do NOT convert a fly mentioned only in anglerNotes into a specific timestamped claim (like "landed four on it between 7:55 and 9:44 AM") unless that catch's own "flies" field in the "catches" array actually contains that fly. If a catch's "flies" is empty, describe that catch by species/length/time only, and separately mention what anglerNotes says about flies/rigs as the angler's own account rather than as a verified per-fish fact.
+- "weather" fields are auto-estimated from a public weather API for a rough time/location, not measured on the water — they can be wrong. anglerNotes is the more reliable source; if the two conflict, trust anglerNotes.
+- NEVER state or imply a specific weather event (rain, drizzle, snow, storm) happened unless that word is literally present in anglerNotes or a weather field. Do not infer precipitation from a change in sky condition, temperature, or flow alone.
+- You SHOULD use real fly-fishing expertise to explain WHY results happened, tied to the actual conditions and time of day in the data — but only reasoning FROM logged facts, never adding facts that aren't there.
 - If there isn't enough trip history to see a real repeating pattern yet, say that plainly instead of guessing.
 
 THIS TRIP (${month}):
@@ -988,12 +989,33 @@ FULL TRIP HISTORY (${hist.length} prior trips, most recent first):
 ${JSON.stringify(hist)}
 
 Give intel in this exact shape:
-1. WHAT WORKED TODAY: 1-2 sentences on what actually happened, tied to time of day/conditions where the data supports it.
+1. WHAT WORKED TODAY: What actually happened, grounded in the real per-catch data (species, length, time, and any catch-linked flies) plus relevant color from anglerNotes, tied to time of day/conditions where the data supports it.
 2. THE PATTERN: The single clearest repeating factor across ALL logged trips (fly, flow range, time of year, technique) tied to good days. Say "not enough history yet" if under ~3 trips.
 3. NEXT TIME: One concrete, actionable suggestion for the next trip, tied directly to the data above.
 
-3-4 sentences total. Direct, guide-to-angler tone. No hedging, no generic advice not tied to this data, and no invented fly-technique pairings.`;
-  return await askClaude(prompt,false,700,"cheap");
+Direct, guide-to-angler tone. Use the real detail that's actually in the data — a trip with rich notes and several catches earns a fuller writeup than a sparse one, but never pad with generic advice that isn't tied to this data, and never invent a fly-to-catch pairing that isn't in "catches".`;
+  return await askClaude(prompt,false,900,"cheap");
+}
+
+// Deterministic aggregation across the angler's own logged catches — feeds the Trip
+// Planner's light-touch "Based on your trips" note (buildPersonalAngle in
+// tripPlannerPipeline.js). Pure aggregation only, no AI call — nothing here can
+// hallucinate, it just tells the pipeline what's actually in the data.
+function buildAnglerHistorySummary(personalTrips, catches){
+  if(!catches||catches.length<3) return null;
+  const flyCounts={};
+  catches.forEach(c=>(c.flies||[]).forEach(f=>{flyCounts[f]=(flyCounts[f]||0)+1;}));
+  const topFlies=Object.entries(flyCounts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([f])=>f);
+  const speciesCounts={};
+  catches.forEach(c=>{if(c.species&&c.species!=="Unidentified") speciesCounts[c.species]=(speciesCounts[c.species]||0)+1;});
+  const topSpecies=Object.entries(speciesCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+  const cfsVals=catches.map(c=>parseFloat(c.streamCFS)).filter(v=>!isNaN(v)&&v>0);
+  let cfsRange=null;
+  if(cfsVals.length>=3){
+    const sorted=[...cfsVals].sort((a,b)=>a-b);
+    cfsRange={low:Math.round(sorted[0]),high:Math.round(sorted[sorted.length-1])};
+  }
+  return {topFlies,topSpecies,cfsRange,catchCount:catches.length,tripCount:(personalTrips||[]).length};
 }
 async function geocode(q){
   // Search with extra detail for natural features and small places
@@ -2763,6 +2785,7 @@ function plannerReportToText(loc, date, report){
   if(report.hatches){ lines.push(""); lines.push("HATCH ACTIVITY"); lines.push(strip(report.hatches)); }
   if(report.bestTimes){ lines.push(""); lines.push("BEST TIMES"); lines.push(strip(report.bestTimes)); }
   if(report.tips){ lines.push(""); lines.push("INSIDER TIPS"); lines.push(strip(report.tips)); }
+  if(report.personalAngle){ lines.push(""); lines.push("YOUR TRIP HISTORY"); lines.push(strip(report.personalAngle)); }
   if(report.flyBoxEssentials?.length){ lines.push(""); lines.push("FLY BOX ESSENTIALS"); lines.push(report.flyBoxEssentials.join(", ")); }
   if(report.recommendation){ lines.push(""); lines.push("BEST BET TODAY"); lines.push(strip(report.recommendation)); }
   if(report.bestFor && Object.values(report.bestFor).some(v=>v)){
@@ -2877,6 +2900,7 @@ ${report.overview?`<div class="section"><div class="section-title">Overview</div
 ${report.hatches?`<div class="section"><div class="section-title">Hatch Activity</div><div class="report-text"><p>${paragraph(report.hatches)}</p></div></div><div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`:""}
 ${report.bestTimes?`<div class="section"><div class="section-title">Best Times</div><div class="report-text"><p>${paragraph(report.bestTimes)}</p></div></div><div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`:""}
 ${report.tips?`<div class="section"><div class="section-title">Insider Tips</div><div class="report-text"><p>${paragraph(report.tips)}</p></div></div><div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`:""}
+${report.personalAngle?`<div class="section"><div class="section-title">Your Trip History</div><div class="report-text"><p>${paragraph(report.personalAngle)}</p></div></div><div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`:""}
 ${flyBoxHtml}
 ${report.recommendation?`<div class="section"><div class="section-title">Best Bet Today</div><div class="report-text"><p>${paragraph(report.recommendation)}</p></div></div><div style="height:1px;background:#e0ebee;margin:0 40px;"></div>`:""}
 ${bestForHtml}
@@ -5494,7 +5518,7 @@ function TripPlannerLoading({steps,onCancel,destination}){
   );
 }
 
-function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openReportId,onOpenedReportId,user}){
+function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openReportId,onOpenedReportId,user,anglerHistory}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const driveMinutes=120;
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
@@ -5766,7 +5790,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
         };
         try{
           builtReport=await runTripPlannerPipeline(
-            {loc:{label:loc.label,lat,lng},ds,driveMinutes,wx,pgScaled,savedGauges,pTempMap,flowAvgMap},
+            {loc:{label:loc.label,lat,lng},ds,driveMinutes,wx,pgScaled,savedGauges,pTempMap,flowAvgMap,anglerHistory},
             {askAI:askClaude,geocodePlaces:geocodePlacesBrowser},
             (text,state)=>addStep(text,state)
           );
@@ -5973,6 +5997,12 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           {report.hatches&&<><div className="slbl">Hatch Activity</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.hatches}</p></>}
           {report.bestTimes&&<><div className="slbl">Best Times</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.bestTimes}</p></>}
           {report.tips&&<><div className="slbl">Insider Tips</div><p style={{fontSize:14,color:"var(--foam)",lineHeight:1.65,marginBottom:14}}>{report.tips}</p></>}
+          {report.personalAngle&&(
+            <div style={{marginTop:2,marginBottom:14,padding:"10px 12px",background:"rgba(209,154,74,0.08)",borderRadius:10,borderLeft:"3px solid var(--gold)"}}>
+              <div className="lbl" style={{marginBottom:4}}>🎣 Your Trip History</div>
+              <p style={{fontSize:14,color:"var(--sky)",lineHeight:1.6}}>{report.personalAngle}</p>
+            </div>
+          )}
           {report.flyBoxEssentials?.length>0&&<><div className="divider"/><div className="slbl">Fly Box Essentials</div><div className="chips">{report.flyBoxEssentials.map((f,i)=><a key={i} className="chip" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div><div className="divider"/></> }
           {report.recommendation&&(
             <div style={{background:"rgba(90,122,74,0.2)",border:"1px solid rgba(90,122,74,0.4)",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
@@ -8598,7 +8628,7 @@ ${shopPins}
             ))}
           </>}
 
-          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
+          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user} anglerHistory={buildAnglerHistorySummary(personalTrips,catches)}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
           {tab==="guide"&&!hideGuide&&((tierChecking&&tier==="free")?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
         </div>
 
