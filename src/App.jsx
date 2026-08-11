@@ -953,7 +953,7 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
     date:t.date, location:t.location, skunked:!!t.skunked,
     catchCount:t.catches!=null?t.catches:0, species:t.species||[], flies:(t.flies||[]).slice(0,4),
     techniquesLogged:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
-    weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null
+    weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null, anglerNotes:t.notes||t.guideNotes||null
   }));
   // Species/flies/time ARE genuinely linked per catch — pass the real per-catch list
   // instead of a flattened trip-wide dedup, so the model has actual joined facts to
@@ -967,6 +967,7 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
     techniquesLogged:currentTrip.techniques||currentTrip.styles||[], flies:currentTrip.flies||[],
     cfs:currentTrip.streamCFS||null, condition:currentTrip.streamCondition||null,
     weather:currentTrip.weatherConditions||currentTrip.weatherDesc||null, airTemp:currentTrip.airTemp||null,
+    anglerNotes:currentTrip.notes||currentTrip.guideNotes||null,
     catches:catchList
   };
   const month=new Date((currentTrip.date||new Date().toISOString().split("T")[0])+"T12:00:00").toLocaleDateString("en-US",{month:"long"});
@@ -975,6 +976,8 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
 STRICT GROUNDING RULES:
 - Every species, fly, and result you mention must come from the logged data below — never invent one.
 - "techniquesLogged" and the top-level "flies" list are recorded for the WHOLE TRIP only — they are NOT linked to specific catches or to each other. The "catches" array is the only place flies are actually tied to a result. NEVER state or imply a specific fly was fished "under" a specific technique (e.g. never say "X and Y under Euro nymphing") unless that link is explicit in the data — techniques and the trip-level fly list are separate facts, not a paired breakdown.
+- "weather" fields are auto-estimated from a public weather API for a rough time/location, not measured on the water — they can be wrong. "anglerNotes" is what the angler actually typed about their own day and is the more reliable source. If the two conflict, trust anglerNotes and don't repeat the auto-estimated version.
+- NEVER state or imply a specific weather event (rain, drizzle, snow, storm) happened unless that word is literally present in anglerNotes or a weather field for that trip/catch. Do not infer precipitation from a change in sky condition, temperature, or flow alone — a flow bump can have many causes (upstream release, tributary, etc.) and is not itself evidence of rain.
 - You SHOULD use real fly-fishing expertise to explain WHY results happened, tied to the actual conditions and time of day in the data (e.g. a bump right around a warm midday stretch, or a fly making sense for that flow) — but only reasoning FROM logged facts, never adding facts that aren't there.
 - If there isn't enough trip history to see a real repeating pattern yet, say that plainly instead of guessing.
 
