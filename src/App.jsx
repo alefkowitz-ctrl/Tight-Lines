@@ -594,6 +594,8 @@ function AuthScreen({demoError}){
         // rare case that auto-transition is slow or doesn't fire.
         const{error:e} = await sb.auth.signUp({email, password, options:{data:{full_name:name, invite_code:code||null}}});
         if(e) throw e;
+        // Meta Pixel: signup conversion. Guarded so a blocked/absent fbq never breaks signup.
+        try{ if(typeof window!=="undefined" && typeof window.fbq==="function") window.fbq("track","CompleteRegistration"); }catch(_){}
         setReturningUser(true);
         setSuccess("Account created — signing you in…");
         setMode("login");
