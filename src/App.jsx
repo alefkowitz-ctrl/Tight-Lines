@@ -6477,22 +6477,19 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const toggleGuide=()=>{const n=!hideGuide;setHideGuide(n);try{localStorage.setItem("tl_hideguide",n?"1":"0");}catch(e){void 0;}if(n&&tab==="guide")setTab("conditions");};
   const [addOpen,setAddOpen]=useState(false);
   const [editingCatchId,setEditingCatchId]=useState(null);
-  // Personal trip tracking — a manual "Log a Trip" session, separate from snapping
-  // a catch, so a session with zero catches (skunked) can still be recorded. That's
-  // the whole point: without skunked trips in the data, any later trend analysis
-  // only ever sees days that already worked.
+  // Personal trip tracking — a single post-hoc "Log a Trip" form, same pattern as
+  // GuideBook's Add Trip (tripForm0/saveTrip/handleTripPhoto): fill in location,
+  // conditions, techniques, and photos, then Save once. No start/end session — a
+  // trip with zero linked catches is still saved (skunked), so later trend analysis
+  // doesn't only ever see days that already worked.
   const [personalTrips,setPersonalTrips]=useState([]);
   const [personalTripsLoading,setPersonalTripsLoading]=useState(true);
-  const [activeTrip,setActiveTrip]=useState(null);
-  const activeTripRef=useRef(null);
-  useEffect(()=>{activeTripRef.current=activeTrip;},[activeTrip]);
   const [showLogTripForm,setShowLogTripForm]=useState(false);
-  const [tripStartForm,setTripStartForm]=useState({location:"",techniques:[]});
-  const [showEndTripForm,setShowEndTripForm]=useState(false);
-  const [endTripForm,setEndTripForm]=useState({techniques:[],notes:""});
+  const logTripForm0={date:new Date().toISOString().split("T")[0],location:"",techniques:[],notes:"",photos:[],catchDetails:[],linkedCatchIds:[],airTemp:"",waterTemp:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",weatherConditions:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  const [logTripForm,setLogTripForm]=useState(logTripForm0);
+  const [showCatchPicker,setShowCatchPicker]=useState(false);
   const [savingPersonalTrip,setSavingPersonalTrip]=useState(false);
-  const personalTripPhotoRef=useRef(null);
-  const [addingTripPhotos,setAddingTripPhotos]=useState(false);
+  const logTripPhotoRef=useRef(null);
   const [sharingCatchId,setSharingCatchId]=useState(null);
   const [sharingBusy,setSharingBusy]=useState(false);
   const [editCatchFlyInput,setEditCatchFlyInput]=useState("");
@@ -6533,7 +6530,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   },[lightboxPhoto,lightboxCatchId]);
   // Init loc from localStorage so Guide tab has it immediately
   const [loc,setLoc]=useState(()=>{try{const s=localStorage.getItem("tl_loc");return s?JSON.parse(s):null;}catch{return null;}});
-  // Ref so handleActiveTripPhoto always reads current loc, not a stale closure
+  // Ref so handleLogTripPhoto always reads current loc, not a stale closure
   // value, during its multi-second async photo processing — same pattern GuideBook
   // uses for its own trip photo handler.
   const locRef=useRef(loc);
@@ -6655,100 +6652,25 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     if(!sb){ setPersonalTripsLoading(false); return; }
     sb.from("personal_trips").select("*").eq("user_id",user.id).order("start_time",{ascending:false})
       .then(({data,error})=>{
-        if(!error&&data){
-          const rows=data.map(personalTripRowToCamel);
-          setPersonalTrips(rows);
-          const stillActive=rows.find(t=>!t.endTime);
-          if(stillActive) setActiveTrip(stillActive);
-        }
+        if(!error&&data) setPersonalTrips(data.map(personalTripRowToCamel));
         setPersonalTripsLoading(false);
       });
   },[user]);
 
-  async function startPersonalTrip(){
-    if(savingPersonalTrip||activeTrip||!sb||!user) return;
-    setSavingPersonalTrip(true);
-    try{
-      const now=new Date();
-      const row={
-        date:now.toISOString().split("T")[0],
-        start_time:now.toISOString(),
-        end_time:null,
-        location:tripStartForm.location||null,
-        gps:loc?fmtCoord(loc.lat,loc.lng):null,
-        techniques:tripStartForm.techniques,
-        skunked:false
-      };
-      const{data,error}=await sb.from("personal_trips").insert({user_id:user.id,...row}).select().single();
-      if(!error&&data){
-        const trip=personalTripRowToCamel(data);
-        setPersonalTrips(ts=>[trip,...ts]);
-        setActiveTrip(trip);
-      }
-      setShowLogTripForm(false);
-      setTripStartForm({location:"",techniques:[]});
-    } finally {
-      setSavingPersonalTrip(false);
-    }
+  function toggleLogTripTechnique(s){
+    setLogTripForm(f=>({...f,techniques:f.techniques.includes(s)?f.techniques.filter(x=>x!==s):[...f.techniques,s]}));
   }
 
-  async function endPersonalTrip(){
-    if(savingPersonalTrip||!activeTrip||!sb) return;
-    setSavingPersonalTrip(true);
-    try{
-      const now=new Date();
-      const linkedCount=catches.filter(c=>c.tripId===activeTrip.id).length;
-      const skunked=linkedCount===0;
-      const techniques=Array.from(new Set([...(activeTrip.techniques||[]),...endTripForm.techniques]));
-      const patch={end_time:now.toISOString(),techniques,skunked,notes:endTripForm.notes||null};
-      // A skunked trip has no catch to carry conditions, so backfill them here using
-      // the same confidence-checked lookup used everywhere else — real reading or
-      // nothing, never a guess.
-      if(skunked&&activeTrip.gps){
-        const coords=parseGpsCoords(activeTrip.gps);
-        if(coords){
-          const dateStr=activeTrip.date;
-          const today=new Date().toISOString().split("T")[0];
-          const hourStr=String(new Date(activeTrip.startTime).getHours()).padStart(2,"0");
-          const conds=dateStr<today?await fetchHistoricalConditions(coords.lat,coords.lng,dateStr,hourStr):await fetchLiveNearestConditions(coords.lat,coords.lng);
-          if(conds.airTemp) patch.air_temp=conds.airTemp;
-          if(conds.weatherDesc) patch.weather_desc=conds.weatherDesc;
-          if(conds.windSpeed) patch.wind_speed=conds.windSpeed;
-          if(conds.windDir) patch.wind_dir=conds.windDir;
-          if(conds.streamCFS){patch.stream_cfs=conds.streamCFS;patch.stream_condition=conds.streamCondition;patch.stream_gauge_name=conds.streamGaugeName;}
-        }
-      }
-      const{data,error}=await sb.from("personal_trips").update(patch).eq("id",activeTrip.id).select().single();
-      if(!error&&data){
-        const trip=personalTripRowToCamel(data);
-        setPersonalTrips(ts=>ts.map(t=>t.id===trip.id?trip:t));
-      }
-      setActiveTrip(null);
-      setShowEndTripForm(false);
-      setEndTripForm({techniques:[],notes:""});
-    } finally {
-      setSavingPersonalTrip(false);
-    }
-  }
-
-  function toggleTripStartTechnique(s){
-    setTripStartForm(f=>({...f,techniques:f.techniques.includes(s)?f.techniques.filter(x=>x!==s):[...f.techniques,s]}));
-  }
-  function toggleTripEndTechnique(s){
-    setEndTripForm(f=>({...f,techniques:f.techniques.includes(s)?f.techniques.filter(x=>x!==s):[...f.techniques,s]}));
-  }
-
-  // Batch photo add for an active trip — same pipeline as the guide trip's Add
-  // Photos (EXIF parse, downscale, AI fish ID, conditions lookup, all in parallel),
-  // but each photo becomes a real catches-table row via addCatch (tripId attached)
-  // instead of a separate catchDetails blob on the trip. That keeps every catch —
-  // trip-linked or not — in the same place: the catch log, editable and shareable
-  // the same way regardless of how it was added.
-  async function handleActiveTripPhoto(e){
+  // Photo add for the Log Trip form — same two-phase pipeline as GuideBook's
+  // handleTripPhoto (optimistic add + EXIF parse + parallel AI fish ID/conditions
+  // lookup), held in local form state until Save. At Save time each becomes its own
+  // catches-table row (tripId attached) rather than a JSON blob on the trip, so it's
+  // editable and shareable the same way as any other catch log entry — same
+  // architecture the old Add-Photos-during-trip flow used.
+  async function handleLogTripPhoto(e){
     const files=Array.from(e.target.files);
     e.target.value="";
-    if(!files.length||!activeTripRef.current) return;
-    setAddingTripPhotos(true);
+    if(!files.length) return;
     let devLocPromise=null;
     const getDeviceLoc=()=>{
       if(!devLocPromise){
@@ -6773,9 +6695,13 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         const exif=parseExif(abuf);
         photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
       }catch(xe){void 0;}
-      const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-      items.push({dataUrl,t,photoGps,photoLat,photoLng});
+      const tripDateFallback=logTripForm.date?new Date(logTripForm.date+"T12:00:00").toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true}):new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+      const t=photoTime||tripDateFallback;
+      const _id="lt"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      items.push({_id,dataUrl,t,photoGps,photoLat,photoLng});
+      setLogTripForm(f=>({...f,photos:[...f.photos,dataUrl],catchDetails:[...(f.catchDetails||[]),{_id,photo:dataUrl,time:t,gps:photoGps,species:"Unidentified",length:"",analyzing:true}]}));
     }
+    const updDetail=(id,patch)=>setLogTripForm(f=>({...f,catchDetails:(f.catchDetails||[]).map(d=>d._id===id?{...d,...patch}:d)}));
     await mapLimit(items,3,async(it)=>{
       try{
         const idPromise=(async()=>{
@@ -6803,27 +6729,93 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           }catch(ce){return null;}
         })();
         const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
+        const patch={analyzing:false};
+        if(idRes){patch.species=idRes.species;patch.length=idRes.length;}
         const c=condRes?.conds;
-        const catchData={
-          species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,
-          gps:(condRes&&condRes.gps)||it.photoGps||"Location not recorded",time:it.t,notes:"",
-          airTemp:c?.airTemp||null,weatherDesc:c?.weatherDesc||null,windSpeed:c?.windSpeed||null,
-          windDir:c?.windDir||null,pressure:c?.pressure||null,streamCFS:c?.streamCFS||null,
-          streamCondition:c?.streamCondition||null,streamGaugeName:c?.streamGaugeName||null,
-          waterTemp:null,tripId:activeTripRef.current?.id||null
-        };
-        await addCatch(catchData);
+        if(condRes&&condRes.gps) patch.gps=condRes.gps;
+        if(c){
+          patch.airTemp=c.airTemp||null;patch.weatherDesc=c.weatherDesc||null;patch.windSpeed=c.windSpeed||null;
+          patch.windDir=c.windDir||null;patch.pressure=c.pressure||null;patch.streamCFS=c.streamCFS||null;
+          patch.streamCondition=c.streamCondition||null;patch.streamGaugeName=c.streamGaugeName||null;
+        }
+        updDetail(it._id,patch);
       }catch(err){void 0;}
     });
-    setAddingTripPhotos(false);
+  }
+
+  // Save the whole trip at once — insert the trip row, then attach every photo
+  // added above (as new catches-table rows) and every catch picked via "From Catch
+  // Log" (relinked in place). Mirrors GuideBook's saveTrip single-shot pattern.
+  async function saveLogTrip(){
+    if(savingPersonalTrip||!sb||!user) return;
+    setSavingPersonalTrip(true);
+    try{
+      // Resolve GPS for the trip record: geocode the typed location if there is
+      // one, otherwise fall back to device location — same "uses your current
+      // location if left blank" behavior the old form had.
+      let gpsStr=null;
+      if(logTripForm.location.trim()){
+        try{
+          const g=await geocode(logTripForm.location);
+          if(g.length) gpsStr=fmtCoord(parseFloat(g[0].lat),parseFloat(g[0].lon));
+        }catch(ge){void 0;}
+      }
+      if(!gpsStr&&loc) gpsStr=fmtCoord(loc.lat,loc.lng);
+      const now=new Date();
+      const row={
+        date:logTripForm.date||now.toISOString().split("T")[0],
+        start_time:now.toISOString(),
+        end_time:now.toISOString(),
+        location:logTripForm.location||null,
+        gps:gpsStr,
+        techniques:logTripForm.techniques,
+        skunked:false,
+        notes:logTripForm.notes||null,
+        air_temp:logTripForm.airTemp||null,
+        water_temp:logTripForm.waterTemp||null,
+        weather_desc:logTripForm.weatherConditions||null,
+        wind_speed:logTripForm.windSpeed||null,
+        wind_dir:logTripForm.windDir||null,
+        stream_cfs:logTripForm.streamCFS||null,
+        stream_condition:logTripForm.streamCondition||null,
+        stream_gauge_name:logTripForm.streamGaugeName||null
+      };
+      const{data,error}=await sb.from("personal_trips").insert({user_id:user.id,...row}).select().single();
+      if(error||!data){
+        alert("Trip save failed: "+(error?.message||"Unknown error"));
+        return;
+      }
+      const newTripId=data.id;
+      for(const cd of (logTripForm.catchDetails||[])){
+        const catchData={
+          species:cd.species,length:cd.length,flies:[],photo:cd.photo,
+          gps:cd.gps||"Location not recorded",time:cd.time,notes:"",
+          airTemp:cd.airTemp||null,weatherDesc:cd.weatherDesc||null,windSpeed:cd.windSpeed||null,
+          windDir:cd.windDir||null,pressure:cd.pressure||null,streamCFS:cd.streamCFS||null,
+          streamCondition:cd.streamCondition||null,streamGaugeName:cd.streamGaugeName||null,
+          waterTemp:null,tripId:newTripId
+        };
+        await addCatch(catchData);
+      }
+      for(const id of logTripForm.linkedCatchIds){
+        await updateCatch(id,{tripId:newTripId});
+      }
+      const totalLinked=(logTripForm.catchDetails||[]).length+logTripForm.linkedCatchIds.length;
+      if(totalLinked===0){
+        await sb.from("personal_trips").update({skunked:true}).eq("id",newTripId);
+        row.skunked=true;
+      }
+      setPersonalTrips(ts=>[personalTripRowToCamel({id:newTripId,...row}),...ts]);
+      setShowLogTripForm(false);
+      setShowCatchPicker(false);
+      setLogTripForm(logTripForm0);
+    } finally {
+      setSavingPersonalTrip(false);
+    }
   }
 
   async function deletePersonalTrip(id){
-    const isActive=activeTripRef.current?.id===id;
-    if(!window.confirm(isActive
-      ?"Delete this trip in progress? Catches already logged to it will stay in your catch log, just no longer linked to a trip."
-      :"Delete this trip? Catches logged to it will stay in your catch log, just no longer linked to a trip.")) return;
-    if(isActive) setActiveTrip(null);
+    if(!window.confirm("Delete this trip? Catches logged to it will stay in your catch log, just no longer linked to a trip.")) return;
     setPersonalTrips(ts=>ts.filter(t=>t.id!==id));
     setCatches(cs=>cs.map(c=>c.tripId===id?{...c,tripId:null}:c));
     if(!sb) return;
@@ -6845,7 +6837,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         air_temp:updates.airTemp, weather_desc:updates.weatherDesc,
         wind_speed:updates.windSpeed, wind_dir:updates.windDir,
         pressure:updates.pressure, stream_cfs:updates.streamCFS,
-        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName, water_temp:updates.waterTemp
+        stream_condition:updates.streamCondition, stream_gauge_name:updates.streamGaugeName, water_temp:updates.waterTemp,
+        trip_id:updates.tripId
       }).eq("id",id);
     }catch(e){ void 0; }
   }
@@ -7505,7 +7498,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
             }catch(condErr){return null;}
           })()]);
           const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
-          let catchData={species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,gps:coords,time:t,notes:"",airTemp:null,weatherDesc:null,windSpeed:null,windDir:null,pressure:null,streamCFS:null,streamCondition:null,streamGaugeName:null,waterTemp:null,tripId:activeTripRef.current?.id||null};
+          let catchData={species:idRes.species,length:idRes.length,flies:[],photo:it.dataUrl,gps:coords,time:t,notes:"",airTemp:null,weatherDesc:null,windSpeed:null,windDir:null,pressure:null,streamCFS:null,streamCondition:null,streamGaugeName:null,waterTemp:null,tripId:null};
           if(condRes)catchData={...catchData,...condRes};
           const savedId=await addCatch(catchData);
           if(savedId) lastCatchIdRef.current=savedId;
@@ -7595,7 +7588,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   function submitCatch(){
     const now=new Date();
     const t=form.time||now.toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
-    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,airTemp:form.airTemp||null,weatherDesc:form.weatherDesc||null,windSpeed:form.windSpeed||null,windDir:form.windDir||null,pressure:form.pressure||null,streamCFS:form.streamCFS||null,streamCondition:form.streamCondition||null,streamGaugeName:form.streamGaugeName||null,waterTemp:form.waterTemp||null,tripId:activeTripRef.current?.id||null};
+    const catchData={species:form.species,length:form.length,flies:[...form.flies],photo:form.photo,gps:form.gps||"Location not recorded",time:t,notes:form.notes,airTemp:form.airTemp||null,weatherDesc:form.weatherDesc||null,windSpeed:form.windSpeed||null,windDir:form.windDir||null,pressure:form.pressure||null,streamCFS:form.streamCFS||null,streamCondition:form.streamCondition||null,streamGaugeName:form.streamGaugeName||null,waterTemp:form.waterTemp||null,tripId:null};
     addCatch(catchData).then(id=>{if(id)lastCatchIdRef.current=id;});
     setForm(blank);setAddOpen(false);
   }
@@ -7869,7 +7862,7 @@ ${shopPins}
               <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>setCatchLogTab("list")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="list"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
                 <button onClick={()=>setCatchLogTab("photos")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="photos"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="photos"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📷 Photos</button>
-                <button onClick={()=>setCatchLogTab("trips")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="trips"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="trips"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>🧾 Trips{activeTrip?" •":""}</button>
+                <button onClick={()=>setCatchLogTab("trips")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="trips"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="trips"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>🧾 Trips</button>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <span className="lttl">My Catches · {catches.length} fish</span>
@@ -7967,88 +7960,117 @@ ${shopPins}
             })()}
             {catchLogTab==="photos"?<PhotoJournal catches={catchesByDate} onPhotoClick={(url,id)=>{setLightboxPhoto(url);setLightboxCatchId(id||null);}}/>:catchLogTab==="trips"?(
               <div>
-                <input ref={personalTripPhotoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleActiveTripPhoto}/>
-                {activeTrip?(
-                  <div className="card" style={{border:"1px solid rgba(209,154,74,0.4)",marginBottom:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div className="ctitle">🎣 Trip in progress</div>
-                      <button onClick={()=>deletePersonalTrip(activeTrip.id)} style={{background:"none",border:"none",color:"var(--stone)",fontSize:18,cursor:"pointer",padding:4}}>🗑</button>
-                    </div>
-                    <div style={{fontSize:15,color:"var(--stone)",marginTop:6}}>
-                      Started {new Date(activeTrip.startTime).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
-                      {activeTrip.location?` · ${activeTrip.location}`:""}
-                    </div>
-                    <div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>
-                      🐟 {catches.filter(c=>c.tripId===activeTrip.id).length} catch{catches.filter(c=>c.tripId===activeTrip.id).length!==1?"es":""} logged this trip
-                    </div>
-                    {activeTrip.techniques?.length>0&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>🎣 {activeTrip.techniques.join(", ")}</div>}
-                    <button className="btn" disabled={addingTripPhotos} onClick={()=>personalTripPhotoRef.current.click()} style={{width:"100%",marginTop:10,opacity:addingTripPhotos?0.6:1}}>
-                      {addingTripPhotos?"⏳ Adding photos…":"📷 Add Photos"}
-                    </button>
-                    <button className="btn btnp" disabled={savingPersonalTrip} onClick={()=>setShowEndTripForm(true)} style={{width:"100%",marginTop:8,opacity:savingPersonalTrip?0.6:1}}>
-                      {savingPersonalTrip?"⏳ Ending…":"End Trip"}
-                    </button>
-                  </div>
-                ):(
-                  <button className="btn btnp" disabled={savingPersonalTrip} onClick={()=>setShowLogTripForm(true)} style={{width:"100%",marginBottom:12,opacity:savingPersonalTrip?0.6:1}}>+ Log a Trip</button>
+                <input ref={logTripPhotoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleLogTripPhoto}/>
+                {!showLogTripForm&&(
+                  <button className="btn btnp" onClick={()=>{setLogTripForm(logTripForm0);setShowCatchPicker(false);setShowLogTripForm(true);}} style={{width:"100%",marginBottom:12}}>+ Log a Trip</button>
                 )}
 
-                {showLogTripForm&&!activeTrip&&(
+                {showLogTripForm&&(
                   <div className="card" style={{marginBottom:12}}>
-                    <div className="ctitle">Start a Trip</div>
-                    <div style={{fontSize:14,color:"var(--stone)",marginTop:8,marginBottom:3}}>Location</div>
-                    <input className="inp" placeholder={loc?"Uses your current location if left blank":"Location"} value={tripStartForm.location} onChange={e=>setTripStartForm(f=>({...f,location:e.target.value}))}/>
-                    <div style={{fontSize:14,color:"var(--stone)",marginTop:10,marginBottom:6}}>Technique(s) you're trying</div>
+                    <div className="ctitle">Log a Trip</div>
+                    <div style={{fontSize:14,color:"var(--stone)",marginTop:8,marginBottom:3}}>Date</div>
+                    <input className="inp" type="date" value={logTripForm.date} onChange={e=>setLogTripForm(f=>({...f,date:e.target.value}))}/>
+                    <div style={{fontSize:14,color:"var(--stone)",marginTop:2,marginBottom:3}}>Location</div>
+                    <TripLocationWeather tripForm={logTripForm} setTripForm={setLogTripForm}/>
+                    <div style={{fontSize:14,color:"var(--stone)",marginTop:2,marginBottom:6}}>Technique(s)</div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
                       {FISHING_STYLES.map(s=>(
-                        <button key={s} onClick={()=>toggleTripStartTechnique(s)}
-                          style={{fontSize:14,padding:"5px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:tripStartForm.techniques.includes(s)?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:tripStartForm.techniques.includes(s)?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{s}</button>
+                        <button key={s} onClick={()=>toggleLogTripTechnique(s)}
+                          style={{fontSize:14,padding:"5px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:logTripForm.techniques.includes(s)?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:logTripForm.techniques.includes(s)?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{s}</button>
                       ))}
                     </div>
-                    <div style={{display:"flex",gap:8}}>
-                      <button className="btn" style={{flex:1}} onClick={()=>{setShowLogTripForm(false);setTripStartForm({location:"",techniques:[]});}}>Cancel</button>
-                      <button className="btn btnp" style={{flex:1,opacity:savingPersonalTrip?0.6:1}} disabled={savingPersonalTrip} onClick={startPersonalTrip}>{savingPersonalTrip?"⏳ Starting…":"Start"}</button>
-                    </div>
-                  </div>
-                )}
-
-                {showEndTripForm&&activeTrip&&(
-                  <div className="card" style={{marginBottom:12}}>
-                    <div className="ctitle">End Trip</div>
-                    <div style={{fontSize:14,color:"var(--stone)",marginTop:8,marginBottom:6}}>Technique(s) actually tried (add any you didn't plan on)</div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-                      {FISHING_STYLES.map(s=>{
-                        const active=endTripForm.techniques.includes(s)||activeTrip.techniques?.includes(s);
-                        return(
-                          <button key={s} onClick={()=>toggleTripEndTechnique(s)}
-                            style={{fontSize:14,padding:"5px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:active?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:active?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{s}</button>
-                        );
-                      })}
-                    </div>
                     <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes (optional)</div>
-                    <input className="inp" style={{marginBottom:12}} value={endTripForm.notes} onChange={e=>setEndTripForm(f=>({...f,notes:e.target.value}))}/>
-                    {catches.filter(c=>c.tripId===activeTrip.id).length===0&&(
-                      <div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginBottom:12}}>No catches logged this trip — will be recorded as skunked.</div>
+                    <input className="inp" style={{marginBottom:14}} value={logTripForm.notes} onChange={e=>setLogTripForm(f=>({...f,notes:e.target.value}))}/>
+
+                    <label className="lbl">Catches</label>
+                    <div style={{display:"flex",gap:8,marginBottom:10}}>
+                      <button className="pbtn" style={{flex:1}} onClick={()=>logTripPhotoRef.current.click()}><span className="pi">📷</span>Upload Photos</button>
+                      <button className="pbtn" style={{flex:1}} onClick={()=>setShowCatchPicker(v=>!v)}><span className="pi">🎣</span>From Catch Log</button>
+                    </div>
+
+                    {showCatchPicker&&(
+                      <div style={{background:"rgba(0,0,0,0.25)",borderRadius:12,padding:10,marginBottom:12}}>
+                        <div style={{fontSize:14,color:"var(--stone)",marginBottom:8}}>Tap catches not already on another trip to add them</div>
+                        {catches.filter(c=>!c.tripId).length===0&&<div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>No unlinked catches yet.</div>}
+                        <div style={{maxHeight:300,overflowY:"auto"}}>
+                          {catchesByDate.filter(c=>!c.tripId).map(c=>{
+                            const picked=logTripForm.linkedCatchIds.includes(c.id);
+                            return (
+                              <div key={c.id} onClick={()=>setLogTripForm(f=>({...f,linkedCatchIds:picked?f.linkedCatchIds.filter(x=>x!==c.id):[...f.linkedCatchIds,c.id]}))}
+                                style={{display:"flex",gap:10,alignItems:"center",padding:8,borderRadius:10,marginBottom:6,cursor:"pointer",background:picked?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.2)",border:"1px solid "+(picked?"rgba(209,154,74,0.4)":"rgba(255,255,255,0.08)")}}>
+                                {c.photo?<img src={c.photo} style={{width:44,height:44,objectFit:"cover",borderRadius:8}} alt="catch"/>:<div style={{width:44,height:44,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🐟</div>}
+                                <div style={{flex:1,fontSize:15,color:"var(--foam)"}}>{c.species}{c.length?` · ${c.length}"`:""}<div style={{fontSize:13,color:"var(--stone)"}}>{c.time}</div></div>
+                                <span style={{fontSize:18,color:picked?"var(--gold)":"var(--stone)"}}>{picked?"✓":"+"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
+
+                    {logTripForm.photos.length>0&&(
+                      <div style={{marginBottom:12}}>
+                        {logTripForm.photos.map((p,i)=>{
+                          const cd=(logTripForm.catchDetails||[])[i]||{};
+                          return(
+                            <div key={i} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"flex-start"}}>
+                              <div style={{position:"relative",flexShrink:0}}>
+                                <img src={p} style={{width:64,height:64,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy"/>
+                                <button onClick={()=>setLogTripForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i),catchDetails:(f.catchDetails||[]).filter((_,j)=>j!==i)}))}
+                                  style={{position:"absolute",top:-4,right:-4,background:"rgba(150,80,80,0.9)",border:"none",color:"white",borderRadius:"50%",width:18,height:18,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                              </div>
+                              <div style={{flex:1,fontSize:15}}>
+                                {cd.analyzing&&<div style={{color:"var(--sky)",fontStyle:"italic"}}>🔍 Analyzing…</div>}
+                                {!cd.analyzing&&<>
+                                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:3}}>
+                                    {cd.species&&<span style={{color:"var(--foam)",fontStyle:"italic"}}>{cd.species}</span>}
+                                    {cd.length&&<span style={{color:"var(--sky)"}}>📏 {cd.length}"</span>}
+                                  </div>
+                                  {cd.time&&<div style={{color:"var(--stone)",fontSize:14}}>{cd.time}</div>}
+                                </>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {logTripForm.linkedCatchIds.length>0&&(
+                      <div style={{marginBottom:12}}>
+                        {logTripForm.linkedCatchIds.map(id=>{
+                          const c=catches.find(c2=>c2.id===id);
+                          if(!c) return null;
+                          return(
+                            <div key={id} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"center"}}>
+                              {c.photo?<img src={c.photo} style={{width:48,height:48,objectFit:"cover",borderRadius:8}} alt="catch"/>:<div style={{width:48,height:48,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🐟</div>}
+                              <div style={{flex:1,fontSize:15,color:"var(--foam)"}}>{c.species}{c.length?` · ${c.length}"`:""}<div style={{fontSize:14,color:"var(--stone)"}}>{c.time}</div></div>
+                              <button onClick={()=>setLogTripForm(f=>({...f,linkedCatchIds:f.linkedCatchIds.filter(x=>x!==id)}))} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:"pointer"}}>✕</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(logTripForm.photos.length+logTripForm.linkedCatchIds.length)===0&&(
+                      <div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginBottom:12}}>No catches added — will be recorded as skunked.</div>
+                    )}
+
                     <div style={{display:"flex",gap:8}}>
-                      <button className="btn" style={{flex:1}} onClick={()=>setShowEndTripForm(false)}>Cancel</button>
-                      <button className="btn btnp" style={{flex:1,opacity:savingPersonalTrip?0.6:1}} disabled={savingPersonalTrip} onClick={endPersonalTrip}>{savingPersonalTrip?"⏳ Ending…":"End Trip"}</button>
+                      <button className="btn" style={{flex:1}} onClick={()=>{setShowLogTripForm(false);setShowCatchPicker(false);setLogTripForm(logTripForm0);}}>Cancel</button>
+                      <button className="btn btnp" style={{flex:1,opacity:savingPersonalTrip?0.6:1}} disabled={savingPersonalTrip} onClick={saveLogTrip}>{savingPersonalTrip?"⏳ Saving…":"Save Trip"}</button>
                     </div>
                   </div>
                 )}
 
                 {personalTripsLoading&&<div className="loading">Loading trips…</div>}
-                {!personalTripsLoading&&personalTrips.filter(t=>t.endTime).length===0&&!activeTrip&&(
+                {!personalTripsLoading&&personalTrips.length===0&&(
                   <div className="empty"><div className="ei">🧾</div><p>No trips logged yet.<br/>"Log a Trip" tracks a full session — including the ones where nothing bites.</p></div>
                 )}
-                {personalTrips.filter(t=>t.endTime).map(t=>{
+                {personalTrips.map(t=>{
                   const tripCatches=catches.filter(c=>c.tripId===t.id);
-                  const durationMin=t.startTime&&t.endTime?Math.round((new Date(t.endTime)-new Date(t.startTime))/60000):null;
                   return(
                     <div className="card" key={t.id} style={{marginBottom:10}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
                         <span style={{fontFamily:"var(--font-head)",fontSize:17,color:"var(--gold)",fontStyle:"italic"}}>
-                          {new Date(t.startTime).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
+                          {new Date((t.date||(t.startTime?t.startTime.split("T")[0]:new Date().toISOString().split("T")[0]))+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
                         </span>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
                           {t.skunked&&<span style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Skunked</span>}
@@ -8057,7 +8079,7 @@ ${shopPins}
                       </div>
                       {t.location&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>📍 {t.location}</div>}
                       <div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>
-                        🐟 {tripCatches.length} catch{tripCatches.length!==1?"es":""}{durationMin!=null?` · ${durationMin<60?durationMin+"m":(durationMin/60).toFixed(1)+"h"}`:""}
+                        🐟 {tripCatches.length} catch{tripCatches.length!==1?"es":""}
                       </div>
                       {t.techniques?.length>0&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>🎣 {t.techniques.join(", ")}</div>}
                       {t.streamCFS&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>💧 {t.streamCFS} CFS</div>}
