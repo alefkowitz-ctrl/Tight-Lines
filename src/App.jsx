@@ -948,22 +948,35 @@ async function askClaude(prompt, useSearch=false, maxTokens=1200, kind="cheap", 
 // logged trips/catches, and thin history says so plainly instead of inventing a pattern.
 // Haiku + no web search on purpose — this should be grounded ONLY in the angler's own
 // data, not general fishing knowledge, and it's called on-demand so cost stays low.
-async function generateTripIntel(subjectLabel, currentTrip, historyTrips){
+async function generateTripIntel(subjectLabel, currentTrip, currentCatches, historyTrips){
   const hist=historyTrips.slice(0,40).map(t=>({
     date:t.date, location:t.location, skunked:!!t.skunked,
-    catches:t.catches!=null?t.catches:0, species:t.species||[], flies:(t.flies||[]).slice(0,4),
-    techniques:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
+    catchCount:t.catches!=null?t.catches:0, species:t.species||[], flies:(t.flies||[]).slice(0,4),
+    techniquesLogged:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
     weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null
+  }));
+  // Species/flies/time ARE genuinely linked per catch — pass the real per-catch list
+  // instead of a flattened trip-wide dedup, so the model has actual joined facts to
+  // reason from instead of two parallel lists it has to guess a correspondence between.
+  const catchList=(currentCatches||[]).map(c=>({
+    species:c.species||null, flies:c.flies||[], time:c.time||null,
+    airTemp:c.airTemp||null, streamCFS:c.streamCFS||null, weather:c.weatherDesc||null
   }));
   const cur={
     date:currentTrip.date, location:currentTrip.location, skunked:!!currentTrip.skunked,
-    catches:currentTrip.catches!=null?currentTrip.catches:0, species:currentTrip.species||[],
-    flies:(currentTrip.flies||[]).slice(0,6), techniques:currentTrip.techniques||currentTrip.styles||[],
+    techniquesLogged:currentTrip.techniques||currentTrip.styles||[], flies:currentTrip.flies||[],
     cfs:currentTrip.streamCFS||null, condition:currentTrip.streamCondition||null,
-    weather:currentTrip.weatherConditions||currentTrip.weatherDesc||null, airTemp:currentTrip.airTemp||null
+    weather:currentTrip.weatherConditions||currentTrip.weatherDesc||null, airTemp:currentTrip.airTemp||null,
+    catches:catchList
   };
   const month=new Date((currentTrip.date||new Date().toISOString().split("T")[0])+"T12:00:00").toLocaleDateString("en-US",{month:"long"});
-  const prompt=`You are an experienced fly fishing guide giving ${subjectLabel} honest, specific intel after a day on the water. Ground every claim ONLY in the logged data below — never invent species, flies, conditions, or results that aren't present in it. If there isn't enough history to see a real pattern yet, say that plainly instead of guessing.
+  const prompt=`You are an experienced fly fishing guide giving ${subjectLabel} honest, specific intel after a day on the water.
+
+STRICT GROUNDING RULES:
+- Every species, fly, and result you mention must come from the logged data below — never invent one.
+- "techniquesLogged" and the top-level "flies" list are recorded for the WHOLE TRIP only — they are NOT linked to specific catches or to each other. The "catches" array is the only place flies are actually tied to a result. NEVER state or imply a specific fly was fished "under" a specific technique (e.g. never say "X and Y under Euro nymphing") unless that link is explicit in the data — techniques and the trip-level fly list are separate facts, not a paired breakdown.
+- You SHOULD use real fly-fishing expertise to explain WHY results happened, tied to the actual conditions and time of day in the data (e.g. a bump right around a warm midday stretch, or a fly making sense for that flow) — but only reasoning FROM logged facts, never adding facts that aren't there.
+- If there isn't enough trip history to see a real repeating pattern yet, say that plainly instead of guessing.
 
 THIS TRIP (${month}):
 ${JSON.stringify(cur)}
@@ -972,11 +985,11 @@ FULL TRIP HISTORY (${hist.length} prior trips, most recent first):
 ${JSON.stringify(hist)}
 
 Give intel in this exact shape:
-1. WHAT WORKED TODAY: 1-2 sentences on what this trip's own data shows worked — or, if it was slow/skunked, what was fished without success.
-2. THE PATTERN: The single clearest repeating factor across ALL logged trips (fly, flow range, technique, time of year) tied to good days. Say "not enough history yet" if under ~3 trips.
+1. WHAT WORKED TODAY: 1-2 sentences on what actually happened, tied to time of day/conditions where the data supports it.
+2. THE PATTERN: The single clearest repeating factor across ALL logged trips (fly, flow range, time of year, technique) tied to good days. Say "not enough history yet" if under ~3 trips.
 3. NEXT TIME: One concrete, actionable suggestion for the next trip, tied directly to the data above.
 
-3-4 sentences total. Direct, guide-to-angler tone. No hedging, no generic advice that isn't tied to this data.`;
+3-4 sentences total. Direct, guide-to-angler tone. No hedging, no generic advice not tied to this data, and no invented fly-technique pairings.`;
   return await askClaude(prompt,false,700,"cheap");
 }
 async function geocode(q){
@@ -3946,9 +3959,15 @@ function GuideBook({user, loc}){
     setGuideIntelLoading(true); setGuideIntelError(null);
     try{
       const deriveSpecies=t=>[...new Set((t.catchDetails||[]).map(cd=>cd.species).filter(s=>s&&s!=="Unidentified"&&s!=="Unknown"))];
-      const cur={...trip, species:deriveSpecies(trip)};
+      // catchDetails don't track a per-catch fly (only the trip-level "Flies That
+      // Worked" list), so pass an empty flies array per catch — generateTripIntel's
+      // grounding rules already forbid inferring a fly-to-catch link that isn't there.
+      const curCatches=(trip.catchDetails||[]).filter(cd=>cd.species&&cd.species!=="Unidentified"&&cd.species!=="Unknown").map(cd=>({
+        species:cd.species, flies:[], time:cd.time||null,
+        airTemp:cd.airTemp||null, streamCFS:cd.streamCFS||null, weather:cd.weatherDesc||null
+      }));
       const hist=(guest?.trips||[]).filter(t=>t.id!==trip.id).map(t=>({...t, species:deriveSpecies(t)}));
-      const text=await generateTripIntel(guest?.name?`${guest.name}`:"this client", cur, hist);
+      const text=await generateTripIntel(guest?.name?`${guest.name}`:"this client", trip, curCatches, hist);
       const now=new Date().toISOString();
       if(sb) await sb.from("trips").update({ai_intel:text, ai_intel_generated_at:now}).eq("id",trip.id);
       const upd={...trip, aiIntel:text, aiIntelGeneratedAt:now};
@@ -6399,12 +6418,14 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
             <div className="lbl" style={{marginBottom:8}}>Catches from this trip</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
               {tripCatches.map(c=>(
-                <div key={c.id} style={{position:"relative"}}>
+                <div key={c.id}>
                   {c.photo?(
-                    <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8,cursor:"pointer"}}
-                      onClick={()=>window._setLightbox&&window._setLightbox(c.photo)}/>
+                    <div style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}}
+                      onClick={()=>window._setLightbox&&window._setLightbox(c.photo)}>
+                      <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    </div>
                   ):(
-                    <div style={{width:"100%",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
+                    <div style={{position:"relative",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
                   )}
                   <div style={{fontSize:12,color:"var(--stone)",marginTop:2,textAlign:"center"}}>{c.species}{c.length?` · ${c.length}"`:""}</div>
                 </div>
@@ -7034,9 +7055,9 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     if(personalIntelLoading) return;
     setPersonalIntelLoading(true); setPersonalIntelError(null);
     try{
-      const cur=deriveTripForIntel(trip);
+      const curCatches=catches.filter(c=>c.tripId===trip.id);
       const hist=personalTrips.filter(t=>t.id!==trip.id).map(deriveTripForIntel);
-      const text=await generateTripIntel("this angler",cur,hist);
+      const text=await generateTripIntel("this angler",trip,curCatches,hist);
       const now=new Date().toISOString();
       if(sb) await sb.from("personal_trips").update({ai_intel:text,ai_intel_generated_at:now}).eq("id",trip.id);
       setPersonalTrips(ts=>ts.map(t=>t.id===trip.id?{...t,aiIntel:text,aiIntelGeneratedAt:now}:t));
