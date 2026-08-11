@@ -3075,6 +3075,20 @@ function TripLocationWeather({tripForm, setTripForm}){
             </select>
           </div>
         </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Stream Gauge Name</div>
+            <input className="inp" style={{marginBottom:0}} placeholder="e.g. Clear Creek at Golden, CO"
+              value={tripForm.streamGaugeName||""}
+              onChange={e=>setTripForm(f=>({...f,streamGaugeName:e.target.value}))}/>
+          </div>
+          <div>
+            <div className="lbl" style={{marginBottom:4}}>Stream Flow (CFS)</div>
+            <input className="inp" style={{marginBottom:0}} type="number" placeholder="150"
+              value={tripForm.streamCFS||""}
+              onChange={e=>{const v=e.target.value;const{label}=cfsLabel(v?parseFloat(v):null);setTripForm(f=>({...f,streamCFS:v,streamCondition:v?label:f.streamCondition}));}}/>
+          </div>
+        </div>
         <div className="lbl" style={{marginBottom:4}}>Sky / Conditions</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
@@ -6504,10 +6518,12 @@ function CatchCard({c,editingCatchId,setEditingCatchId,sharingCatchId,setSharing
 // to see photos. Portaled to document.body like PhotoCropModal below, at a z-index that
 // sits below the planner takeover (5000) and photo lightbox (9999) since a photo tapped
 // in here opens on top of this via the existing window._setLightbox lightbox.
-function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps}){
+function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps,onSaveTrip,tripSaving,tripSaveError}){
   const tripCatches=catches.filter(c=>c.tripId===trip.id);
   const isPro=PLAN_TIERS.has(tier);
   const [expandedCatchId,setExpandedCatchId]=useState(null);
+  const [tripEditOpen,setTripEditOpen]=useState(false);
+  const [editForm,setEditForm]=useState(null);
   return createPortal(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:4200,overflowY:"auto",padding:"20px 16px 48px"}}>
       <div style={{maxWidth:520,margin:"0 auto"}}>
@@ -6518,7 +6534,35 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
           </span>
         </div>
         <div className="card">
-          <div className="ctitle">📋 Trip Summary</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div className="ctitle" style={{marginBottom:0}}>📋 Trip Summary</div>
+            {!tripEditOpen&&<button onClick={()=>{setEditForm({location:trip.location||"",techniques:trip.techniques||[],notes:trip.notes||"",airTemp:trip.airTemp||"",waterTemp:trip.waterTemp||"",weatherConditions:trip.weatherDesc||"",windSpeed:trip.windSpeed||"",windDir:trip.windDir||"",pressure:trip.pressure||"",pressureTrend:trip.pressureTrend||"",streamCFS:trip.streamCFS||"",streamCondition:trip.streamCondition||"",streamGaugeName:trip.streamGaugeName||"",date:trip.date});setTripEditOpen(true);}}
+              style={{background:"none",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"4px 12px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>✏️ Edit</button>}
+          </div>
+          {tripEditOpen?(
+            <div style={{marginTop:12}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Location</div>
+              <TripLocationWeather tripForm={editForm} setTripForm={setEditForm}/>
+              <div style={{fontSize:14,color:"var(--stone)",marginTop:2,marginBottom:6}}>Technique(s)</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                {FISHING_STYLES.map(s=>(
+                  <button key={s} onClick={()=>setEditForm(f=>({...f,techniques:f.techniques.includes(s)?f.techniques.filter(x=>x!==s):[...f.techniques,s]}))}
+                    style={{fontSize:14,padding:"5px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:editForm.techniques.includes(s)?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:editForm.techniques.includes(s)?"var(--gold)":"var(--stone)",cursor:"pointer"}}>{s}</button>
+                ))}
+              </div>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes</div>
+              <textarea className="inp" rows={3} style={{resize:"none",marginBottom:14}}
+                value={editForm.notes} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))}/>
+              {tripSaveError&&<div style={{fontSize:14,color:"var(--red)",marginBottom:10}}>{tripSaveError}</div>}
+              <div style={{display:"flex",gap:8}}>
+                <button disabled={tripSaving} onClick={async()=>{const ok=await onSaveTrip(trip.id,editForm);if(ok)setTripEditOpen(false);}}
+                  className="btn btnp" style={{flex:1,marginBottom:0,opacity:tripSaving?0.6:1}}>{tripSaving?"Saving…":"Save Changes"}</button>
+                <button disabled={tripSaving} onClick={()=>{setTripEditOpen(false);setTripSaveError(null);}}
+                  style={{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Cancel</button>
+              </div>
+            </div>
+          ):(
+            <>
           {trip.location&&<div className="hr"><span className="hn">Location</span><span className="ha">{trip.location}</span></div>}
           <div className="hr"><span className="hn">Catches</span><span className="ha">{trip.skunked?"Skunked":`${tripCatches.length} fish`}</span></div>
           {trip.techniques?.length>0&&<div className="hr"><span className="hn">Techniques</span><span className="ha">{trip.techniques.join(", ")}</span></div>}
@@ -6540,6 +6584,8 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
               <div className="lbl" style={{marginBottom:4}}>Notes</div>
               <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{trip.notes}</p>
             </div>
+          )}
+            </>
           )}
           {isPro?(
             <div style={{marginTop:12,padding:"10px 12px",background:"rgba(209,154,74,0.08)",borderRadius:10,borderLeft:"3px solid var(--gold)"}}>
@@ -6868,6 +6914,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [personalTripDetail,setPersonalTripDetail]=useState(null);
   const [personalIntelLoading,setPersonalIntelLoading]=useState(false);
   const [personalIntelError,setPersonalIntelError]=useState(null);
+  const [personalTripSaving,setPersonalTripSaving]=useState(false);
+  const [personalTripSaveError,setPersonalTripSaveError]=useState(null);
   const [savingPersonalTrip,setSavingPersonalTrip]=useState(false);
   const logTripPhotoRef=useRef(null);
   const [sharingCatchId,setSharingCatchId]=useState(null);
@@ -7231,6 +7279,38 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       setPersonalIntelError("Could not generate intel. Try again.");
     }
     setPersonalIntelLoading(false);
+  }
+
+  // Saves the Trip Summary edit form — location, techniques, notes, and conditions.
+  // Same column set saveLogTrip already writes on create (no pressure/pressure_trend —
+  // personal_trips doesn't have those columns, unlike the per-catch conditions snapshot).
+  async function handleSavePersonalTrip(tripId, form){
+    if(personalTripSaving) return false;
+    setPersonalTripSaving(true); setPersonalTripSaveError(null);
+    try{
+      const patch={
+        location:form.location||null, techniques:form.techniques||[], notes:form.notes||null,
+        air_temp:form.airTemp||null, water_temp:form.waterTemp||null, weather_desc:form.weatherConditions||null,
+        wind_speed:form.windSpeed||null, wind_dir:form.windDir||null,
+        stream_cfs:form.streamCFS||null, stream_condition:form.streamCondition||null, stream_gauge_name:form.streamGaugeName||null
+      };
+      if(sb){
+        const{error}=await sb.from("personal_trips").update(patch).eq("id",tripId);
+        if(error) throw error;
+      }
+      setPersonalTrips(ts=>ts.map(t=>t.id===tripId?{...t,
+        location:patch.location||"", techniques:patch.techniques, notes:patch.notes||"",
+        airTemp:patch.air_temp!=null?String(patch.air_temp):"", waterTemp:patch.water_temp!=null?String(patch.water_temp):"",
+        weatherDesc:patch.weather_desc||"", windSpeed:patch.wind_speed!=null?String(patch.wind_speed):"", windDir:patch.wind_dir||"",
+        streamCFS:patch.stream_cfs!=null?String(patch.stream_cfs):"", streamCondition:patch.stream_condition||"", streamGaugeName:patch.stream_gauge_name||""
+      }:t));
+      setPersonalTripSaving(false);
+      return true;
+    }catch(e){
+      setPersonalTripSaveError("Could not save changes. Try again.");
+      setPersonalTripSaving(false);
+      return false;
+    }
   }
 
   async function updateCatch(id, updates){
@@ -8552,6 +8632,7 @@ ${shopPins}
           onClose={()=>setPersonalTripDetail(null)}
           onGenerateIntel={handleGenerateTripIntel}
           intelLoading={personalIntelLoading} intelError={personalIntelError}
+          onSaveTrip={handleSavePersonalTrip} tripSaving={personalTripSaving} tripSaveError={personalTripSaveError}
           catchCardProps={{
             editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,
             deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,
