@@ -6346,15 +6346,168 @@ const CROP_RATIOS=[
   {key:"1:1",label:"Square",w:1,h:1},
   {key:"orig",label:"Original",w:null,h:null},
 ];
+// The full catch card — photo, species/length/time header, condition chips, and
+// Edit/Share/Delete actions with inline edit fields covering every field on a catch.
+// Extracted from the standalone Catch Log list (was inline there) so the trip detail
+// modal's "tap a photo" flow can show the exact same, already-proven card instead of
+// duplicating it — one place to fix if the card ever needs to change.
+function CatchCard({c,editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,setLightboxPhoto,setLightboxCatchId,setCropCatchId}){
+  return (
+    <div className="cc">
+      {c.photo?(
+        <div style={{position:"relative"}}>
+          <img src={c.photo} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);setLightboxCatchId(c.id);}}/>
+          <button onClick={e=>{e.stopPropagation();setCropCatchId(c.id);}}
+            style={{position:"absolute",top:8,right:8,width:32,height:32,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"1px solid rgba(255,255,255,0.3)",color:"var(--foam)",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
+            aria-label="Crop photo" title="Crop photo">✂️</button>
+        </div>
+      ):<div className="c-ph">🐟</div>}
+      <div className="cb">
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div className="csp">{c.species}</div>
+          {c._pending&&<span style={{fontSize:15,background:"rgba(200,100,50,0.3)",border:"1px solid rgba(200,100,50,0.5)",borderRadius:10,padding:"1px 6px",color:"#ff9966"}}>⏳ Syncing</span>}
+        </div>
+        <div className="cm">
+          {c.length&&<span className="cmi">📏 {c.length}"</span>}
+          <span className="cmi">🕐 {c.time}</span>
+        </div>
+        {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
+        {c.notes&&<p style={{fontSize:15,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
+        {c.gps&&(()=>{
+          const m=c.gps.match(/([\d.]+)[°]?\s*([NS])[\s,]+([\d.]+)[°]?\s*([EW])/);
+          if(!m) return null;
+          const lat=parseFloat(m[1])*(m[2]==="S"?-1:1);
+          const lng=parseFloat(m[3])*(m[4]==="W"?-1:1);
+          const coordStr=Math.abs(lat).toFixed(4)+"°"+(lat>=0?"N":"S")+", "+Math.abs(lng).toFixed(4)+"°"+(lng>=0?"E":"W");
+          return <div className="cgps">
+            <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer" style={{color:"var(--sky)",textDecoration:"none"}}>📍 {coordStr}</a>
+          </div>;
+        })()}
+        {(c.streamGaugeName||c.streamCFS||c.airTemp||c.weatherDesc)&&(
+          <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+            {c.waterTemp&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
+            {c.streamGaugeName&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
+            {c.streamCFS&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS</span>}
+            {c.airTemp&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
+            {c.weatherDesc&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>{c.weatherDesc}</span>}
+            {c.windSpeed&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>💨 {c.windSpeed}mph {c.windDir||""}</span>}
+          </div>
+        )}
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
+            style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+            ✏️ Edit
+          </button>
+          <button onClick={e=>{e.stopPropagation();setSharingCatchId(prev=>prev===c.id?null:c.id);}}
+            style={{flex:1,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:8,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+            📤 Share
+          </button>
+          <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
+            style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+            🗑 Delete
+          </button>
+        </div>
+        {sharingCatchId===c.id&&(
+          <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Share to social</div>
+            <div style={{display:"flex",gap:8}}>
+              <button disabled={sharingBusy} onClick={()=>shareCatch(c,"minimal")}
+                style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
+                🖼 Minimal
+              </button>
+              <button disabled={sharingBusy} onClick={()=>shareCatch(c,"stat")}
+                style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
+                📋 Stat Card
+              </button>
+            </div>
+            {sharingBusy&&<div style={{fontSize:13,color:"var(--stone)",marginTop:8,textAlign:"center"}}>Building image…</div>}
+          </div>
+        )}
+        {editingCatchId===c.id&&(
+          <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
+                <SpeciesInput value={c.species||""} inputStyle={{marginBottom:0}}
+                  onChange={val=>updateCatch(c.id,{species:val})}/>
+              </div>
+              <div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
+                <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
+                  value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
+              </div>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
+              <input className="inp" style={{marginBottom:0,fontSize:15}}
+                value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>GPS</div>
+              <input className="inp" style={{marginBottom:0,fontSize:15}}
+                value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
+                <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
+                  value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
+              </div>
+              <div>
+                <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
+                <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
+                  value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes</div>
+              <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:15}}
+                value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Flies Used</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
+                {(c.flies||[]).map((f,i)=>(
+                  <span key={i} style={{fontSize:14,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"2px 8px",color:"var(--gold)",display:"flex",alignItems:"center",gap:4}}>
+                    🪶 {f}
+                    <button onClick={e=>{e.stopPropagation();const next=(c.flies||[]).filter((_,j)=>j!==i);updateCatch(c.id,{flies:next});}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",padding:"0 2px",fontSize:13,lineHeight:1}}>×</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <input className="inp" style={{marginBottom:0,fontSize:15,flex:1}} placeholder="e.g. Elk Hair Caddis #14"
+                  value={editCatchFlyInput}
+                  onChange={e=>setEditCatchFlyInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"&&editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}/>  
+                <button className="btn" style={{marginBottom:0,padding:"0 14px",fontSize:14}} onClick={e=>{e.stopPropagation();if(editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}>Add</button>
+              </div>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
+              <input className="inp" style={{marginBottom:0,fontSize:15}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
+              <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Full trip detail for a personal "Log a Trip" entry — the Guide CRM has had this
 // (conditions summary + linked catch photos) since GuideBook's tripDetail view; personal
 // trips never got the equivalent, so trip cards were summary-only with no way back in
 // to see photos. Portaled to document.body like PhotoCropModal below, at a z-index that
 // sits below the planner takeover (5000) and photo lightbox (9999) since a photo tapped
 // in here opens on top of this via the existing window._setLightbox lightbox.
-function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError}){
+function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps}){
   const tripCatches=catches.filter(c=>c.tripId===trip.id);
   const isPro=PLAN_TIERS.has(tier);
+  const [expandedCatchId,setExpandedCatchId]=useState(null);
   return createPortal(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:4200,overflowY:"auto",padding:"20px 16px 48px"}}>
       <div style={{maxWidth:520,margin:"0 auto"}}>
@@ -6415,22 +6568,34 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
         </div>
         {tripCatches.length>0&&(
           <div style={{marginTop:14}}>
-            <div className="lbl" style={{marginBottom:8}}>Catches from this trip</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {tripCatches.map(c=>(
-                <div key={c.id}>
-                  {c.photo?(
-                    <div style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}}
-                      onClick={()=>window._setLightbox&&window._setLightbox(c.photo)}>
-                      <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            {expandedCatchId?(()=>{
+              const ec=tripCatches.find(c=>c.id===expandedCatchId);
+              if(!ec){ setExpandedCatchId(null); return null; }
+              return (
+                <>
+                  <button onClick={()=>setExpandedCatchId(null)} style={{background:"none",border:"none",color:"var(--gold)",fontSize:15,cursor:"pointer",padding:0,marginBottom:8,fontFamily:"var(--font-body)"}}>← All catches</button>
+                  <CatchCard c={ec} {...catchCardProps}/>
+                </>
+              );
+            })():(
+              <>
+                <div className="lbl" style={{marginBottom:8}}>Catches from this trip</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                  {tripCatches.map(c=>(
+                    <div key={c.id} style={{cursor:"pointer"}} onClick={()=>setExpandedCatchId(c.id)}>
+                      {c.photo?(
+                        <div style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8}}>
+                          <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        </div>
+                      ):(
+                        <div style={{position:"relative",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
+                      )}
+                      <div style={{fontSize:12,color:"var(--stone)",marginTop:2,textAlign:"center"}}>{c.species}{c.length?` · ${c.length}"`:""}</div>
                     </div>
-                  ):(
-                    <div style={{position:"relative",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
-                  )}
-                  <div style={{fontSize:12,color:"var(--stone)",marginTop:2,textAlign:"center"}}>{c.species}{c.length?` · ${c.length}"`:""}</div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -8341,150 +8506,13 @@ ${shopPins}
             ):<CatchPatterns catches={catches}/>}
           {catchLogTab==="list"&&catches.length===0&&<div className="empty"><div className="ei">🎣</div><p>No catches yet.<br/>Tap + to record your first!</p></div>}
             {catchLogTab==="list"&&catchesByDate.map(c=>(
-              <div className="cc" key={c.id}>
-                {c.photo?(
-                  <div style={{position:"relative"}}>
-                    <img src={c.photo} className="c-img" alt="catch" loading="lazy" style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setLightboxPhoto(c.photo);setLightboxCatchId(c.id);}}/>
-                    <button onClick={e=>{e.stopPropagation();setCropCatchId(c.id);}}
-                      style={{position:"absolute",top:8,right:8,width:32,height:32,borderRadius:"50%",background:"rgba(13,31,38,0.75)",border:"1px solid rgba(255,255,255,0.3)",color:"var(--foam)",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
-                      aria-label="Crop photo" title="Crop photo">✂️</button>
-                  </div>
-                ):<div className="c-ph">🐟</div>}
-                <div className="cb">
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div className="csp">{c.species}</div>
-                    {c._pending&&<span style={{fontSize:15,background:"rgba(200,100,50,0.3)",border:"1px solid rgba(200,100,50,0.5)",borderRadius:10,padding:"1px 6px",color:"#ff9966"}}>⏳ Syncing</span>}
-                  </div>
-                  <div className="cm">
-                    {c.length&&<span className="cmi">📏 {c.length}"</span>}
-                    <span className="cmi">🕐 {c.time}</span>
-                  </div>
-                  {c.flies.length>0&&<div className="cff">{c.flies.map((f,i)=><a key={i} className="cfly" href={`https://www.google.com/search?q=${encodeURIComponent(f+" fly pattern")}&tbm=isch`} target="_blank" rel="noreferrer" style={{textDecoration:"none",cursor:"pointer"}}>🪶 {f}</a>)}</div>}
-                  {c.notes&&<p style={{fontSize:15,color:"var(--sky)",marginTop:8,fontStyle:"italic"}}>{c.notes}</p>}
-                  {c.gps&&(()=>{
-  const m=c.gps.match(/([\d.]+)[°]?\s*([NS])[\s,]+([\d.]+)[°]?\s*([EW])/);
-  if(!m) return null;
-  const lat=parseFloat(m[1])*(m[2]==="S"?-1:1);
-  const lng=parseFloat(m[3])*(m[4]==="W"?-1:1);
-  const coordStr=Math.abs(lat).toFixed(4)+"°"+(lat>=0?"N":"S")+", "+Math.abs(lng).toFixed(4)+"°"+(lng>=0?"E":"W");
-  return <div className="cgps">
-    <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer" style={{color:"var(--sky)",textDecoration:"none"}}>📍 {coordStr}</a>
-  </div>;
-})()}
-                  {(c.streamGaugeName||c.streamCFS||c.airTemp||c.weatherDesc)&&(
-                    <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
-                      {c.waterTemp&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"#7ec8c8"}}>💧 {c.waterTemp}°F</span>}
-                      {c.streamGaugeName&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>💧 {c.streamGaugeName.split(" ").slice(0,4).join(" ")}</span>}
-                      {c.streamCFS&&<span style={{fontSize:14,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:20,padding:"2px 8px",color:"var(--sky)"}}>{c.streamCFS} CFS</span>}
-                      {c.airTemp&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>🌡 {c.airTemp}°F</span>}
-                      {c.weatherDesc&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>{c.weatherDesc}</span>}
-                      {c.windSpeed&&<span style={{fontSize:14,background:"rgba(255,255,255,0.06)",borderRadius:20,padding:"2px 8px",color:"var(--stone)"}}>💨 {c.windSpeed}mph {c.windDir||""}</span>}
-                    </div>
-                  )}
-
-                  <div style={{display:"flex",gap:8,marginTop:8}}>
-                    <button onClick={e=>{e.stopPropagation();setEditingCatchId(prev=>prev===c.id?null:c.id);}}
-                      style={{flex:1,background:"rgba(209,154,74,0.2)",border:"1px solid rgba(209,154,74,0.5)",borderRadius:8,padding:"8px",color:"var(--gold)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                      ✏️ Edit
-                    </button>
-                    <button onClick={e=>{e.stopPropagation();setSharingCatchId(prev=>prev===c.id?null:c.id);}}
-                      style={{flex:1,background:"rgba(44,95,110,0.3)",border:"1px solid rgba(44,95,110,0.5)",borderRadius:8,padding:"8px",color:"var(--sky)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                      📤 Share
-                    </button>
-                    <button onClick={e=>{e.stopPropagation();if(window.confirm(`Delete this ${c.species}? This cannot be undone.`)){deleteCatch(c.id);}}}
-                      style={{flex:1,background:"rgba(150,80,80,0.3)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:8,padding:"8px",color:"var(--red)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                      🗑 Delete
-                    </button>
-                  </div>
-                  {sharingCatchId===c.id&&(
-                    <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
-                      <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Share to social</div>
-                      <div style={{display:"flex",gap:8}}>
-                        <button disabled={sharingBusy} onClick={()=>shareCatch(c,"minimal")}
-                          style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
-                          🖼 Minimal
-                        </button>
-                        <button disabled={sharingBusy} onClick={()=>shareCatch(c,"stat")}
-                          style={{flex:1,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:8,padding:"10px 6px",color:"var(--gold)",fontSize:14,cursor:sharingBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:sharingBusy?0.6:1}}>
-                          📋 Stat Card
-                        </button>
-                      </div>
-                      {sharingBusy&&<div style={{fontSize:13,color:"var(--stone)",marginTop:8,textAlign:"center"}}>Building image…</div>}
-                    </div>
-                  )}
-                  {editingCatchId===c.id&&(
-                <div style={{marginTop:8,background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"14px"}} onClick={e=>e.stopPropagation()}>
-                  <div style={{fontSize:14,color:"var(--gold)",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>Edit Catch Details</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Species</div>
-                      <SpeciesInput value={c.species||""} inputStyle={{marginBottom:0}}
-                        onChange={val=>updateCatch(c.id,{species:val})}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Length (in)</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
-                        value={c.length||""} onChange={e=>updateCatch(c.id,{length:e.target.value})}/>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Date & Time</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:15}}
-                      value={c.time||""} onChange={e=>updateCatch(c.id,{time:e.target.value})}/>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>GPS</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:15}}
-                      value={c.gps||""} onChange={e=>updateCatch(c.id,{gps:e.target.value})}/>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Air Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
-                        value={c.airTemp||""} onChange={e=>updateCatch(c.id,{airTemp:e.target.value})}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Water Temp °F</div>
-                      <input className="inp" style={{marginBottom:0,fontSize:15}} type="number"
-                        value={c.waterTemp||""} onChange={e=>updateCatch(c.id,{waterTemp:e.target.value})}/>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Notes</div>
-                    <textarea className="inp" rows={2} style={{resize:"none",marginBottom:0,fontSize:15}}
-                      value={c.notes||""} onChange={e=>updateCatch(c.id,{notes:e.target.value})}/>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Flies Used</div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}}>
-                      {(c.flies||[]).map((f,i)=>(
-                        <span key={i} style={{fontSize:14,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"2px 8px",color:"var(--gold)",display:"flex",alignItems:"center",gap:4}}>
-                          🪶 {f}
-                          <button onClick={e=>{e.stopPropagation();const next=(c.flies||[]).filter((_,j)=>j!==i);updateCatch(c.id,{flies:next});}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",padding:"0 2px",fontSize:13,lineHeight:1}}>×</button>
-                        </span>
-                      ))}
-                    </div>
-                    <div style={{display:"flex",gap:6}}>
-                      <input className="inp" style={{marginBottom:0,fontSize:15,flex:1}} placeholder="e.g. Elk Hair Caddis #14"
-                        value={editCatchFlyInput}
-                        onChange={e=>setEditCatchFlyInput(e.target.value)}
-                        onKeyDown={e=>{if(e.key==="Enter"&&editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}/>  
-                      <button className="btn" style={{marginBottom:0,padding:"0 14px",fontSize:14}} onClick={e=>{e.stopPropagation();if(editCatchFlyInput.trim()){updateCatch(c.id,{flies:[...(c.flies||[]),editCatchFlyInput.trim()]});setEditCatchFlyInput("");}}}>Add</button>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream Gauge</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:15}} value={c.streamGaugeName||""} onChange={e=>updateCatch(c.id,{streamGaugeName:e.target.value})}/>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:14,color:"var(--stone)",marginBottom:3}}>Stream CFS</div>
-                    <input className="inp" style={{marginBottom:0,fontSize:15}} type="number" value={c.streamCFS||""} onChange={e=>updateCatch(c.id,{streamCFS:e.target.value})}/>
-                  </div>
-                </div>
-              )}
-              </div>
-            </div>
-          ))}
+              <CatchCard key={c.id} c={c}
+                editingCatchId={editingCatchId} setEditingCatchId={setEditingCatchId}
+                sharingCatchId={sharingCatchId} setSharingCatchId={setSharingCatchId}
+                sharingBusy={sharingBusy} shareCatch={shareCatch} deleteCatch={deleteCatch} updateCatch={updateCatch}
+                editCatchFlyInput={editCatchFlyInput} setEditCatchFlyInput={setEditCatchFlyInput}
+                setLightboxPhoto={setLightboxPhoto} setLightboxCatchId={setLightboxCatchId} setCropCatchId={setCropCatchId}/>
+            ))}
           </>}
 
           {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
@@ -8523,7 +8551,12 @@ ${shopPins}
         return <PersonalTripDetailModal trip={live} catches={catches} tier={tier}
           onClose={()=>setPersonalTripDetail(null)}
           onGenerateIntel={handleGenerateTripIntel}
-          intelLoading={personalIntelLoading} intelError={personalIntelError}/>;
+          intelLoading={personalIntelLoading} intelError={personalIntelError}
+          catchCardProps={{
+            editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,
+            deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,
+            setLightboxPhoto,setLightboxCatchId,setCropCatchId
+          }}/>;
       })()}
 
       <div className={`slide${addOpen?" on":""}`}>
