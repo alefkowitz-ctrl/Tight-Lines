@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.7.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
