@@ -8447,6 +8447,120 @@ function SplashScreen({onDone}){
   );
 }
 
+// ── Add to Home Screen install prompt ──────────────────────────────────────────
+// The manifest + apple meta tags already make the site installable; this is the UI
+// that tells anyone that, since iOS gives no automatic prompt at all and Android's
+// only fires if you capture beforeinstallprompt yourself.
+//
+// Portaled to document.body for the same stacking-context reason as the header
+// buttons and the planner loading overlay. z-index 4000 sits below the planner
+// takeover (5000) and the video modal (10000) so it can never cover them.
+const A2HS_KEY="gc_a2hs_snooze";
+const A2HS_SNOOZE_DAYS=14;
+function isStandaloneMode(){
+  try{
+    return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone===true;
+  }catch(_){return false;}
+}
+// In-app browsers (Instagram, Facebook, TikTok, LinkedIn, Twitter) can't install a PWA
+// at all — showing them a prompt is a dead end, so they're excluded outright. This
+// matters here specifically because Instagram is the main traffic source.
+function isInAppBrowser(){
+  const ua=String(navigator.userAgent||"");
+  return /Instagram|FBAN|FBAV|FB_IAB|Line\/|TikTok|LinkedInApp|Twitter/i.test(ua);
+}
+function isIOSSafari(){
+  const ua=String(navigator.userAgent||"");
+  const iOS=/iPad|iPhone|iPod/.test(ua) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+  if(!iOS) return false;
+  // Chrome/Firefox/Edge on iOS can't add to home screen — only Safari can.
+  if(/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) return false;
+  return true;
+}
+function InstallPrompt(){
+  const [show,setShow]=useState(false);
+  const [mode,setMode]=useState("");        // "ios" | "android"
+  const deferredRef=React.useRef(null);
+
+  useEffect(()=>{
+    if(isStandaloneMode()||isInAppBrowser()) return;
+    let snoozed=false;
+    try{
+      const until=Number(localStorage.getItem(A2HS_KEY)||0);
+      snoozed=until>Date.now();
+    }catch(_){}
+    if(snoozed) return;
+
+    // Android/desktop Chrome: the event only fires if the app is installable and not
+    // already installed, so its arrival IS the eligibility check.
+    const onBIP=(e)=>{
+      e.preventDefault();
+      deferredRef.current=e;
+      setMode("android");
+      setShow(true);
+    };
+    window.addEventListener("beforeinstallprompt",onBIP);
+
+    // iOS never fires that event, so it gets an instructional card instead — delayed
+    // so it doesn't land on top of a first impression.
+    let t=null;
+    if(isIOSSafari()){
+      t=setTimeout(()=>{setMode("ios");setShow(true);},4000);
+    }
+    const onInstalled=()=>{setShow(false);};
+    window.addEventListener("appinstalled",onInstalled);
+    return ()=>{
+      window.removeEventListener("beforeinstallprompt",onBIP);
+      window.removeEventListener("appinstalled",onInstalled);
+      if(t) clearTimeout(t);
+    };
+  },[]);
+
+  // Snooze rather than dismiss forever: someone who isn't ready today may well be
+  // after a few more trips through the app.
+  const dismiss=()=>{
+    try{ localStorage.setItem(A2HS_KEY,String(Date.now()+A2HS_SNOOZE_DAYS*86400000)); }catch(_){}
+    setShow(false);
+  };
+  const install=async()=>{
+    const ev=deferredRef.current;
+    if(!ev){dismiss();return;}
+    try{
+      ev.prompt();
+      await ev.userChoice;
+    }catch(_){}
+    deferredRef.current=null;
+    setShow(false);
+  };
+
+  if(!show) return null;
+  return createPortal(
+    <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:4000,display:"flex",justifyContent:"center",padding:"0 12px 12px",pointerEvents:"none"}}>
+      <div style={{pointerEvents:"auto",width:"100%",maxWidth:440,background:"rgba(18,26,20,0.98)",border:"1px solid rgba(209,154,74,0.35)",borderRadius:16,padding:"16px 16px 14px",boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:mode==="ios"?10:14}}>
+          <img src="/icon-192.png" alt="" width="42" height="42" style={{borderRadius:10,flexShrink:0}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"var(--font-head)",fontSize:17,color:"var(--foam)",letterSpacing:0.3}}>Add Guide's Choice to your phone</div>
+            <div style={{fontSize:13.5,color:"var(--stone)",marginTop:2}}>Opens full screen, right from your home screen.</div>
+          </div>
+          <button onClick={dismiss} aria-label="Dismiss" style={{background:"none",border:"none",color:"var(--stone)",fontSize:20,lineHeight:1,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>✕</button>
+        </div>
+        {mode==="ios"?(
+          <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:11,padding:"11px 13px",fontSize:14,color:"var(--sky)",lineHeight:1.65}}>
+            Tap <span style={{color:"var(--gold)"}}>Share</span> <span style={{fontSize:15}}>􀈂</span> at the bottom of Safari, then choose <span style={{color:"var(--gold)"}}>Add to Home Screen</span>.
+          </div>
+        ):(
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={install} style={{flex:1,background:"var(--gold)",border:"none",borderRadius:11,padding:"11px 14px",fontSize:15.5,fontWeight:600,color:"#1f231d",cursor:"pointer",fontFamily:"var(--font-body)"}}>Install</button>
+            <button onClick={dismiss} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",borderRadius:11,padding:"11px 16px",fontSize:15.5,color:"var(--stone)",cursor:"pointer",fontFamily:"var(--font-body)"}}>Not now</button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
   const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking} = useAuth();
@@ -8483,6 +8597,7 @@ function Root(){
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
     <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug} tierChecking={tierChecking}/>
+    <InstallPrompt/>
   </>;
 }
 export default Root;
