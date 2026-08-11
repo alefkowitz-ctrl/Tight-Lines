@@ -942,6 +942,43 @@ async function askClaude(prompt, useSearch=false, maxTokens=1200, kind="cheap", 
   const texts=(d.content||[]).map(b=>b.type==="text"?b.text:b.type==="tool_result"?(Array.isArray(b.content)?b.content.map(x=>x.text||"").join(""):b.content||""):"").filter(Boolean);
   return texts.join(" ");
 }
+// Grounded, guide-voice "what's working" intel — shared by the angler's personal Log
+// Trip detail and the Guide CRM's per-client trip detail. Same non-fabrication contract
+// as GuideTrends' whole-book insight (below): every claim must trace back to actually-
+// logged trips/catches, and thin history says so plainly instead of inventing a pattern.
+// Haiku + no web search on purpose — this should be grounded ONLY in the angler's own
+// data, not general fishing knowledge, and it's called on-demand so cost stays low.
+async function generateTripIntel(subjectLabel, currentTrip, historyTrips){
+  const hist=historyTrips.slice(0,40).map(t=>({
+    date:t.date, location:t.location, skunked:!!t.skunked,
+    catches:t.catches!=null?t.catches:0, species:t.species||[], flies:(t.flies||[]).slice(0,4),
+    techniques:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
+    weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null
+  }));
+  const cur={
+    date:currentTrip.date, location:currentTrip.location, skunked:!!currentTrip.skunked,
+    catches:currentTrip.catches!=null?currentTrip.catches:0, species:currentTrip.species||[],
+    flies:(currentTrip.flies||[]).slice(0,6), techniques:currentTrip.techniques||currentTrip.styles||[],
+    cfs:currentTrip.streamCFS||null, condition:currentTrip.streamCondition||null,
+    weather:currentTrip.weatherConditions||currentTrip.weatherDesc||null, airTemp:currentTrip.airTemp||null
+  };
+  const month=new Date((currentTrip.date||new Date().toISOString().split("T")[0])+"T12:00:00").toLocaleDateString("en-US",{month:"long"});
+  const prompt=`You are an experienced fly fishing guide giving ${subjectLabel} honest, specific intel after a day on the water. Ground every claim ONLY in the logged data below — never invent species, flies, conditions, or results that aren't present in it. If there isn't enough history to see a real pattern yet, say that plainly instead of guessing.
+
+THIS TRIP (${month}):
+${JSON.stringify(cur)}
+
+FULL TRIP HISTORY (${hist.length} prior trips, most recent first):
+${JSON.stringify(hist)}
+
+Give intel in this exact shape:
+1. WHAT WORKED TODAY: 1-2 sentences on what this trip's own data shows worked — or, if it was slow/skunked, what was fished without success.
+2. THE PATTERN: The single clearest repeating factor across ALL logged trips (fly, flow range, technique, time of year) tied to good days. Say "not enough history yet" if under ~3 trips.
+3. NEXT TIME: One concrete, actionable suggestion for the next trip, tied directly to the data above.
+
+3-4 sentences total. Direct, guide-to-angler tone. No hedging, no generic advice that isn't tied to this data.`;
+  return await askClaude(prompt,false,700,"cheap");
+}
 async function geocode(q){
   // Search with extra detail for natural features and small places
   let results=[];
@@ -2862,6 +2899,28 @@ function TripLocationWeather({tripForm, setTripForm}){
       const geoData = await geocode(location);
       if(!geoData.length){ setWxLoading(false); return; }
       const lat=parseFloat(geoData[0].lat), lng=parseFloat(geoData[0].lon);
+      const today=new Date().toISOString().split("T")[0];
+      const tripDate=tripForm.date||today;
+      if(tripDate<today){
+        // Past-dated trip: pull conditions for that specific day, not "right now".
+        // Reuses fetchHistoricalConditions — the same date-aware fetcher the per-catch
+        // photo pipeline already uses — so its gauge-matching safety (uncertain matches,
+        // inactive-gauge guards) applies here too, and there's no separate code path to
+        // regress. Single best-match gauge only (no multi-gauge picker) since the
+        // archive endpoint doesn't give us the same candidate list live gauges do.
+        const h=await fetchHistoricalConditions(lat,lng,tripDate,"12");
+        setTripForm(f=>({
+          ...f,
+          airTemp:h.airTemp||"", windSpeed:h.windSpeed||"", windDir:h.windDir||"",
+          pressure:h.pressure||"", pressureTrend:"", weatherConditions:h.weatherDesc||"",
+          streamCFS:h.streamCFS||f.streamCFS, streamCondition:h.streamCondition||f.streamCondition,
+          streamGaugeName:h.streamGaugeName||f.streamGaugeName
+        }));
+        setNearbyGauges([]);
+        setWxFetched(true);
+        setWxLoading(false);
+        return;
+      }
       const wx = await fetchWeather(lat, lng);
       const c = wx.current;
       const presInHg = (c.surface_pressure*0.02953).toFixed(2);
@@ -2937,7 +2996,7 @@ function TripLocationWeather({tripForm, setTripForm}){
           {wxLoading?"⏳ Fetching…":"🌤 Get Conditions"}
         </button>
       </div>
-      {wxFetched&&<div style={{fontSize:14,color:"#9cd47a",marginBottom:8,fontStyle:"italic"}}>✓ Conditions auto-populated — adjust below if needed</div>}
+      {wxFetched&&<div style={{fontSize:14,color:"#9cd47a",marginBottom:8,fontStyle:"italic"}}>✓ {(tripForm.date&&tripForm.date<new Date().toISOString().split("T")[0])?`Historical conditions for ${new Date(tripForm.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} — adjust below if needed`:"Conditions auto-populated — adjust below if needed"}</div>}
       {nearbyGauges.length>0&&(
         <div style={{marginBottom:12}}>
           <div className="lbl" style={{marginBottom:6}}>Select Body of Water Being Fished</div>
@@ -3723,6 +3782,8 @@ function GuideBook({user, loc}){
   const [guideSection, setGuideSection] = useState("clients");
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [guideIntelLoading, setGuideIntelLoading] = useState(false);
+  const [guideIntelError, setGuideIntelError] = useState(null);
   // Persist which trip is open so an iOS reload (e.g. after closing the PDF tab) lands back on it
   useEffect(()=>{
     try{
@@ -3800,7 +3861,8 @@ function GuideBook({user, loc}){
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
           streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name,
-          catchDetails:t.catch_details||[]
+          catchDetails:t.catch_details||[],
+          aiIntel:t.ai_intel||"",aiIntelGeneratedAt:t.ai_intel_generated_at||null
         }))
       }));
       setGuests(guestsWithTrips);
@@ -3874,6 +3936,28 @@ function GuideBook({user, loc}){
       void 0;
       setSelectedTrip(st=>({...st,photosLoading:false}));
     }
+  }
+
+  // Per-client trip intel: grounded in this client's OTHER logged trips (not the
+  // whole book — that's GuideTrends' job). Species come from catchDetails since
+  // guide trips don't have a separate catches-table link the way personal trips do.
+  async function handleGenerateGuideIntel(trip, guest){
+    if(guideIntelLoading) return;
+    setGuideIntelLoading(true); setGuideIntelError(null);
+    try{
+      const deriveSpecies=t=>[...new Set((t.catchDetails||[]).map(cd=>cd.species).filter(s=>s&&s!=="Unidentified"&&s!=="Unknown"))];
+      const cur={...trip, species:deriveSpecies(trip)};
+      const hist=(guest?.trips||[]).filter(t=>t.id!==trip.id).map(t=>({...t, species:deriveSpecies(t)}));
+      const text=await generateTripIntel(guest?.name?`${guest.name}`:"this client", cur, hist);
+      const now=new Date().toISOString();
+      if(sb) await sb.from("trips").update({ai_intel:text, ai_intel_generated_at:now}).eq("id",trip.id);
+      const upd={...trip, aiIntel:text, aiIntelGeneratedAt:now};
+      setSelectedTrip(upd);
+      setGuests(gs=>gs.map(g=>({...g,trips:(g.trips||[]).map(t=>t.id===trip.id?upd:t)})));
+    }catch(e){
+      setGuideIntelError("Could not generate intel. Try again.");
+    }
+    setGuideIntelLoading(false);
   }
 
   // Called by PhotoCropModal for a trip catch photo. Trip photos are a different data
@@ -4687,6 +4771,22 @@ function GuideBook({user, loc}){
             <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{selectedTrip.guideNotes}</p>
           </div>
         )}
+        <div style={{marginTop:12,padding:"10px 12px",background:"rgba(209,154,74,0.08)",borderRadius:10,borderLeft:"3px solid var(--gold)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:selectedTrip.aiIntel?6:0}}>
+            <div className="lbl" style={{marginBottom:0}}>🎣 AI Intel for {selectedGuest?.name||"this client"}</div>
+            <button disabled={guideIntelLoading} onClick={()=>handleGenerateGuideIntel(selectedTrip,selectedGuest)}
+              style={{background:"none",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"4px 12px",color:"var(--gold)",fontSize:13,cursor:guideIntelLoading?"default":"pointer",opacity:guideIntelLoading?0.6:1,fontFamily:"var(--font-body)",whiteSpace:"nowrap"}}>
+              {guideIntelLoading?"Reading trips…":selectedTrip.aiIntel?"↻ Regenerate":"Get Intel"}
+            </button>
+          </div>
+          {guideIntelError&&<div style={{fontSize:14,color:"var(--red)",marginTop:6}}>{guideIntelError}</div>}
+          {selectedTrip.aiIntel?(
+            <>
+              <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{selectedTrip.aiIntel}</p>
+              {selectedTrip.aiIntelGeneratedAt&&<div style={{fontSize:13,color:"var(--stone)",marginTop:4}}>Generated {new Date(selectedTrip.aiIntelGeneratedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>}
+            </>
+          ):(!guideIntelLoading&&<p style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Tap "Get Intel" for a read on what's working across {selectedGuest?.name?`${selectedGuest.name}'s`:"this client's"} logged trips.</p>)}
+        </div>
         <div style={{marginTop:12,marginBottom:8}}>
         <input type="file" accept="image/*" multiple id="tripDetailPhotoInput" style={{display:"none"}} onChange={async(e)=>{
           const files=Array.from(e.target.files||[]);
@@ -6227,6 +6327,97 @@ const CROP_RATIOS=[
   {key:"1:1",label:"Square",w:1,h:1},
   {key:"orig",label:"Original",w:null,h:null},
 ];
+// Full trip detail for a personal "Log a Trip" entry — the Guide CRM has had this
+// (conditions summary + linked catch photos) since GuideBook's tripDetail view; personal
+// trips never got the equivalent, so trip cards were summary-only with no way back in
+// to see photos. Portaled to document.body like PhotoCropModal below, at a z-index that
+// sits below the planner takeover (5000) and photo lightbox (9999) since a photo tapped
+// in here opens on top of this via the existing window._setLightbox lightbox.
+function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError}){
+  const tripCatches=catches.filter(c=>c.tripId===trip.id);
+  const isPro=PLAN_TIERS.has(tier);
+  return createPortal(
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:4200,overflowY:"auto",padding:"20px 16px 48px"}}>
+      <div style={{maxWidth:520,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <button className="back" onClick={onClose}>← Back</button>
+          <span style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--foam)",fontStyle:"italic"}}>
+            {new Date((trip.date||new Date().toISOString().split("T")[0])+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
+          </span>
+        </div>
+        <div className="card">
+          <div className="ctitle">📋 Trip Summary</div>
+          {trip.location&&<div className="hr"><span className="hn">Location</span><span className="ha">{trip.location}</span></div>}
+          <div className="hr"><span className="hn">Catches</span><span className="ha">{trip.skunked?"Skunked":`${tripCatches.length} fish`}</span></div>
+          {trip.techniques?.length>0&&<div className="hr"><span className="hn">Techniques</span><span className="ha">{trip.techniques.join(", ")}</span></div>}
+          {(trip.airTemp||trip.waterTemp||trip.weatherDesc||trip.streamCFS)&&(
+            <div style={{marginTop:10,marginBottom:4}}>
+              <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
+              {trip.streamGaugeName&&<div style={{fontSize:15,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {trip.streamGaugeName}</div>}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:15,color:"var(--sky)"}}>
+                {trip.streamCFS&&<span>💧 {Number(trip.streamCFS).toLocaleString()} CFS</span>}
+                {trip.waterTemp&&<span>🌡 Water: {trip.waterTemp}°F</span>}
+                {trip.weatherDesc&&<span>{trip.weatherDesc}</span>}
+                {trip.airTemp&&<span>🌡 Air: {trip.airTemp}°F</span>}
+                {trip.windSpeed&&<span>💨 {trip.windSpeed} mph {trip.windDir}</span>}
+              </div>
+            </div>
+          )}
+          {trip.notes&&(
+            <div style={{marginTop:12,padding:"10px 12px",background:"rgba(0,0,0,0.2)",borderRadius:10,borderLeft:"3px solid var(--water)"}}>
+              <div className="lbl" style={{marginBottom:4}}>Notes</div>
+              <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,fontStyle:"italic"}}>{trip.notes}</p>
+            </div>
+          )}
+          {isPro?(
+            <div style={{marginTop:12,padding:"10px 12px",background:"rgba(209,154,74,0.08)",borderRadius:10,borderLeft:"3px solid var(--gold)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:trip.aiIntel?6:0}}>
+                <div className="lbl" style={{marginBottom:0}}>🎣 My Intel</div>
+                <button disabled={intelLoading} onClick={()=>onGenerateIntel(trip)}
+                  style={{background:"none",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"4px 12px",color:"var(--gold)",fontSize:13,cursor:intelLoading?"default":"pointer",opacity:intelLoading?0.6:1,fontFamily:"var(--font-body)",whiteSpace:"nowrap"}}>
+                  {intelLoading?"Reading trips…":trip.aiIntel?"↻ Regenerate":"Get My Intel"}
+                </button>
+              </div>
+              {intelError&&<div style={{fontSize:14,color:"var(--red)",marginTop:6}}>{intelError}</div>}
+              {trip.aiIntel?(
+                <>
+                  <p style={{fontSize:15,color:"var(--sky)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{trip.aiIntel}</p>
+                  {trip.aiIntelGeneratedAt&&<div style={{fontSize:13,color:"var(--stone)",marginTop:4}}>Generated {new Date(trip.aiIntelGeneratedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>}
+                </>
+              ):(!intelLoading&&<p style={{fontSize:14,color:"var(--stone)",fontStyle:"italic",marginTop:6}}>Tap "Get My Intel" for a guide-style read on what's working across your logged trips.</p>)}
+            </div>
+          ):(
+            <div style={{marginTop:12,padding:"14px",background:"rgba(0,0,0,0.2)",borderRadius:10,textAlign:"center"}}>
+              <div style={{fontSize:15,color:"var(--foam)",marginBottom:4}}>🔒 My Intel is a {TIER_INFO.consumer_pro.name} feature</div>
+              <div style={{fontSize:14,color:"var(--stone)",marginBottom:10}}>Guide-style feedback on what's working, grounded in your own logged trips.</div>
+              <button onClick={()=>startCheckout("consumer_pro","monthly")} style={{background:"var(--gold)",border:"none",borderRadius:8,padding:"8px 18px",color:"#0c1e25",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"var(--font-body)"}}>Upgrade — {TIER_INFO.consumer_pro.price}</button>
+            </div>
+          )}
+        </div>
+        {tripCatches.length>0&&(
+          <div style={{marginTop:14}}>
+            <div className="lbl" style={{marginBottom:8}}>Catches from this trip</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {tripCatches.map(c=>(
+                <div key={c.id} style={{position:"relative"}}>
+                  {c.photo?(
+                    <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8,cursor:"pointer"}}
+                      onClick={()=>window._setLightbox&&window._setLightbox(c.photo)}/>
+                  ):(
+                    <div style={{width:"100%",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
+                  )}
+                  <div style={{fontSize:12,color:"var(--stone)",marginTop:2,textAlign:"center"}}>{c.species}{c.length?` · ${c.length}"`:""}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function PhotoCropModal({photoUrl,onSave,onCancel}){
   const [ratioKey,setRatioKey]=useState("3:2");
   const [natSize,setNatSize]=useState(null);
@@ -6488,6 +6679,9 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const logTripForm0={date:new Date().toISOString().split("T")[0],location:"",techniques:[],notes:"",photos:[],catchDetails:[],linkedCatchIds:[],airTemp:"",waterTemp:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",weatherConditions:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
   const [logTripForm,setLogTripForm]=useState(logTripForm0);
   const [showCatchPicker,setShowCatchPicker]=useState(false);
+  const [personalTripDetail,setPersonalTripDetail]=useState(null);
+  const [personalIntelLoading,setPersonalIntelLoading]=useState(false);
+  const [personalIntelError,setPersonalIntelError]=useState(null);
   const [savingPersonalTrip,setSavingPersonalTrip]=useState(false);
   const logTripPhotoRef=useRef(null);
   const [sharingCatchId,setSharingCatchId]=useState(null);
@@ -6641,7 +6835,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       airTemp:r.air_temp!=null?String(r.air_temp):"",waterTemp:r.water_temp!=null?String(r.water_temp):"",
       weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",
       streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",
-      streamGaugeName:r.stream_gauge_name||"",notes:r.notes||""
+      streamGaugeName:r.stream_gauge_name||"",notes:r.notes||"",
+      aiIntel:r.ai_intel||"",aiIntelGeneratedAt:r.ai_intel_generated_at||null
     };
   }
 
@@ -6825,6 +7020,31 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       // (on delete set null) — the setCatches above just keeps local state in sync
       // with that immediately instead of waiting for a reload.
     }catch(e){void 0;}
+  }
+
+  // Personal trip rows don't store species/flies directly — those live on the linked
+  // catches-table rows — so pull them in here before handing off to the shared,
+  // subject-agnostic generateTripIntel().
+  function deriveTripForIntel(t){
+    const tc=catches.filter(c=>c.tripId===t.id);
+    return {...t, species:[...new Set(tc.map(c=>c.species).filter(s=>s&&s!=="Unidentified"))],
+      flies:[...new Set(tc.flatMap(c=>c.flies||[]))], catches:tc.length};
+  }
+  async function handleGenerateTripIntel(trip){
+    if(personalIntelLoading) return;
+    setPersonalIntelLoading(true); setPersonalIntelError(null);
+    try{
+      const cur=deriveTripForIntel(trip);
+      const hist=personalTrips.filter(t=>t.id!==trip.id).map(deriveTripForIntel);
+      const text=await generateTripIntel("this angler",cur,hist);
+      const now=new Date().toISOString();
+      if(sb) await sb.from("personal_trips").update({ai_intel:text,ai_intel_generated_at:now}).eq("id",trip.id);
+      setPersonalTrips(ts=>ts.map(t=>t.id===trip.id?{...t,aiIntel:text,aiIntelGeneratedAt:now}:t));
+      setPersonalTripDetail(d=>d&&d.id===trip.id?{...d,aiIntel:text,aiIntelGeneratedAt:now}:d);
+    }catch(e){
+      setPersonalIntelError("Could not generate intel. Try again.");
+    }
+    setPersonalIntelLoading(false);
   }
 
   async function updateCatch(id, updates){
@@ -8066,15 +8286,16 @@ ${shopPins}
                 )}
                 {personalTrips.map(t=>{
                   const tripCatches=catches.filter(c=>c.tripId===t.id);
+                  const tripPhotos=tripCatches.filter(c=>c.photo);
                   return(
-                    <div className="card" key={t.id} style={{marginBottom:10}}>
+                    <div className="card" key={t.id} style={{marginBottom:10,cursor:"pointer"}} onClick={()=>setPersonalTripDetail(t)}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
                         <span style={{fontFamily:"var(--font-head)",fontSize:17,color:"var(--gold)",fontStyle:"italic"}}>
                           {new Date((t.date||(t.startTime?t.startTime.split("T")[0]:new Date().toISOString().split("T")[0]))+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}
                         </span>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
                           {t.skunked&&<span style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>Skunked</span>}
-                          <button onClick={()=>deletePersonalTrip(t.id)} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:"pointer",padding:2}}>🗑</button>
+                          <button onClick={e=>{e.stopPropagation();deletePersonalTrip(t.id);}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:"pointer",padding:2}}>🗑</button>
                         </div>
                       </div>
                       {t.location&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>📍 {t.location}</div>}
@@ -8084,6 +8305,14 @@ ${shopPins}
                       {t.techniques?.length>0&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>🎣 {t.techniques.join(", ")}</div>}
                       {t.streamCFS&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>💧 {t.streamCFS} CFS</div>}
                       {t.notes&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4,fontStyle:"italic"}}>{t.notes}</div>}
+                      {tripPhotos.length>0&&(
+                        <div style={{display:"flex",gap:6,marginTop:8}}>
+                          {tripPhotos.slice(0,4).map((c,i)=>(
+                            <img key={i} src={c.photo} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)"}}/>
+                          ))}
+                          {tripPhotos.length>4&&<div style={{width:52,height:52,borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"var(--stone)"}}>+{tripPhotos.length-4}</div>}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -8266,6 +8495,14 @@ ${shopPins}
         return <PhotoCropModal key={cropCatchId} photoUrl={cropCatch.photo}
           onSave={dataUrl=>handleCropSave(cropCatchId,dataUrl)}
           onCancel={()=>setCropCatchId(null)}/>;
+      })()}
+
+      {personalTripDetail&&(()=>{
+        const live=personalTrips.find(t=>t.id===personalTripDetail.id)||personalTripDetail;
+        return <PersonalTripDetailModal trip={live} catches={catches} tier={tier}
+          onClose={()=>setPersonalTripDetail(null)}
+          onGenerateIntel={handleGenerateTripIntel}
+          intelLoading={personalIntelLoading} intelError={personalIntelError}/>;
       })()}
 
       <div className={`slide${addOpen?" on":""}`}>
