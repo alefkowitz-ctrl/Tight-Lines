@@ -661,6 +661,24 @@ export function reconcileBestBet(report){
   return {...report,recommendation:(note+(alt.why||alt.conditions||"See its river card below for details.")).trim()};
 }
 
+// Light-touch personalization (App Dev, added after the AI Intel feature): a short,
+// deterministic note built from the angler's OWN logged trip history — never an AI
+// call, so it can't hallucinate, and never touches river selection/verification above.
+// input.anglerHistory is a pre-aggregated summary the caller builds from their own
+// personal_trips/catches data — see buildAnglerHistorySummary in App.jsx. Returns null
+// (renders nothing) unless there's enough real signal to say something honest.
+export function buildPersonalAngle(anglerHistory){
+  if(!anglerHistory||!anglerHistory.catchCount||anglerHistory.catchCount<3) return null;
+  const {topFlies,topSpecies,cfsRange,catchCount,tripCount}=anglerHistory;
+  const clauses=[];
+  if(topSpecies) clauses.push(`you've mostly landed ${topSpecies}`);
+  if(topFlies&&topFlies.length) clauses.push(`doing best on ${topFlies.join(", ")}`);
+  if(cfsRange) clauses.push(`in flows roughly ${cfsRange.low}\u2013${cfsRange.high} CFS`);
+  const base=`Based on your last ${tripCount} logged trip${tripCount===1?"":"s"} (${catchCount} catches)`;
+  if(!clauses.length) return base+".";
+  return base+" \u2014 "+clauses.join(", ")+".";
+}
+
 // ── The orchestrator ─────────────────────────────────────────────────────────
 // Takes ALREADY-FETCHED destination/weather/gauge data (each caller fetches this its
 // own way — see the file-header note) and runs the full search → synthesize → verify
@@ -807,6 +825,10 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   // Must run last: needs the final outOfRange (labGovernor) and restriction
   // (labVerifyRestrictions, just folded in above) flags to know what's eligible.
   builtReport=reconcileBestBet(builtReport);
+
+  // Light-touch personalization — deterministic, no AI call, computed last and
+  // completely isolated from river selection/verification above it.
+  builtReport.personalAngle=buildPersonalAngle(input.anglerHistory);
 
   return builtReport;
 }
