@@ -6769,7 +6769,7 @@ function PhotoCropModal({photoUrl,onSave,onCancel}){
     } else if(g.mode==="pinch"&&pointers.current.size>=2){
       const pts=[...pointers.current.values()];
       const d=dist(pts[0],pts[1])||1;
-      const newZoom=Math.max(1,Math.min(4,g.startZoom*(d/g.startDist)));
+      const newZoom=Math.max(0.5,Math.min(4,g.startZoom*(d/g.startDist)));
       setZoom(newZoom);
       setOffset(o=>clamp(o,maxOffX,maxOffY));
     }
@@ -6783,7 +6783,7 @@ function PhotoCropModal({photoUrl,onSave,onCancel}){
     }
   }
   function nudgeZoom(delta){
-    setZoom(z=>Math.max(1,Math.min(4,z+delta)));
+    setZoom(z=>Math.max(0.5,Math.min(4,z+delta)));
     setOffset(o=>clamp(o,maxOffX,maxOffY));
   }
 
@@ -6791,19 +6791,39 @@ function PhotoCropModal({photoUrl,onSave,onCancel}){
     if(!natSize){ setError("Photo still loading — try again in a second."); return; }
     setSaving(true); setError(null);
     try{
-      const cropW=frameSize.w/scale, cropH=frameSize.h/scale;
-      let cropX=natSize.w/2 - cropW/2 - offset.x/scale;
-      let cropY=natSize.h/2 - cropH/2 - offset.y/scale;
-      cropX=Math.max(0,Math.min(natSize.w-cropW,cropX));
-      cropY=Math.max(0,Math.min(natSize.h-cropH,cropY));
       const outMaxDim=1600;
-      const outScale=Math.min(1,outMaxDim/Math.max(cropW,cropH));
-      const outW=Math.max(1,Math.round(cropW*outScale)), outH=Math.max(1,Math.round(cropH*outScale));
       const source=await loadImageSource(photoUrl);
       const canvas=document.createElement("canvas");
-      canvas.width=outW;canvas.height=outH;
       const ctx=canvas.getContext("2d");
-      ctx.drawImage(source,cropX,cropY,cropW,cropH,0,0,outW,outH);
+      if(zoom>=1){
+        // Normal crop — photo fully covers the frame. Unchanged from before: crop a
+        // source rectangle 1:1 into the output, capped at outMaxDim so we never upscale
+        // past the source photo's own resolution.
+        const cropW=frameSize.w/scale, cropH=frameSize.h/scale;
+        let cropX=natSize.w/2 - cropW/2 - offset.x/scale;
+        let cropY=natSize.h/2 - cropH/2 - offset.y/scale;
+        cropX=Math.max(0,Math.min(natSize.w-cropW,cropX));
+        cropY=Math.max(0,Math.min(natSize.h-cropH,cropY));
+        const outScale=Math.min(1,outMaxDim/Math.max(cropW,cropH));
+        const outW=Math.max(1,Math.round(cropW*outScale)), outH=Math.max(1,Math.round(cropH*outScale));
+        canvas.width=outW;canvas.height=outH;
+        ctx.drawImage(source,cropX,cropY,cropW,cropH,0,0,outW,outH);
+      } else {
+        // Zoomed out past "fill the frame" — the photo no longer covers every edge, so
+        // pad around it with black (matching the crop tool's own frame background,
+        // so the export matches exactly what was previewed) instead of cropping.
+        // Output canvas mirrors the frame's aspect ratio, scaled up to outMaxDim on
+        // the long side (capped at 4x so a tiny on-screen frame doesn't blow up huge).
+        const frameLong=Math.max(frameSize.w,frameSize.h);
+        const outFrameScale=Math.min(outMaxDim/frameLong,4);
+        const outW=Math.max(1,Math.round(frameSize.w*outFrameScale)), outH=Math.max(1,Math.round(frameSize.h*outFrameScale));
+        canvas.width=outW;canvas.height=outH;
+        ctx.fillStyle="#000";
+        ctx.fillRect(0,0,outW,outH);
+        const drawW=natSize.w*scale*outFrameScale, drawH=natSize.h*scale*outFrameScale;
+        const drawX=outW/2-drawW/2+offset.x*outFrameScale, drawY=outH/2-drawH/2+offset.y*outFrameScale;
+        ctx.drawImage(source,drawX,drawY,drawW,drawH);
+      }
       const dataUrl=canvas.toDataURL("image/jpeg",0.9);
       await onSave(dataUrl);
     }catch(e){
@@ -6850,12 +6870,12 @@ function PhotoCropModal({photoUrl,onSave,onCancel}){
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginTop:16,width:"100%",maxWidth:320}}>
         <button onClick={()=>nudgeZoom(-0.25)} disabled={saving} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:32,height:32,color:"var(--foam)",fontSize:18,cursor:"pointer",flexShrink:0}}>−</button>
-        <input type="range" min={1} max={4} step={0.01} value={zoom}
+        <input type="range" min={0.5} max={4} step={0.01} value={zoom}
           onChange={e=>{const z=parseFloat(e.target.value);setZoom(z);setOffset(o=>clamp(o,maxOffX,maxOffY));}}
           style={{flex:1}}/>
         <button onClick={()=>nudgeZoom(0.25)} disabled={saving} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:32,height:32,color:"var(--foam)",fontSize:18,cursor:"pointer",flexShrink:0}}>+</button>
       </div>
-      <div style={{fontSize:13,color:"var(--stone)",marginTop:10,textAlign:"center"}}>Drag to reposition · Pinch or use +/− to zoom</div>
+      <div style={{fontSize:13,color:"var(--stone)",marginTop:10,textAlign:"center"}}>Drag to reposition · Pinch or use +/− to zoom{zoom<1?" · Below 1× pads the frame in black":""}</div>
       {error&&<div style={{fontSize:14,color:"var(--red)",marginTop:10,textAlign:"center"}}>{error}</div>}
     </div>,
     document.body
