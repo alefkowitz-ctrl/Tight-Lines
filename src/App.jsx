@@ -6551,8 +6551,10 @@ function CatchCard({c,editingCatchId,setEditingCatchId,sharingCatchId,setSharing
 // to see photos. Portaled to document.body like PhotoCropModal below, at a z-index that
 // sits below the planner takeover (5000) and photo lightbox (9999) since a photo tapped
 // in here opens on top of this via the existing window._setLightbox lightbox.
-function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps,onSaveTrip,tripSaving,tripSaveError}){
+function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps,onSaveTrip,tripSaving,tripSaveError,onAdjustExtraCatches}){
   const tripCatches=catches.filter(c=>c.tripId===trip.id);
+  const extraCatches=trip.extraCatches||0;
+  const totalCatches=tripCatches.length+extraCatches;
   const isPro=PLAN_TIERS.has(tier);
   const [expandedCatchId,setExpandedCatchId]=useState(null);
   const [tripEditOpen,setTripEditOpen]=useState(false);
@@ -6597,7 +6599,22 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
           ):(
             <>
           {trip.location&&<div className="hr"><span className="hn">Location</span><span className="ha">{trip.location}</span></div>}
-          <div className="hr"><span className="hn">Catches</span><span className="ha">{trip.skunked?"Skunked":`${tripCatches.length} fish`}</span></div>
+          <div className="hr" style={{alignItems:"center"}}>
+            <span className="hn">Catches</span>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span className="ha">
+                {trip.skunked&&totalCatches===0?"Skunked":`${totalCatches} fish${extraCatches>0?` (${tripCatches.length} w/ photo)`:""}`}
+              </span>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <button onClick={()=>onAdjustExtraCatches(trip.id,-1)} disabled={extraCatches===0}
+                  style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:24,height:24,color:"var(--foam)",fontSize:15,cursor:extraCatches===0?"default":"pointer",opacity:extraCatches===0?0.4:1,lineHeight:1,padding:0}}
+                  title="Remove one manually-added fish">−</button>
+                <button onClick={()=>onAdjustExtraCatches(trip.id,1)}
+                  style={{background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.4)",borderRadius:"50%",width:24,height:24,color:"var(--gold)",fontSize:15,cursor:"pointer",lineHeight:1,padding:0}}
+                  title="Add a fish you didn't photograph">+</button>
+              </div>
+            </div>
+          </div>
           {trip.techniques?.length>0&&<div className="hr"><span className="hn">Techniques</span><span className="ha">{trip.techniques.join(", ")}</span></div>}
           {(trip.airTemp||trip.waterTemp||trip.weatherDesc||trip.streamCFS)&&(
             <div style={{marginTop:10,marginBottom:4}}>
@@ -7103,7 +7120,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",
       streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",
       streamGaugeName:r.stream_gauge_name||"",notes:r.notes||"",
-      aiIntel:r.ai_intel||"",aiIntelGeneratedAt:r.ai_intel_generated_at||null
+      aiIntel:r.ai_intel||"",aiIntelGeneratedAt:r.ai_intel_generated_at||null,
+      extraCatches:r.extra_catches!=null?r.extra_catches:0
     };
   }
 
@@ -7289,13 +7307,38 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     }catch(e){void 0;}
   }
 
+  // Manual +/- tally for fish that were never photographed (so never became a real
+  // catches-table row). Additive on top of the real photographed-catch count, not a
+  // replacement for it — lets the accurate photo-based count stay accurate while still
+  // covering "caught one more, didn't get a pic." Clamped at 0. Also clears `skunked`
+  // once the combined total is positive, since a trip with a manually-added fish isn't
+  // skunked anymore even with zero photographed catches.
+  async function adjustExtraCatches(tripId,delta){
+    const trip=personalTrips.find(t=>t.id===tripId);
+    if(!trip) return;
+    const newExtra=Math.max(0,(trip.extraCatches||0)+delta);
+    const tripCatchCount=catches.filter(c=>c.tripId===tripId).length;
+    const newSkunked=(tripCatchCount+newExtra)>0?false:trip.skunked;
+    const prevExtra=trip.extraCatches||0,prevSkunked=trip.skunked;
+    setPersonalTrips(ts=>ts.map(t=>t.id===tripId?{...t,extraCatches:newExtra,skunked:newSkunked}:t));
+    if(!sb) return;
+    try{
+      const{error}=await sb.from("personal_trips").update({extra_catches:newExtra,skunked:newSkunked}).eq("id",tripId);
+      if(error) throw error;
+    }catch(e){
+      // Revert so the shown count never drifts from what's actually saved
+      setPersonalTrips(ts=>ts.map(t=>t.id===tripId?{...t,extraCatches:prevExtra,skunked:prevSkunked}:t));
+      alert("Couldn't update the catch count — check your connection and try again.");
+    }
+  }
+
   // Personal trip rows don't store species/flies directly — those live on the linked
   // catches-table rows — so pull them in here before handing off to the shared,
   // subject-agnostic generateTripIntel().
   function deriveTripForIntel(t){
     const tc=catches.filter(c=>c.tripId===t.id);
     return {...t, species:[...new Set(tc.map(c=>c.species).filter(s=>s&&s!=="Unidentified"))],
-      flies:[...new Set(tc.flatMap(c=>c.flies||[]))], catches:tc.length};
+      flies:[...new Set(tc.flatMap(c=>c.flies||[]))], catches:tc.length+(t.extraCatches||0)};
   }
   async function handleGenerateTripIntel(trip){
     if(personalIntelLoading) return;
@@ -8586,6 +8629,7 @@ ${shopPins}
                 {personalTrips.map(t=>{
                   const tripCatches=catches.filter(c=>c.tripId===t.id);
                   const tripPhotos=tripCatches.filter(c=>c.photo);
+                  const totalCatches=tripCatches.length+(t.extraCatches||0);
                   return(
                     <div className="card" key={t.id} style={{marginBottom:10,cursor:"pointer"}} onClick={()=>setPersonalTripDetail(t)}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
@@ -8599,7 +8643,7 @@ ${shopPins}
                       </div>
                       {t.location&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>📍 {t.location}</div>}
                       <div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>
-                        🐟 {tripCatches.length} catch{tripCatches.length!==1?"es":""}
+                        🐟 {totalCatches} catch{totalCatches!==1?"es":""}
                       </div>
                       {t.techniques?.length>0&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>🎣 {t.techniques.join(", ")}</div>}
                       {t.streamCFS&&<div style={{fontSize:15,color:"var(--stone)",marginTop:4}}>💧 {t.streamCFS} CFS</div>}
@@ -8666,6 +8710,7 @@ ${shopPins}
           onGenerateIntel={handleGenerateTripIntel}
           intelLoading={personalIntelLoading} intelError={personalIntelError}
           onSaveTrip={handleSavePersonalTrip} tripSaving={personalTripSaving} tripSaveError={personalTripSaveError}
+          onAdjustExtraCatches={adjustExtraCatches}
           catchCardProps={{
             editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,
             deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,
