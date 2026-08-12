@@ -47,6 +47,41 @@ async function fetchUSGSLiveServer(lat, lng, radiusDeg) {
   return { value: { timeSeries: [] } };
 }
 
+// Flow-average baseline — duplicated from src/App.jsx's fetchFlowAvgBatch, same
+// "intentionally duplicated small utility" pattern as the rest of this block (2026-08-12).
+// Unlocks the "well below average"/"about average" flow language in background reports:
+// this endpoint previously always passed flowAvgMap:{} into the pipeline, so every
+// background report showed raw CFS with no comparison even though the on-screen path
+// has had this since App Dev 23. Fails open to {} — the pipeline already degrades
+// gracefully to raw CFS when a siteNo has no baseline.
+const USGS_NW_SERVER = "https://api.waterdata.usgs.gov/ogcapi/v0/collections";
+function nwSiteNoServer(id) { return String(id || "").replace(/^USGS-/, ""); }
+function chunkArrServer(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
+async function fetchFlowAvgBatchServer(siteNos) {
+  if (!siteNos || !siteNos.length) return {};
+  const e = new Date(); e.setFullYear(e.getFullYear() - 1); e.setDate(e.getDate() + 5);
+  const s = new Date(e); s.setDate(s.getDate() - 10);
+  const iso = d => d.toISOString().split("T")[0] + "T00:00:00Z";
+  const out = {};
+  try {
+    const chunks = chunkArrServer(siteNos.map(sn => "USGS-" + nwSiteNoServer(sn)), 100);
+    for (const chunk of chunks) {
+      const r = await fetch(USGS_NW_SERVER + "/daily/items?f=json&limit=10000&monitoring_location_id=" + chunk.join(",") + "&parameter_code=00060&statistic_id=00003&time=" + iso(s) + "/" + iso(e));
+      if (!r.ok) continue;
+      const d = await r.json();
+      const sums = {}, counts = {};
+      (d?.features || []).forEach(f => {
+        const p = f.properties || {};
+        const sn = nwSiteNoServer(p.monitoring_location_id);
+        const v = parseFloat(p.value);
+        if (sn && !isNaN(v) && v >= 0 && v < 500000) { sums[sn] = (sums[sn] || 0) + v; counts[sn] = (counts[sn] || 0) + 1; }
+      });
+      Object.keys(sums).forEach(sn => { out[sn] = sums[sn] / counts[sn]; });
+    }
+  } catch { /* fails open to {} */ }
+  return out;
+}
+
 async function geocodePlacesServer(query) {
   try {
     const key = process.env.GOOGLE_PLACES_API_KEY;
@@ -218,20 +253,30 @@ export default async function handler(req, res) {
 
       const ds = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
+      const gSiteNos = filterFishableGauges(pgScaled, lat, lng).map(g => g.siteNo);
+
       let savedGauges = [];
+      let flowAvgMap = {};
       try {
         const sgKey = SB_SERVICE || SB_ANON;
         const sgUrl = SB_SERVICE
           ? SB_URL + "/rest/v1/saved_gauges?select=*&user_id=eq." + rowUserId  // service-role bypasses RLS — scope explicitly
           : SB_URL + "/rest/v1/saved_gauges?select=*";                          // anon+JWT: RLS scopes it
-        const sgRes = await fetch(sgUrl, { headers: { apikey: sgKey, Authorization: "Bearer " + (SB_SERVICE || jwt) } });
+        const [sgRes, fam] = await Promise.all([
+          fetch(sgUrl, { headers: { apikey: sgKey, Authorization: "Bearer " + (SB_SERVICE || jwt) } }),
+          fetchFlowAvgBatchServer(gSiteNos).catch(() => ({}))
+        ]);
         if (sgRes.ok) savedGauges = await sgRes.json();
-      } catch { /* home-waters note just won't include anything — non-critical */ }
+        flowAvgMap = fam;
+      } catch { /* home-waters note just won't include anything — non-critical; flow-avg fails open too */ }
 
+      // pTempMap (water-temp batch) is still NOT computed server-side — separate from this
+      // round's fix, affects thermal-risk wording specifically, not the flow-average work.
+      // Flagged as its own open item rather than folded in silently.
       const aiCtx = { askAI: askAIServer, geocodePlaces: geocodePlacesServer };
 
       const report = await runTripPlannerPipeline(
-        { loc: { label, lat, lng }, ds, driveMinutes: driveMinutes || 120, wx, pgScaled, savedGauges, pTempMap: {}, flowAvgMap: {} },
+        { loc: { label, lat, lng }, ds, driveMinutes: driveMinutes || 120, wx, pgScaled, savedGauges, pTempMap: {}, flowAvgMap, thorough: true },
         aiCtx,
         null // no onStep — nobody's watching a background job's progress
       );
