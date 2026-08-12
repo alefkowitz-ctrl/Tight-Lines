@@ -97,12 +97,33 @@ export function scrubBannedFlowWords(text){
 export function scrubDamClaims(text){
   if(!text)return text;
   let t=String(text);
-  t=t.replace(/[^.!?;]*\b[A-Z][A-Za-z'.-]*(?:\s+[A-Z][A-Za-z'.-]*){0,3}\s+(?:Reservoir|Dam)\b[^.!?;]*[.!?;]?/g,"");
+  // Proper-noun + Dam/Reservoir. Matches BOTH "Golden Dam" and "Golden dam" — the
+  // capitalized-proper-noun anchor stays case-sensitive (so this doesn't over-fire on
+  // unrelated capitalized words), but the generic noun itself needs to catch either
+  // case: AI output routinely lowercases "dam"/"reservoir" ("Clear Creek below Golden
+  // dam"), which the original Dam/Reservoir-only match silently let through.
+  t=t.replace(/[^.!?;]*\b[A-Z][A-Za-z'.-]*(?:\s+[A-Z][A-Za-z'.-]*){0,3}\s+(?:Reservoir|reservoir|Dam|dam)\b[^.!?;]*[.!?;]?/g,"");
   t=t.replace(/[^.!?;]*\bdam[\s-]?control(?:led|s)?\b[^.!?;]*[.!?;]?/gi,"");
-  t=t.replace(/[^.!?;]*\btailwater\s+conditions?\b[^.!?;]*[.!?;]?/gi,"");
+  // Broadened from "tailwater conditions" to any clause naming "tailwater" at all —
+  // once a pick is confirmed NOT a tailwater, a clause crediting it with tailwater
+  // stability/cold-water status is fabricated regardless of the exact phrasing
+  // ("tailwater releases", "popular ... tailwater", etc.), not just that one phrase.
+  t=t.replace(/[^.!?;]*\btailwater\b[^.!?;]*[.!?;]?/gi,"");
   t=t.replace(/[^.!?;]*\b(?:bottom[- ]release|regulated\s+releases?|controlled\s+releases?|releases?\s+from\s+(?:the\s+)?(?:dam|reservoir))\b[^.!?;]*[.!?;]?/gi,"");
   t=t.replace(/[^.!?;]*\bbelow\s+the\s+dam\b[^.!?;]*[.!?;]?/gi,"");
-  return t.replace(/\s{2,}/g," ").replace(/^\s*[,;]\s*/,"").trim();
+  return t.replace(/\s{2,}/g," ").replace(/^\s*[,;]\s*/,"").replace(/\s*[,;]\s*$/,"").trim();
+}
+
+// Same fabricated-dam problem as scrubDamClaims, but for the short river NAME field —
+// a title like "Clear Creek below Golden dam" has no sentence punctuation, so running
+// scrubDamClaims's clause-stripper on it would consume the ENTIRE string (nothing to
+// stop the greedy match) and leave an empty name. This instead trims just the
+// "below/near <Name> dam/reservoir" tail and keeps the plain stream name; if the
+// pattern doesn't match, the name is returned unchanged rather than risking a blank.
+export function scrubDamFromName(name){
+  const s=String(name||"");
+  const stripped=s.replace(/\s*[,\-\u2013\u2014]?\s*\b(?:below|blw|near|nr)\s+(?:the\s+)?[A-Z][A-Za-z'.-]*(?:\s+[A-Z][A-Za-z'.-]*){0,3}\s+(?:Reservoir|reservoir|Dam|dam)\b.*$/,"").trim();
+  return stripped||s;
 }
 
 // Same purpose as scrubDamClaims, for the accessPoints array — entries are short standalone
@@ -182,30 +203,56 @@ function flowVsAverageLocal(cfs,avgCfs){
 // rather than two constants quietly drifting apart.
 const DAY_TRIP_CAP_MIN=150;
 
+// Fetches elevation for a batch of [lat,lng] pairs from Open-Meteo, with one retry and
+// a 5s timeout per attempt so a slow/hanging response can't stall report generation.
+// Returns null (not a partial/guessed array) if both attempts fail — computeDriveMinutes
+// decides what "unknown" should mean, this function never invents a fallback value.
+async function fetchElevations(lats,lngs,attempt=1){
+  try{
+    const eu="https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lngs.join(",");
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),5000);
+    let ej;
+    try{ const er=await fetch(eu,{signal:ctrl.signal}); ej=await er.json(); }
+    finally{ clearTimeout(timer); }
+    return Array.isArray(ej.elevation)?ej.elevation:null;
+  }catch(e){
+    if(attempt<2)return fetchElevations(lats,lngs,attempt+1);
+    return null;
+  }
+}
+
 // Elevation-aware drive-time estimate for a batch of points relative to one origin.
 // Returns an array aligned with `points`, each {mi,driveMin} (nulls when there's no
 // origin or the point has no coordinates). Extracted 2026-08-12 from labGovernor so
 // verifyOmissions can apply the EXACT same day-trip math to the "Also consider" list
 // instead of a second, drifting copy of the mountain/circuity logic.
-async function computeDriveMinutes(points,loc){
+//
+// 2026-08-12 hardening: elevation lookup used to fail OPEN — any fetch error silently
+// defaulted every point in the batch to flatland speed/circuity (58mph, 1.25x), which
+// is the wrong direction to fail for Colorado trout water where mountain/foothill picks
+// are the common case, not the exception. This is what produced a ~14 min estimate for
+// South Boulder Creek below Gross Reservoir (realistically 50-65+ min up a winding
+// mountain road). Now retries once, and on continued failure assumes mountain terrain
+// (slower, more conservative — 50mph, 1.6x) for the whole batch instead of flatland.
+export async function computeDriveMinutes(points,loc){
   if(!Array.isArray(points))return[];
   const haveOrigin=loc&&loc.lat!=null&&loc.lng!=null;
   if(!haveOrigin)return points.map(()=>({mi:null,driveMin:null}));
-  let elevs=null;
-  try{
-    const lats=[loc.lat,...points.map(p=>p.lat!=null?p.lat:loc.lat)];
-    const lngs=[loc.lng,...points.map(p=>p.lng!=null?p.lng:loc.lng)];
-    const eu="https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lngs.join(",");
-    const er=await fetch(eu);const ej=await er.json();
-    elevs=Array.isArray(ej.elevation)?ej.elevation:null; // meters: [origin, ...points]
-  }catch(e){elevs=null;}
-  const originElevM=elevs?elevs[0]:null;
+  const lats=[loc.lat,...points.map(p=>p.lat!=null?p.lat:loc.lat)];
+  const lngs=[loc.lng,...points.map(p=>p.lng!=null?p.lng:loc.lng)];
+  const elevs=await fetchElevations(lats,lngs);
+  const elevationKnown=Array.isArray(elevs);
+  const originElevM=elevationKnown?elevs[0]:null;
   return points.map((p,i)=>{
     if(p.lat==null||p.lng==null)return{mi:null,driveMin:null};
     const mi=Math.round(Math.hypot(p.lat-loc.lat,p.lng-loc.lng)*69);
-    const pickElevM=elevs?elevs[i+1]:null;
+    const pickElevM=elevationKnown?elevs[i+1]:null;
     const maxFt=(originElevM!=null&&pickElevM!=null)?Math.max(originElevM,pickElevM)*3.281:null;
-    const mountain=maxFt!=null&&maxFt>6500; // high country: winding roads + passes
+    // Fail closed: unknown elevation (lookup failed twice, or this one point came back
+    // null) assumes mountain terrain rather than flatland — slower/more conservative is
+    // the safe direction to be wrong in.
+    const mountain=maxFt!=null?maxFt>6500:true;
     const circuity=mountain?1.6:1.25;
     const speed=mountain?50:58;
     return{mi,driveMin:Math.round((mi*circuity)/speed*60)};
@@ -560,14 +607,14 @@ export function applyVerifiedReviewNotes(overview,verifiedList){
   return (String(overview||"")+" Also worth a look: "+verifiedList.join("; ")+".").trim();
 }
 
-function enforceStreamTypes(rivers,keepVerified=false){
+export function enforceStreamTypes(rivers,keepVerified=false){
   if(!Array.isArray(rivers))return rivers;
   const damRe=/\b(BLW|BELOW)\b[\s\S]*\b(RES|RESERVOIR|DAM)\b|\b(RES|RESERVOIR|DAM)\b[\s\S]*\bOUTLET\b/i;
   return rivers.map(r=>{
     if(typeof r.type==="string"&&/tailwater/i.test(r.type)){
       const g=String(r.gaugeSnap||"");
       const verified=keepVerified&&/tailwater/i.test(String(r.verified||""));
-      if(!damRe.test(g)&&!verified)return{...r,type:"Freestone",why:scrubDamClaims(r.why),conditions:scrubDamClaims(r.conditions),techniques:scrubDamClaims(r.techniques),accessPoints:scrubDamAccessPoints(r.accessPoints)};
+      if(!damRe.test(g)&&!verified)return{...r,type:"Freestone",name:scrubDamFromName(r.name),condition:scrubDamClaims(r.condition),crowdLevel:scrubDamClaims(r.crowdLevel),why:scrubDamClaims(r.why),conditions:scrubDamClaims(r.conditions),techniques:scrubDamClaims(r.techniques),accessPoints:scrubDamAccessPoints(r.accessPoints)};
     }
     return r;
   });
