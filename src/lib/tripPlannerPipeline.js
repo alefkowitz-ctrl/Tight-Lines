@@ -590,6 +590,30 @@ async function verifyOmissions(omissions,loc,gaugeList,flowAvgMap,aiCtx){
     const inRange=geocoded.filter((p,i)=>dm[i].driveMin==null||dm[i].driveMin<=DAY_TRIP_CAP_MIN);
     if(!inRange.length)return[];
     const snapped=snapRiversToGauges(inRange,gaugeList,0.5);
+    // TEMP DIAGNOSTIC (2026-08-12) — tracing a confirmed bug: the "Also worth a look"
+    // line has twice shown a CFS an order of magnitude off real gauge data (St. Vrain
+    // Creek at Lyons: reported 743 CFS vs. a real ~58 CFS; Cache la Poudre canyon:
+    // reported 28 CFS vs. a real ~230+ CFS — wrong in opposite directions, so not a
+    // single scaling bug). This logs the full candidate gauge list this call searched,
+    // plus exactly which gauge each omission matched and at what distance/confidence,
+    // so the next reproduction gives real evidence (bad source data vs. a bad match)
+    // instead of a guess. Server-side only (this function only runs in `thorough` mode,
+    // i.e. the background/email path) — check Vercel's function logs, not the browser
+    // console. REMOVE once the root cause is confirmed and fixed.
+    console.log("[verifyOmissions] gaugeList size:",Array.isArray(gaugeList)?gaugeList.length:0,
+      "| candidates:",(Array.isArray(gaugeList)?gaugeList:[]).map(g=>g.name+": "+g.cfs+"cfs").join(" | "));
+    snapped.forEach(p=>{
+      console.log("[verifyOmissions] match:",{
+        omission:p.name,
+        desc:p.desc,
+        geocodedLatLng:[p.lat,p.lng],
+        matchedGauge:p.gaugeSnap||"(no gauge matched — using AI-reported desc only, no CFS)",
+        matchedSiteNo:p.siteNo||null,
+        matchedCfs:p.gaugeCfs!=null?p.gaugeCfs:null,
+        snapDistMi:p._snapDistMi!=null?p._snapDistMi:null,
+        snapScore:p._snapScore!=null?p._snapScore:null
+      });
+    });
     return snapped.slice(0,3).map(p=>{
       const fva=(p.gaugeCfs!=null)?flowVsAverageLocal(p.gaugeCfs,flowAvgMap[p.siteNo]):null;
       const flowPart=p.gaugeCfs!=null?(Math.round(p.gaugeCfs)+" CFS"+(fva?" ("+fva.label+")":"")):"";
@@ -649,7 +673,11 @@ function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
       const d=(r.lat&&r.lng)?Math.hypot(g.lat-r.lat,g.lng-r.lng):(g.dist??9);
       if(!best||score>bestScore||(score===bestScore&&d<best._d)){best={...g,_d:d};bestScore=score;}
     }
-    return (best&&best._d<=maxDeg)?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null}:r;
+    // _snapDistMi/_snapScore are diagnostic-only additions (miles from the pick to the
+    // matched gauge, and the 1-3 match-quality score from above) — existing callers that
+    // don't know about these fields simply ignore them; nothing downstream reads them
+    // except the temporary logging in verifyOmissions below.
+    return (best&&best._d<=maxDeg)?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(best._d*69*10)/10,_snapScore:bestScore}:r;
   });
 }
 
