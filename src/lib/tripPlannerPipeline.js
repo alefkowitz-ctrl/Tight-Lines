@@ -177,44 +177,69 @@ function flowVsAverageLocal(cfs,avgCfs){
   return{label,pct:Math.round(pct*100),avgCfs:Math.round(avgCfs)};
 }
 
-// Deterministic distance governor: drop picks beyond the day-trip ring, and
-// reconcile each pick's displayed CFS to the live gauge value when one attached.
-async function labGovernor(rivers,loc){
-  if(!Array.isArray(rivers)||!rivers.length)return rivers;
+// Same day-trip ceiling used by labGovernor (main picks) and verifyOmissions (the
+// "Also consider" list, added 2026-08-12) — hoisted so both apply the identical cutoff
+// rather than two constants quietly drifting apart.
+const DAY_TRIP_CAP_MIN=150;
+
+// Elevation-aware drive-time estimate for a batch of points relative to one origin.
+// Returns an array aligned with `points`, each {mi,driveMin} (nulls when there's no
+// origin or the point has no coordinates). Extracted 2026-08-12 from labGovernor so
+// verifyOmissions can apply the EXACT same day-trip math to the "Also consider" list
+// instead of a second, drifting copy of the mountain/circuity logic.
+async function computeDriveMinutes(points,loc){
+  if(!Array.isArray(points))return[];
   const haveOrigin=loc&&loc.lat!=null&&loc.lng!=null;
+  if(!haveOrigin)return points.map(()=>({mi:null,driveMin:null}));
   let elevs=null;
-  if(haveOrigin){
-    try{
-      const lats=[loc.lat,...rivers.map(r=>r.lat!=null?r.lat:loc.lat)];
-      const lngs=[loc.lng,...rivers.map(r=>r.lng!=null?r.lng:loc.lng)];
-      const eu="https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lngs.join(",");
-      const er=await fetch(eu);const ej=await er.json();
-      elevs=Array.isArray(ej.elevation)?ej.elevation:null; // meters: [origin, ...picks]
-    }catch(e){elevs=null;}
-  }
+  try{
+    const lats=[loc.lat,...points.map(p=>p.lat!=null?p.lat:loc.lat)];
+    const lngs=[loc.lng,...points.map(p=>p.lng!=null?p.lng:loc.lng)];
+    const eu="https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lngs.join(",");
+    const er=await fetch(eu);const ej=await er.json();
+    elevs=Array.isArray(ej.elevation)?ej.elevation:null; // meters: [origin, ...points]
+  }catch(e){elevs=null;}
   const originElevM=elevs?elevs[0]:null;
-  const CAP_MIN=150;
+  return points.map((p,i)=>{
+    if(p.lat==null||p.lng==null)return{mi:null,driveMin:null};
+    const mi=Math.round(Math.hypot(p.lat-loc.lat,p.lng-loc.lng)*69);
+    const pickElevM=elevs?elevs[i+1]:null;
+    const maxFt=(originElevM!=null&&pickElevM!=null)?Math.max(originElevM,pickElevM)*3.281:null;
+    const mountain=maxFt!=null&&maxFt>6500; // high country: winding roads + passes
+    const circuity=mountain?1.6:1.25;
+    const speed=mountain?50:58;
+    return{mi,driveMin:Math.round((mi*circuity)/speed*60)};
+  });
+}
+
+// Deterministic distance governor: flags (or, in thorough mode, drops) picks beyond the
+// day-trip ring, and reconciles each pick's displayed CFS to the live gauge value when
+// one attached.
+// opts.thorough (background/email path only, added 2026-08-12): once we know a real
+// in-range option exists among THIS report's own picks, an out-of-range pick adds
+// nothing but clutter — including a false "Most Fish"/best-bet candidate, since bestFor
+// is guarded separately by reconcileBestBet — so it's dropped outright instead of kept
+// with a warning. The foreground path, and the genuine "nothing nearby is in range" case
+// on EITHER path, keep the original flag-and-keep behavior: SELECTION RULE 6 in
+// buildLabSynth explicitly wants the single nearest real trout fishery included, clearly
+// flagged, rather than an empty rivers list — that's a real answer, not clutter.
+async function labGovernor(rivers,loc,opts){
+  if(!Array.isArray(rivers)||!rivers.length)return rivers;
+  const dm=await computeDriveMinutes(rivers,loc);
   const annotated=rivers.map((r,i)=>{
     const cfs=(r.gaugeCfs!=null)?String(Math.round(r.gaugeCfs)):r.cfs;
     const source=r.gaugeSnap?"gauge":(r.source||"search");
-    let mi=null,driveMin=null;
-    if(haveOrigin&&r.lat!=null&&r.lng!=null){
-      mi=Math.round(Math.hypot(r.lat-loc.lat,r.lng-loc.lng)*69);
-      const pickElevM=elevs?elevs[i+1]:null;
-      const maxFt=(originElevM!=null&&pickElevM!=null)?Math.max(originElevM,pickElevM)*3.281:null;
-      const mountain=maxFt!=null&&maxFt>6500; // high country: winding roads + passes
-      const circuity=mountain?1.6:1.25;
-      const speed=mountain?50:58;
-      driveMin=Math.round((mi*circuity)/speed*60);
-    }
-    return{...r,cfs,source,miFromOrigin:mi,driveMin};
+    return{...r,cfs,source,miFromOrigin:dm[i].mi,driveMin:dm[i].driveMin};
   });
+  const thorough=!!(opts&&opts.thorough);
+  const anyInRange=annotated.some(r=>r.driveMin==null||r.driveMin<=DAY_TRIP_CAP_MIN);
   return annotated.map(r=>{
-    if(r.driveMin==null||r.driveMin<=CAP_MIN)return r;
+    if(r.driveMin==null||r.driveMin<=DAY_TRIP_CAP_MIN)return r;
+    if(thorough&&anyInRange)return null; // dropped — see opts.thorough note above
     const hrs=r.driveMin?Math.round(r.driveMin/6)/10:null;
     const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — plan an overnight rather than a day trip.";
     return {...r,outOfRange:true,why:(note+" "+(r.why||"")).trim(),conditions:(note+" "+(r.conditions||"")).trim()};
-  });
+  }).filter(Boolean);
 }
 
 // Deterministic backstop to the deep-read grounding
@@ -286,11 +311,37 @@ function avoidHit(name,avoid){
     return nBare.includes(aBare)||aBare.includes(nBare);
   });
 }
+// One more targeted, single-water check for a pick the batched pass above came back
+// "unsure" on — thorough/background path only (2026-08-12), given its larger time
+// budget (queue item, previously discussed not built). The batched call asks about
+// every pick in one shot and can come back unsure just from being spread thin across
+// several waters at once, not because the water itself is genuinely unclear. Same
+// conservative posture as the batched pass: returns null (leave the original verdict
+// alone) on any failure, timeout, or a still-unresolved answer.
+async function resolveUnsurePick(r,loc,aiCtx){
+  try{
+    const vp=["You are confirming ONE specific water for a fly fishing trip report near "+((loc&&loc.label)||"the area")+".",
+      "Water: "+String(r.name||"?")+(r.type?" (currently labeled "+r.type+")":"")+(r.gaugeSnap?" — nearby gauge: "+r.gaugeSnap:"")+".",
+      "A prior pass could not confirm two things for this water and marked it unsure: (1) whether it is a COLDWATER TROUT fishery or a WARMWATER/bass/smallmouth water; (2) whether it is a FREESTONE stream or a TAILWATER (flows directly below a dam or reservoir). Search current public sources specifically for THIS water and try again.",
+      "Be conservative: answer 'warmwater' only when sources clearly establish it; if still unclear, say so. If 'type' is 'tailwater', you MUST return 'dam' with the actual dam/reservoir name confirmed by your sources — never from memory — or omit 'type' entirely.",
+      'Return ONLY JSON, no markdown: {"verdict":"trout|warmwater|unsure","type":"freestone|tailwater","dam":""}. Omit "type" if still unsure; omit "dam" unless "type" is "tailwater".'
+    ].join(" ");
+    const race=Promise.race([aiCtx.askAI(vp,true,900,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),60000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").trim();
+    const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+    if(a===-1||b<=a)return null;
+    const v=JSON.parse(clean.slice(a,b+1));
+    return v&&v.verdict?v:null;
+  }catch(_r){return null;}
+}
+
 // Skeptical verification pass: one batched Sonnet search asks, for each pick, coldwater
 // trout vs warmwater/bass. DROP only on a direct contradiction. LABEL 'unsure' picks;
 // never penalize on silence; never empty the list. Fail-open.
-async function labVerifyPicks(rivers,loc,ground,aiCtx){
+// opts.thorough: background/email path only — see resolveUnsurePick above.
+async function labVerifyPicks(rivers,loc,ground,aiCtx,opts){
   if(!Array.isArray(rivers)||!rivers.length)return rivers;
+  const thorough=!!(opts&&opts.thorough);
   const avoid=parseAvoidList(ground);
   const flags=rivers.map(r=>({avoid:avoidHit(r.name,avoid)}));
   if(avoid.length)flags.forEach((f,i)=>{if(f.avoid)console.warn("[labVerifyPicks] dropping \""+(rivers[i]&&rivers[i].name)+"\" — matched AVOID list entry among:",avoid);});
@@ -310,6 +361,13 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx){
     if(a!==-1&&b>a)verdicts=JSON.parse(clean.slice(a,b+1));
   }catch(_v){verdicts=[];}
   const byN=new Map();(Array.isArray(verdicts)?verdicts:[]).forEach((v,i)=>{const n=Number(v&&v.n)||(i+1);byN.set(n,v);});
+  if(thorough){
+    const unsure=rivers.map((r,i)=>({r,i})).filter(({i})=>!flags[i].avoid&&String((byN.get(i+1)||{}).verdict||"").toLowerCase()==="unsure");
+    if(unsure.length){
+      const resolved=await Promise.all(unsure.map(({r})=>resolveUnsurePick(r,loc,aiCtx)));
+      unsure.forEach(({i},k)=>{if(resolved[k])byN.set(i+1,resolved[k]);});
+    }
+  }
   const NOTE_UNSURE="⚠ Species and location not confirmed by current reports — verify locally before relying on this pick.";
   const decided=rivers.map((r,i)=>{
     const v=byN.get(i+1)||{};const verdict=String(v.verdict||"").toLowerCase();
@@ -451,10 +509,55 @@ async function labVerifyRestrictions(rivers,loc,dateStr,aiCtx){
     return{result:null,debug:dbg};
   }
 }
-// Fold omissions into the overview as a clearly-marked footer.
+// Fold omissions into the overview as a clearly-marked footer. Foreground/non-thorough
+// path only as of 2026-08-12 — see verifyOmissions/applyVerifiedReviewNotes below for
+// the background path's confident replacement.
 export function applyReviewNotes(overview,review){
   if(!review||!review.omissions||!review.omissions.length)return overview;
   return (String(overview||"")+" ⚠ Also consider (verify flows): "+review.omissions.join("; ")+".").trim();
+}
+
+// Background/thorough path only (2026-08-12): labReviewReport's "omissions" are pure AI
+// recall with zero grounding — no geocoding, no distance check, no gauge match — which is
+// exactly why the footer had to say "(verify flows)". This does the verification instead
+// of disclaiming it: geocode each mention, run it through the SAME day-trip distance math
+// as the main picks (computeDriveMinutes), and snap it to a live gauge for a real CFS +
+// vs-average reading when one exists nearby. Anything that can't be geocoded, or comes
+// back beyond day-trip range, is dropped silently rather than shown half-checked — never
+// worse than the current picks list, only ever a bonus on top of it. Caps at 3 (same as
+// the review pass already returns). Never throws.
+async function verifyOmissions(omissions,loc,gaugeList,flowAvgMap,aiCtx){
+  if(!Array.isArray(omissions)||!omissions.length)return[];
+  try{
+    const regionHint=loc&&loc.label?loc.label.split(",").slice(-1)[0].trim():"";
+    const parsed=omissions.map(s=>{
+      const m=String(s||"").match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+      return m?{name:m[1].trim(),desc:m[2].trim()}:{name:String(s||"").trim(),desc:""};
+    }).filter(p=>p.name);
+    const geocoded=(await Promise.all(parsed.map(async p=>{
+      const g=await geocodeRiver(p.name,regionHint,aiCtx);
+      return g?{...p,lat:g.lat,lng:g.lng}:null;
+    }))).filter(Boolean);
+    if(!geocoded.length)return[];
+    const dm=await computeDriveMinutes(geocoded,loc);
+    const inRange=geocoded.filter((p,i)=>dm[i].driveMin==null||dm[i].driveMin<=DAY_TRIP_CAP_MIN);
+    if(!inRange.length)return[];
+    const snapped=snapRiversToGauges(inRange,gaugeList,0.5);
+    return snapped.slice(0,3).map(p=>{
+      const fva=(p.gaugeCfs!=null)?flowVsAverageLocal(p.gaugeCfs,flowAvgMap[p.siteNo]):null;
+      const flowPart=p.gaugeCfs!=null?(Math.round(p.gaugeCfs)+" CFS"+(fva?" ("+fva.label+")":"")):"";
+      const parts=[p.desc,flowPart].filter(Boolean);
+      return p.name+(parts.length?" ("+parts.join(", ")+")":"");
+    });
+  }catch(_o){return[];}
+}
+
+// Confident version of applyReviewNotes for the background/thorough path — takes an
+// already-verified list from verifyOmissions and never uses "verify" hedge language,
+// since by this point distance is confirmed and flow (when a gauge exists) is real.
+export function applyVerifiedReviewNotes(overview,verifiedList){
+  if(!Array.isArray(verifiedList)||!verifiedList.length)return overview;
+  return (String(overview||"")+" Also worth a look: "+verifiedList.join("; ")+".").trim();
 }
 
 function enforceStreamTypes(rivers,keepVerified=false){
@@ -534,7 +637,7 @@ async function geocodeRiver(name,regionHint,aiCtx){
   }catch{return null;}
 }
 
-export async function finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx){
+export async function finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx,opts){
   let out=snapRiversToGauges(rivers,gaugeList,0.5); // a gauge can only attach within ~35 mi of the pick
 
   // For any pick that didn't snap to a gauge, try Places geocoding. Drop the pick ONLY if
@@ -557,13 +660,13 @@ export async function finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx){
   out=dropWarmwaterByText(out);
   out=dropWarmUrbanPicks(out);
   out=damNameReconcile(out);
-  out=await labGovernor(out,loc);
-  out=await labVerifyPicks(out,loc,ground,aiCtx);
+  out=await labGovernor(out,loc,opts);
+  out=await labVerifyPicks(out,loc,ground,aiCtx,opts);
   return out;
 }
 
-export function finalizeRivers(rivers,gaugeList,loc,ground,aiCtx){
-  return finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx);
+export function finalizeRivers(rivers,gaugeList,loc,ground,aiCtx,opts){
+  return finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx,opts);
 }
 
 // Tiny, generic JSON-extraction helpers — duplicated from App.jsx (also used there by
@@ -637,28 +740,54 @@ export function coreRiverName(name){
   return String(name||"").replace(/\s*\([^)]*\)\s*/g,"").trim();
 }
 
-// Auto-swaps the "Best Bet Today" recommendation when the pick it's actually about
-// turns out to be ineligible — beyond day-trip range (labGovernor) or closed to fishing
-// today (labVerifyRestrictions). Deterministic, no AI: matches the free-text
-// recommendation back to a river by name (core name, parenthetical reach stripped),
-// and if that river is ineligible, replaces the recommendation with the next eligible
-// river's own already-vetted "why" text plus a note explaining the swap. Fail-open:
-// if no match is found, or every river is ineligible, the original recommendation is
-// left untouched rather than guessing.
-export function reconcileBestBet(report){
-  if(!report||!report.recommendation||!Array.isArray(report.rivers)||!report.rivers.length)return report;
-  const recNorm=nrmName(report.recommendation);
+// Shared by reconcileBestBet below for BOTH the "recommendation" field and, as of
+// 2026-08-12, every bestFor category. Deterministic, no AI: matches free text back to a
+// river by name (core name, parenthetical reach stripped), and if that river is
+// ineligible — beyond day-trip range (labGovernor) or closed to fishing today
+// (labVerifyRestrictions) — replaces the text with the next eligible river's own
+// already-vetted "why" text plus a note explaining the swap. Fail-open: if no match is
+// found, or every river is ineligible, the original text is left untouched rather than
+// guessing. `label` only changes the wording of the swap note (e.g. "today's best bet"
+// vs "this pick") — the eligibility logic itself is identical either way.
+function swapIfIneligible(text,rivers,label){
+  const norm=nrmName(text);
   const ineligible=r=>r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");
-  const matched=report.rivers.find(r=>{
+  const matched=rivers.find(r=>{
     const core=nrmName(coreRiverName(r.name));
-    return core&&recNorm.includes(core);
+    return core&&norm.includes(core);
   });
-  if(!matched||!ineligible(matched))return report; // no match, or the pick is fine — leave it alone
-  const alt=report.rivers.find(r=>r!==matched&&!ineligible(r));
-  if(!alt)return report; // nothing eligible to swap to — leave the original, flagged pick as-is
+  if(!matched||!ineligible(matched))return{text,swapped:false}; // no match, or the pick is fine
+  const alt=rivers.find(r=>r!==matched&&!ineligible(r));
+  if(!alt)return{text,swapped:false}; // nothing eligible to swap to — leave the original, flagged pick as-is
   const reason=matched.restriction&&matched.restriction.status==="closure"?"closed to fishing today":"beyond realistic day-trip range today";
-  const note="⚠ "+matched.name+" is "+reason+" — swapping today's best bet to "+alt.name+" instead. ";
-  return {...report,recommendation:(note+(alt.why||alt.conditions||"See its river card below for details.")).trim()};
+  const note="⚠ "+matched.name+" is "+reason+" — swapping "+(label||"this pick")+" to "+alt.name+" instead. ";
+  return{text:(note+(alt.why||alt.conditions||"See its river card below for details.")).trim(),swapped:true};
+}
+
+// Auto-swaps "Best Bet Today" AND every bestFor category (mostFish/bestScenery/
+// mostSolitude/beginners) when the pick either one is actually about turns out to be
+// ineligible. Until 2026-08-12 this only guarded `recommendation` — bestFor is chosen by
+// the AI in buildLabSynth BEFORE labGovernor/labVerifyRestrictions run, so a category
+// could point at a pick that gets flagged out-of-range or closed moments later, with
+// nothing to catch it. Same fail-open posture as before either way.
+export function reconcileBestBet(report){
+  if(!report||!Array.isArray(report.rivers)||!report.rivers.length)return report;
+  let out=report;
+  if(report.recommendation){
+    const{text,swapped}=swapIfIneligible(report.recommendation,report.rivers,"today's best bet");
+    if(swapped)out={...out,recommendation:text};
+  }
+  if(report.bestFor){
+    const bf={...report.bestFor};
+    let bfChanged=false;
+    ["mostFish","bestScenery","mostSolitude","beginners"].forEach(k=>{
+      if(!bf[k])return;
+      const{text,swapped}=swapIfIneligible(bf[k],report.rivers,"this pick");
+      if(swapped){bf[k]=text;bfChanged=true;}
+    });
+    if(bfChanged)out={...out,bestFor:bf};
+  }
+  return out;
 }
 
 // Light-touch personalization (App Dev, added after the AI Intel feature): a short,
@@ -694,6 +823,11 @@ export function buildPersonalAngle(anglerHistory){
 export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const step=(text,state)=>{ if(onStep) onStep(text,state); };
   const { loc, ds, pgScaled, wx } = input;
+  // Background/email path only (set true in api/plan-trip-background.js) — spends the
+  // larger time budget that path has to actually verify/resolve things this synchronous,
+  // watched-in-app path instead has to hedge or flag. See labGovernor, labVerifyPicks,
+  // verifyOmissions.
+  const thorough = !!input.thorough;
   const savedGauges = input.savedGauges||[];
   const pTempMap = input.pTempMap||{};
   const flowAvgMap = input.flowAvgMap||{};
@@ -765,7 +899,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
     overview:sb2(rpt.overview),
     recommendation:sb2(rpt.recommendation),
     bestFor:bf2,
-    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:(pgScaled||[]),loc,searchTxt,aiCtx),
+    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:(pgScaled||[]),loc,searchTxt,aiCtx,{thorough}),
     hatches:sb2(rpt.hatches),
     bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),
     tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),
@@ -791,7 +925,16 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
           return rv;
         });
       }
-      if(review.omissions&&review.omissions.length){nb.overview=applyReviewNotes(nb.overview,review);changed=true;}
+      if(review.omissions&&review.omissions.length){
+        if(thorough){
+          const gaugeListForOmissions=fishableGauges.length?fishableGauges:(pgScaled||[]);
+          const verified=await verifyOmissions(review.omissions,loc,gaugeListForOmissions,flowAvgMap,aiCtx).catch(()=>[]);
+          if(verified.length){nb.overview=applyVerifiedReviewNotes(nb.overview,verified);changed=true;}
+          // else: nothing survived verification — say nothing rather than hedge.
+        }else{
+          nb.overview=applyReviewNotes(nb.overview,review);changed=true;
+        }
+      }
       if(changed)builtReport=nb;
     }
   }catch(_rv){void 0;}
