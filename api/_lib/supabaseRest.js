@@ -48,3 +48,39 @@ export async function logUsage(jwt, kind) {
     });
   } catch (e) { /* usage logging must never break the app */ }
 }
+
+// Mirrors PLAN_TIERS in src/App.jsx exactly. Kept here as the single server-side
+// source of truth so api/claude.js and api/plan-trip-background.js can't drift apart
+// from each other, or from the client's own paywall gate.
+export const PLAN_TIERS = new Set(["consumer_pro", "guide_pro", "fly_shop_basic", "fly_shop_pro"]);
+
+// Look up the caller's subscription tier — same table, same columns, same "no row /
+// canceled / expired comp -> free" rules as the client's own refreshTier in App.jsx,
+// so server-side enforcement can never disagree with what the UI already shows. Uses
+// the caller's own JWT; RLS scopes the query to their own row, same trust model as
+// todayCount above. Returns:
+//   { auth:false }            -> token invalid/expired
+//   { auth:true, tier:null }  -> Supabase hiccup; unknown — caller should fail OPEN
+//                                 (allow the call) rather than block a possible payer
+//   { auth:true, tier:"free"|"consumer_pro"|"guide_pro"|"fly_shop_basic"|"fly_shop_pro" }
+export async function getTier(jwt) {
+  try {
+    const r = await fetch(SB_URL + "/rest/v1/subscriptions?select=tier,status,is_comped,current_period_end", {
+      headers: { apikey: SB_ANON, Authorization: "Bearer " + jwt }
+    });
+    if (r.status === 401 || r.status === 403) {
+      let code = "";
+      try { const b = await r.json(); code = (b && b.code) || ""; } catch (e) { /* no body */ }
+      if (code === "42501") return { auth: true, tier: null };
+      return { auth: false };
+    }
+    if (!r.ok) return { auth: true, tier: null };
+    const rows = await r.json();
+    const data = Array.isArray(rows) ? rows[0] : null;
+    if (!data || data.status === "canceled") return { auth: true, tier: "free" };
+    if (data.is_comped && data.current_period_end && new Date(data.current_period_end) < new Date()) return { auth: true, tier: "free" };
+    return { auth: true, tier: data.tier || "free" };
+  } catch (e) {
+    return { auth: true, tier: null };
+  }
+}
