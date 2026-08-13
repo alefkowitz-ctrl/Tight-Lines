@@ -1,6 +1,6 @@
 import { waitUntil } from "@vercel/functions";
 import { Resend } from "resend";
-import { SB_URL, SB_ANON, jwtSub, todayCount } from "./_lib/supabaseRest.js";
+import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
 import { runTripPlannerPipeline, filterFishableGauges, directionalSpread } from "../src/lib/tripPlannerPipeline.js";
 
@@ -195,10 +195,24 @@ export default async function handler(req, res) {
   if (!process.env.RESEND_API_KEY) return res.status(500).json({ error: { message: "Email delivery isn't configured yet." } });
   if (!SB_SERVICE) console.warn("[plan-trip-background] SUPABASE_SERVICE_ROLE_KEY is not set — falling back to the user's JWT, which will likely expire mid-job and fail to save the finished report.");
 
+  // Trip Planner reports are a paid feature (Consumer Pro and up). The on-screen path
+  // enforces this before this same background job kicks off, but a request straight to
+  // this endpoint (e.g. "Email It To Me Instead" with a free-tier session, or a direct
+  // call bypassing the UI) needs its own check — the UI gate alone is not enforcement.
+  // Fails open (allows the job to proceed) only on a genuine "can't tell" Supabase
+  // hiccup — a definite "free" or "canceled" answer always blocks.
+  const exempt = DEV_UNLIMITED.length > 0 && DEV_UNLIMITED.includes(jwtSub(jwt) || "");
+  if (!exempt) {
+    const tierGate = await getTier(jwt);
+    if (tierGate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
+    if (tierGate.tier != null && !PLAN_TIERS.has(tierGate.tier)) {
+      return res.status(403).json({ error: { message: "The AI Trip Planner is a Consumer Pro feature. Upgrade to generate trip reports." } });
+    }
+  }
+
   // Same rate-limit gate as the on-screen path, same ledger table.
   const gate = await todayCount("planner_reports", jwt);
   if (gate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
-  const exempt = DEV_UNLIMITED.length > 0 && DEV_UNLIMITED.includes(jwtSub(jwt) || "");
   if (!exempt && gate.count != null && gate.count >= PLANNER_DAILY_LIMIT) {
     return res.status(429).json({ error: { message: "You've reached today's limit of " + PLANNER_DAILY_LIMIT + " trip reports. The limit resets daily." } });
   }

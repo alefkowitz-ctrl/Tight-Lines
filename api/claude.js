@@ -1,4 +1,4 @@
-import { SB_URL, SB_ANON, jwtSub, todayCount, logUsage } from "./_lib/supabaseRest.js";
+import { SB_URL, SB_ANON, jwtSub, todayCount, logUsage, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
 
 export const maxDuration = 120; // shop-report searches with page reads legitimately need >60s
@@ -109,6 +109,19 @@ export default async function handler(req, res) {
   const table = kind === "planner" ? "planner_reports" : "ai_usage";
   const limit = kind === "planner" ? PLANNER_DAILY_LIMIT : CHEAP_DAILY_LIMIT;
   const exempt = DEV_UNLIMITED.length > 0 && DEV_UNLIMITED.includes(jwtSub(jwt) || "");
+  // Trip Planner reports are a paid feature (Consumer Pro and up). The client already
+  // hides the Plan tab behind PLAN_TIERS, but that's UI only — without this check,
+  // anyone with a valid session (even free tier) could call this endpoint directly with
+  // usage_kind:"planner" and get free reports. Fails open (allows the call through)
+  // only on a genuine "can't tell" Supabase hiccup — a definite "free" or "canceled"
+  // answer always blocks. Dev-exempt accounts skip this, same as the rate limit below.
+  if (kind === "planner" && !exempt) {
+    const tierGate = await getTier(jwt);
+    if (tierGate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
+    if (tierGate.tier != null && !PLAN_TIERS.has(tierGate.tier)) {
+      return res.status(403).json({ error: { message: "The AI Trip Planner is a Consumer Pro feature. Upgrade to generate trip reports." } });
+    }
+  }
   const gate = await todayCount(table, jwt);
   if (gate.auth === false) return res.status(401).json({ error: { message: "Your session expired — please sign in again." } });
   if (!exempt && gate.count != null && gate.count >= limit) {
