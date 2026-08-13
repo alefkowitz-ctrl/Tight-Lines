@@ -8861,102 +8861,72 @@ function AuthLoadingScreen(){
     </div>
   );
 }
-function SplashScreen({onDone}){
-  const [fade,setFade]=React.useState(false);
-  const [screen,setScreen]=React.useState(0);
-  // Intro walkthrough video — YouTube Short in privacy-enhanced (no-cookie) mode.
-  // The splash shows a tappable thumbnail; tapping opens a fullscreen player (autoplay).
-  // If the thumbnail fails to load (e.g. offline), the original artwork shows instead.
+// ── First-visit welcome modal (signed-out visitors only) ───────────────────────
+// Replaces the old 4-screen SplashScreen, which sat in front of the entire app and
+// funneled everyone into a signup form before they'd seen a single number — the
+// suspected main driver of the 90% bounce rate measured 2026-08-11→13.
+//
+// The app now loads straight to live Intel/conditions and this appears OVER it a few
+// seconds later, so the first thing a visitor sees is real gauge data for their own
+// area, not a form. Proof first, ask second.
+//
+// Shown only to signed-out visitors, once per browser SESSION (sessionStorage, not
+// localStorage): dismissing it won't nag again during this visit, but someone who
+// comes back another day gets one more chance to convert. Change to localStorage if
+// that ever reads as too pushy.
+const WELCOME_KEY = "gc_welcome_seen";
+const WELCOME_DELAY_MS = 2600; // long enough for gauges/weather to populate behind it
+function WelcomeModal({onSignUp, onDismiss}){
+  const [vidOpen,setVidOpen]=useState(false);
+  // Same YouTube Short (privacy-enhanced/no-cookie mode) the old splash used.
   const WELCOME_VIDEO_EMBED="https://www.youtube-nocookie.com/embed/4BpQmrpQj9U";
-  const WELCOME_VIDEO_THUMB="https://i.ytimg.com/vi/4BpQmrpQj9U/oar2.jpg";
-  const [vidOk,setVidOk]=React.useState(true);
-  const [vidOpen,setVidOpen]=React.useState(false);
-  const total=4;
-  function dismiss(){setFade(true);setTimeout(()=>onDone(),700);}
-  function next(){if(screen<total-1)setScreen(s=>s+1);else dismiss();}
-  function skip(){dismiss();}
-  const screens=[
-    {
-      icon:null,
-      title:null,
-      subtitle:null,
-      isSplash:true,
-    },
-    {
-      icon:"💧",
-      title:"Live Conditions",
-      subtitle:"Intel Tab",
-      body:"Check real-time stream flows, water temp, and 7-day weather before every trip. Star your favorite gauges to track them daily.",
-      tip:"Tap 💧 Streams to save your home river.",
-    },
-    {
-      icon:"🗺",
-      title:"Find the Best Water",
-      subtitle:"Plan Tab",
-      body:"Enter your location and how long you'll drive. Get nearby streams ranked best to worst with crowd levels, access points, and fly recommendations.",
-      tip:"Ranked using live USGS flows, weather, and current conditions.",
-    },
-    {
-      icon:"📷",
-      title:"Document Every Fish",
-      subtitle:"Catch Log Tab",
-      body:"Upload a photo and the app auto-identifies the species, records your GPS location, and pulls historical conditions for that exact day.",
-      tip:"Your catch locations are encrypted and never shared.",
-    },
-  ];
-  const s=screens[screen];
-  return(
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'linear-gradient(170deg,#0d1f26 0%,#1a3a4a 50%,#0d2a1f 100%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:9999,transition:'opacity 0.7s',opacity:fade?0:1,pointerEvents:fade?'none':'all',padding:'32px 24px'}}>
-    {screen>0&&(
-      <div style={{position:'absolute',top:0,left:0,right:0,display:'flex',gap:4,padding:'16px 24px'}}>
-        {[0,1,2,3].map(i=><div key={i} style={{flex:1,height:3,borderRadius:2,background:i<=screen-1?"var(--gold)":"rgba(255,255,255,0.2)"}}/>)}
+  return createPortal(
+    <div style={{position:"fixed",inset:0,zIndex:4500,background:"rgba(8,18,24,0.78)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}
+      onClick={e=>{if(e.target===e.currentTarget)onDismiss();}}>
+      <div style={{position:"relative",width:"100%",maxWidth:360,background:"linear-gradient(170deg,#0d1f26 0%,#16333f 60%,#0d2a1f 100%)",border:"1px solid rgba(209,154,74,0.35)",borderRadius:20,padding:"26px 24px 20px",textAlign:"center",boxShadow:"0 18px 50px rgba(0,0,0,0.5)"}}>
+        <button onClick={onDismiss} aria-label="Close"
+          style={{position:"absolute",top:10,right:12,background:"none",border:"none",color:"var(--stone)",fontSize:20,lineHeight:1,cursor:"pointer"}}>✕</button>
+        <div style={{marginBottom:12,display:"flex",justifyContent:"center"}}><Logo layout="stacked" scale={0.42}/></div>
+        <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:26,color:"var(--foam)",lineHeight:1.15,marginBottom:8}}>Know Before You Go</div>
+        <p style={{fontFamily:"var(--font-body)",fontSize:14.5,color:"var(--sky)",lineHeight:1.5,margin:"0 0 18px"}}>
+          Nearby streams, ranked best to worst by live flows, weather, and current conditions.
+        </p>
+        <button onClick={onSignUp}
+          style={{width:"100%",background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"13px 20px",fontSize:16,fontFamily:"var(--font-head)",fontWeight:600,letterSpacing:0.5,cursor:"pointer",marginBottom:10}}>
+          Create Free Account
+        </button>
+        <div style={{fontFamily:"var(--font-body)",fontSize:12.5,color:"var(--stone)",lineHeight:1.45,marginBottom:14}}>
+          Free: save your home rivers, log catches, and track conditions daily.
+        </div>
+        <button onClick={onDismiss}
+          style={{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:24,padding:"11px 20px",fontSize:15,fontFamily:"var(--font-body)",color:"var(--foam)",cursor:"pointer",marginBottom:16}}>
+          Look Around First
+        </button>
+        <button onClick={()=>setVidOpen(true)}
+          style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",background:"none",border:"none",color:"var(--sky)",fontSize:13.5,fontFamily:"var(--font-body)",cursor:"pointer",marginBottom:14}}>
+          <span style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"8px solid var(--gold)"}}/>
+          Watch the 30-second tour
+        </button>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <span style={{fontSize:12}}>🔒</span>
+          <span style={{fontFamily:"var(--font-body)",fontSize:11.5,color:"var(--stone)"}}>Your spots stay private — encrypted, never shared.</span>
+        </div>
       </div>
-    )}
-      {s.isSplash?(
-        <>
-          <div style={{marginBottom:14}}><Logo layout="stacked" scale={0.5} /></div>
-          <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:32,color:"var(--foam)",textAlign:"center",lineHeight:1.15,maxWidth:300,marginBottom:10}}>Know Before You Go</div>
-          <p style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--sky)",textAlign:"center",lineHeight:1.5,maxWidth:280,marginBottom:22}}>Nearby streams, ranked best to worst by live flows, weather, and current conditions.</p>
-          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"14px 40px",fontSize:17,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1,marginBottom:16}}>Get Started →</button>
-          {vidOk&&(
-            <button onClick={()=>setVidOpen(true)} style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(209,154,74,0.35)",borderRadius:20,padding:"8px 18px",color:"var(--foam)",fontSize:14,fontFamily:"var(--font-body)",cursor:"pointer",marginBottom:18}}>
-              <span style={{width:0,height:0,borderTop:"6px solid transparent",borderBottom:"6px solid transparent",borderLeft:"9px solid var(--gold)"}}/>
-              Watch the 30-second tour
-            </button>
-          )}
-          {vidOpen&&(
-            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"#000",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <iframe
-                src={WELCOME_VIDEO_EMBED+"?autoplay=1&playsinline=1&rel=0"}
-                title="Guide's Choice walkthrough"
-                style={{width:"min(100vw, 56.25vh)",height:"100%",border:"none"}}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
-              <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"var(--font-body)",zIndex:10001}}>✕ Close</button>
-            </div>
-          )}
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:18}}>
-            <span style={{fontSize:13}}>🔒</span>
-            <span style={{fontFamily:"var(--font-body)",fontSize:12.5,color:"var(--stone)"}}>Your spots stay private — encrypted, never shared.</span>
-          </div>
-          <button onClick={()=>{localStorage.setItem('gc_onboarded','1');dismiss();}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip intro</button>
-        </>
-      ):(
-        <>
-          <div style={{fontSize:64,marginBottom:16}}>{s.icon}</div>
-          <div style={{fontFamily:"var(--font-body)",fontSize:15,color:"var(--gold)",letterSpacing:3,textTransform:"uppercase",marginBottom:6}}>{s.subtitle}</div>
-          <div style={{fontFamily:"var(--font-head)",fontSize:28,color:"var(--foam)",marginBottom:16,textAlign:"center"}}>{s.title}</div>
-          <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:16,padding:"20px 24px",maxWidth:320,textAlign:"center",marginBottom:24}}>
-            <p style={{fontFamily:"var(--font-body)",fontSize:16,color:"var(--foam)",lineHeight:1.7,margin:0,marginBottom:12}}>{s.body}</p>
-            <div style={{fontSize:15,color:"var(--sky)",fontStyle:"italic"}}>💡 {s.tip}</div>
-          </div>
-          <button onClick={next} style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 36px",fontSize:16,fontFamily:"var(--font-head)",fontWeight:600,cursor:"pointer",letterSpacing:1}}>{screen===total-1?"Let's Fish →":"Next →"}</button>
-          {screen===total-1&&<label style={{marginTop:14,display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}><input type="checkbox" onChange={e=>e.target.checked&&localStorage.setItem("gc_onboarded","1")} style={{accentColor:"var(--gold)"}}/><span style={{fontSize:15,color:"var(--stone)",fontFamily:"var(--font-body)"}}>Don't show again</span></label>}
-          <button onClick={skip} style={{marginTop:8,background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>Skip</button>
-        </>
+      {vidOpen&&(
+        <div style={{position:"fixed",inset:0,background:"#000",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center"}}
+          onClick={e=>e.stopPropagation()}>
+          <iframe
+            src={WELCOME_VIDEO_EMBED+"?autoplay=1&playsinline=1&rel=0"}
+            title="Guide's Choice walkthrough"
+            style={{width:"min(100vw, 56.25vh)",height:"100%",border:"none"}}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+          <button onClick={()=>setVidOpen(false)} style={{position:"absolute",top:"max(16px, env(safe-area-inset-top))",right:16,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:16,cursor:"pointer",fontFamily:"var(--font-body)",zIndex:10001}}>✕ Close</button>
+        </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -9075,8 +9045,25 @@ function InstallPrompt(){
 }
 
 function Root(){
-  const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
   const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking} = useAuth();
+  // First-visit welcome modal, guests only. Deliberately NOT rendered until the app
+  // behind it has had a moment to populate real gauge/weather data — the whole point of
+  // dropping the old full-screen splash was that a visitor should see the product
+  // working before being asked for anything. Gated on !loading so it can never flash in
+  // front of a signed-in user while their session is still resolving.
+  const [showWelcome,setShowWelcome]=useState(false);
+  useEffect(()=>{
+    if(loading||user) return;
+    let seen=false;
+    try{ seen=!!sessionStorage.getItem(WELCOME_KEY); }catch(_){ seen=false; }
+    if(seen) return;
+    const t=setTimeout(()=>setShowWelcome(true),WELCOME_DELAY_MS);
+    return ()=>clearTimeout(t);
+  },[loading,user]);
+  function dismissWelcome(){
+    try{ sessionStorage.setItem(WELCOME_KEY,"1"); }catch(_){}
+    setShowWelcome(false);
+  }
   const [checkoutNotice,setCheckoutNotice]=useState("");
   // Guest auth-prompt overlay: null = hidden, "" or a reason string = shown. Reset
   // whenever a real user shows up (fresh sign-in) so a later sign-out doesn't
@@ -9106,7 +9093,6 @@ function Root(){
       return ()=>{clearInterval(poll);clearTimeout(clearNotice);};
     }
   },[user,loading]);
-  if(showSplash) return <SplashScreen onDone={()=>{localStorage.setItem("gc_onboarded","1");setShowSplash(false);}}/>;
   if(loading) return <AuthLoadingScreen/>;
   // Only bypass auth if Supabase is genuinely not configured
   if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}} redeemInviteCode={async()=>({ok:false,reason:"not_configured"})}/>;
@@ -9127,7 +9113,13 @@ function Root(){
         </div>
       </div>
     )}
-    <InstallPrompt/>
+    {!user&&showWelcome&&authPromptReason===null&&(
+      <WelcomeModal
+        onSignUp={()=>{dismissWelcome();setAuthPromptReason("");}}
+        onDismiss={dismissWelcome}
+      />
+    )}
+    {!showWelcome&&<InstallPrompt/>}
   </>;
 }
 export default Root;
