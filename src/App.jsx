@@ -560,7 +560,7 @@ function useAuth(){
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
-function AuthScreen({demoError}){
+function AuthScreen({demoError, promptReason}){
   const [returningUser, setReturningUser] = useLocalStorage("tl_returning_user", false);
   const [mode, setMode] = useState(returningUser ? "login" : "signup"); // defaults to signup for first-time visitors, login once this device has signed in before
   const [email, setEmail] = useState("");
@@ -621,6 +621,7 @@ function AuthScreen({demoError}){
         </div>
         <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
           {demoError&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>Demo link couldn't sign you in automatically ({demoError}). Please contact support.</div>}
+          {!demoError&&promptReason&&<div style={{background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--gold)",marginBottom:14,textAlign:"center"}}>{promptReason}</div>}
           <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
             {mode==="login"?"Welcome Back":mode==="signup"?"Create Account":"Reset Password"}
           </div>
@@ -6882,21 +6883,29 @@ function PhotoCropModal({photoUrl,onSave,onCancel}){
   );
 }
 
-function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking}){
-  const [tab,setTab]=useState(()=>{try{return sessionStorage.getItem("tl_tab")||"conditions";}catch{return "conditions";}});
+function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking, onRequestAuth}){
+  // Guests (no account) always land on Intel/conditions — a stale non-conditions value
+  // left in sessionStorage from a previous signed-in session on this device/browser
+  // must not carry over to a signed-out visitor.
+  const [tab,setTab]=useState(()=>{try{const t=sessionStorage.getItem("tl_tab")||"conditions";return (user||t==="conditions")?t:"conditions";}catch{return "conditions";}});
   useEffect(()=>{try{sessionStorage.setItem("tl_tab",tab);}catch{}},[tab]);
   // Deep link from a background-report email (?report=<id>&tab=plan): switch to the
   // Trip Planner tab and hand the id down for TripPlanner to load, same pattern as the
-  // ?checkout= handling in Root above.
+  // ?checkout= handling in Root above. A signed-out visitor following this link (e.g. a
+  // stale/shared link, or a session that expired) is prompted to sign in instead of
+  // dropping straight into the Trip Planner tab; the URL param is only consumed once a
+  // real user is present, so signing in from the prompt re-triggers this and still opens
+  // the report.
   const [pendingReportId,setPendingReportId]=useState(null);
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const rid=params.get("report");
     if(!rid)return;
+    if(!user){onRequestAuth&&onRequestAuth("Sign in to view your trip report.");return;}
     window.history.replaceState({},"",window.location.pathname);
     setTab("plan");
     setPendingReportId(rid);
-  },[]);
+  },[user]);
   const [hideGuide,setHideGuide]=useState(()=>{try{return localStorage.getItem("tl_hideguide")==="1";}catch(e){return false;}});
   const [showSettings,setShowSettings]=useState(false);
   const settingsWrapRef=useRef(null);
@@ -7820,6 +7829,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   }
 
   async function addSavedGauge(){
+    if(!user){onRequestAuth&&onRequestAuth("Create a free account to save your favorite gauges.");return;}
     if(!gaugeInput.trim()) return;
     setGaugeAdding(true);
     // Extract site number from USGS URL or treat as site number directly
@@ -7849,6 +7859,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
 
   function isStarred(siteNo){return savedGauges.some(g=>g.site_no===siteNo);}
   async function toggleStar(gauge){
+    if(!user){onRequestAuth&&onRequestAuth("Create a free account to save your favorite gauges.");return;}
     if(isStarred(gauge.siteNo)){
       const g=savedGauges.find(s=>s.site_no===gauge.siteNo);
       if(g) removeSavedGauge(g.id);
@@ -8255,14 +8266,21 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         <div className="hdr">
           {btnPos&&!addOpen&&createPortal(
             <div ref={settingsWrapRef} style={{position:"fixed",top:btnPos.top,right:btnPos.right,zIndex:2001,display:"flex",gap:8,alignItems:"flex-start"}}>
-              <button onClick={openSettings} aria-label="Settings"
-                style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
-                ⚙
-              </button>
-              <button disabled={signOutBusy} onClick={handleSignOut}
-                style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:signOutBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:signOutBusy?0.6:1}}>
-                {signOutBusy?"Signing out…":"Sign Out"}
-              </button>
+              {user?<>
+                <button onClick={openSettings} aria-label="Settings"
+                  style={{background:showSettings?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 10px",color:"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                  ⚙
+                </button>
+                <button disabled={signOutBusy} onClick={handleSignOut}
+                  style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"6px 12px",color:"var(--stone)",fontSize:15,cursor:signOutBusy?"default":"pointer",fontFamily:"var(--font-body)",opacity:signOutBusy?0.6:1}}>
+                  {signOutBusy?"Signing out…":"Sign Out"}
+                </button>
+              </>:(
+                <button onClick={()=>onRequestAuth&&onRequestAuth("")}
+                  style={{background:"var(--gold)",border:"none",borderRadius:10,padding:"6px 14px",color:"#0c1e25",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+                  Sign In
+                </button>
+              )}
             </div>,
             document.body
           )}
@@ -8333,7 +8351,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
 
         <div className="nav">
           {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].filter(t=>t.id!=="guide"||!hideGuide).map(t=>(
-            <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});}}>
+            <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{
+              if(!user&&t.id!=="conditions"){onRequestAuth&&onRequestAuth("Create a free account to use "+t.label+".");return;}
+              setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});
+            }}>
               <span className="ic">{t.icon}</span>{t.label}
             </button>
           ))}
@@ -9057,6 +9078,11 @@ function Root(){
   const [showSplash,setShowSplash]=React.useState(()=>!localStorage.getItem("gc_onboarded"));
   const {user, loading, demoError, tier, trialExpired, refreshTier, redeemInviteCode, autoRedeemNotice, setAutoRedeemNotice, tierCheckFailed, tierDebug, tierChecking} = useAuth();
   const [checkoutNotice,setCheckoutNotice]=useState("");
+  // Guest auth-prompt overlay: null = hidden, "" or a reason string = shown. Reset
+  // whenever a real user shows up (fresh sign-in) so a later sign-out doesn't
+  // instantly re-open it with a stale reason from before.
+  const [authPromptReason,setAuthPromptReason]=useState(null);
+  useEffect(()=>{ if(user) setAuthPromptReason(null); },[user]);
   // Handles the redirect back from Stripe Checkout (?checkout=success|cancel). The
   // webhook that actually activates the tier in Supabase runs async on Stripe's side,
   // so on success we poll refreshTier briefly rather than assuming it's already there.
@@ -9084,11 +9110,23 @@ function Root(){
   if(loading) return <AuthLoadingScreen/>;
   // Only bypass auth if Supabase is genuinely not configured
   if(!SUPABASE_CONFIGURED) return <App user={{id:"local",email:"local user"}} tier="free" refreshTier={()=>{}} redeemInviteCode={async()=>({ok:false,reason:"not_configured"})}/>;
-  // Supabase IS configured - require login
-  if(!user) return <AuthScreen demoError={demoError}/>;
+  // Supabase IS configured. Guests (no account) still see the app itself — gauges and
+  // weather are the free tier and shouldn't require signup just to look. Personal/paid
+  // actions (save a gauge, log a catch, plan a trip, guide tools) call onRequestAuth
+  // instead, which pops AuthScreen as a dismissible overlay with a reason message.
   return <>
     {checkoutNotice&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(60,120,80,0.95)",padding:"8px 16px",textAlign:"center",fontSize:15,color:"white",fontFamily:"var(--font-body)"}}>✓ {checkoutNotice}</div>}
-    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug} tierChecking={tierChecking}/>
+    <App user={user} tier={tier} trialExpired={trialExpired} refreshTier={refreshTier} redeemInviteCode={redeemInviteCode} autoRedeemNotice={autoRedeemNotice} setAutoRedeemNotice={setAutoRedeemNotice} tierCheckFailed={tierCheckFailed} tierDebug={tierDebug} tierChecking={tierChecking} onRequestAuth={reason=>setAuthPromptReason(reason||"")}/>
+    {!user&&authPromptReason!==null&&(
+      <div style={{position:"fixed",inset:0,zIndex:3000,background:"rgba(10,20,17,0.82)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}
+        onClick={e=>{if(e.target===e.currentTarget)setAuthPromptReason(null);}}>
+        <div style={{position:"relative",width:"100%",maxWidth:380}}>
+          <button onClick={()=>setAuthPromptReason(null)} aria-label="Close"
+            style={{position:"absolute",top:-14,right:-6,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.25)",color:"var(--foam)",fontSize:16,cursor:"pointer",zIndex:1}}>✕</button>
+          <AuthScreen demoError={demoError} promptReason={authPromptReason}/>
+        </div>
+      </div>
+    )}
     <InstallPrompt/>
   </>;
 }
