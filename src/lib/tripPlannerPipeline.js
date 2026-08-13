@@ -645,7 +645,7 @@ export function enforceStreamTypes(rivers,keepVerified=false){
 }
 
 // Snap AI-suggested river coordinates to the nearest matching USGS gauge (surveyed coords beat AI guesses)
-function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
+export function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
   if(!Array.isArray(rivers)||!Array.isArray(gaugeList)||!gaugeList.length)return rivers;
   const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT",BLW:"BELOW",BL:"BELOW",ABV:"ABOVE",AB:"ABOVE",HWY:"HIGHWAY",NR:"NEAR",MTN:"MOUNTAIN",RD:"ROAD",FT:"FORT"};
   const norm=s=>{
@@ -659,7 +659,9 @@ function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
   return rivers.map(r=>{
     const rt=norm(String(r.name||"").replace(/,?\s+[A-Za-z]{2}\.?\s*$/,""));
     if(!rt.length)return r;
-    let best=null,bestScore=0;
+    // Score EVERY candidate (not just track a running "best") so ties at the top score
+    // can be detected below — that's the case this whole function was getting wrong.
+    const candidates=[];
     for(const g of gaugeList){
       if(!(g.lat&&g.lng))continue;
       const gFull=norm(g.name);
@@ -671,13 +673,28 @@ function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
       else if(rt.every(t=>gFull.includes(t)))score=1;
       if(score===0)continue;
       const d=(r.lat&&r.lng)?Math.hypot(g.lat-r.lat,g.lng-r.lng):(g.dist??9);
-      if(!best||score>bestScore||(score===bestScore&&d<best._d)){best={...g,_d:d};bestScore=score;}
+      candidates.push({...g,_d:d,_score:score});
     }
-    // _snapDistMi/_snapScore are diagnostic-only additions (miles from the pick to the
-    // matched gauge, and the 1-3 match-quality score from above) — existing callers that
-    // don't know about these fields simply ignore them; nothing downstream reads them
-    // except the temporary logging in verifyOmissions below.
-    return (best&&best._d<=maxDeg)?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(best._d*69*10)/10,_snapScore:bestScore}:r;
+    if(!candidates.length)return r;
+    const topScore=Math.max(...candidates.map(c=>c._score));
+    const top=candidates.filter(c=>c._score===topScore);
+    // AMBIGUITY GUARD (2026-08-12): streamPart strips the "AT/NEAR/BELOW X" qualifier
+    // before scoring, so a bare name like "St. Vrain Creek" or "Clear Creek" scores
+    // IDENTICALLY against every gauge on that named creek regardless of which reach -
+    // confirmed against live data: bare "Clear Creek" ties FIVE real gauges (5.5 to 84
+    // CFS, Loveland Pass down to Golden) at the top score, and "St. Vrain Creek" tied a
+    // canyon-adjacent gauge (35.8 CFS) against one below Longmont (743 CFS) - nearest-
+    // distance-wins then silently picked whichever happened to be geographically
+    // closer, with no signal that the two candidates disagreed by 20x. When 2+
+    // DIFFERENT gauges (by siteNo, falling back to name) genuinely tie for the top
+    // score, the name alone can't tell them apart - rather than guess, treat it as
+    // unresolved: no gauge attaches, the pick keeps its own name/coordinates untouched,
+    // same as if nothing had matched. Multiple timeSeries entries for the SAME physical
+    // site are not ambiguous and proceed normally.
+    const distinctTopIds=new Set(top.map(c=>c.siteNo||c.name));
+    if(distinctTopIds.size>1)return r;
+    const best=top[0];
+    return (best._d<=maxDeg)?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(best._d*69*10)/10,_snapScore:topScore}:r;
   });
 }
 
