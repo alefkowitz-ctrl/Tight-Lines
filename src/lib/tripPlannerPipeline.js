@@ -701,25 +701,88 @@ export function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
 }
 
 // Fusion guard: a real tailwater sits below ONE dam, so its access points cluster within
-// a few miles. Narrows a fused two-dam entry to the mapped section and flags it.
-function labSplitFused(rivers){
+// a few miles of it. Narrows a fused multi-reach entry to the dam-adjacent cluster and
+// flags it. Runs BEFORE labVerifyPicks, so a properly-scoped, single-reach description is
+// what the verification question actually evaluates (2026-08-13: a verification-prompt
+// fix alone was tried first and didn't resolve a real Big Thompson report - the verifier
+// correctly confirmed tailwater because the fused entry's OWN text genuinely centered on
+// the dam/tailrace; the bug was upstream of verification, in the pick itself spanning
+// three real reaches under one entry).
+//
+// 2026-08-13: this used to only catch a fusion when the AI embedded literal lat/lng in
+// its own access-point text - checked against a real report and it never does. Rewritten
+// to geocode named access points via the injected aiCtx instead (same Google Places call
+// geocodeRiver already uses - no AI cost).
+//
+// Anchor choice: prefer the access point whose own text names the dam/reservoir/tailrace
+// itself, since that's a stronger "this IS the tailwater point" signal than the pick's own
+// r.lat/r.lng - which, when a live gauge snapped, IS the gauge's coordinates, and a gauge
+// can snap to the wrong (downstream, non-tailwater) reach in the first place. That's
+// exactly what happened in the real case this was built from: gaugeSnap pointed at a
+// gauge 20 miles downstream, so anchoring on the pick's own coordinates would have kept
+// the wrong cluster and discarded the real tailrace access point.
+const DAM_WORD_RE=/\b(dam|reservoir|tailrace|outlet)\b/i;
+const coordRe=/(-?\d{1,3}\.\d{2,})[ ,]+(-?\d{1,3}\.\d{2,})/;
+function accessPointPlace(s){
+  return String(s||"").split(/[(—:\-]/)[0].replace(/\b(access|public|area|TU|BLM|parking|trailhead|bridge|road|pullouts?|section|the)\b/gi,"").replace(/\s+/g," ").trim();
+}
+async function geocodeAccessPoint(text,regionHint,aiCtx){
+  const m=coordRe.exec(String(text));
+  if(m)return{lat:parseFloat(m[1]),lng:parseFloat(m[2])};
+  try{
+    const q=accessPointPlace(text)+(regionHint?", "+regionHint:"");
+    if(!q.trim())return null;
+    const g=await aiCtx.geocodePlaces(q);
+    return g?{lat:g.lat,lng:g.lng}:null;
+  }catch{return null;}
+}
+async function labSplitFused(rivers,aiCtx,regionHint){
   if(!Array.isArray(rivers))return rivers;
-  const coordRe=/(-?\d{1,3}\.\d{2,})[ ,]+(-?\d{1,3}\.\d{2,})/;
-  const placeOf=s=>String(s||"").split(/[(—:\-]/)[0].replace(/\b(access|public|area|TU|BLM|parking|trailhead|bridge|road|pullouts?|section|the)\b/gi,"").replace(/\s+/g," ").trim();
-  return rivers.map(r=>{
-    if(!/tailwater/i.test(String(r.type||""))||r.lat==null||r.lng==null||!Array.isArray(r.accessPoints)||r.accessPoints.length<2)return r;
-    const dist=(la,lo)=>Math.hypot(la-r.lat,lo-r.lng)*69;
-    const tagged=r.accessPoints.map(a=>{const m=coordRe.exec(String(a));return m?{str:a,d:dist(parseFloat(m[1]),parseFloat(m[2]))}:{str:a,d:null};});
-    const far=tagged.filter(a=>a.d!=null&&a.d>12);
+  return Promise.all(rivers.map(async r=>{
+    if(!/tailwater/i.test(String(r.type||""))||!Array.isArray(r.accessPoints)||r.accessPoints.length<2||!aiCtx)return r;
+    const resolved=await Promise.all(r.accessPoints.map(async a=>({str:a,pt:await geocodeAccessPoint(a,regionHint,aiCtx)})));
+    const damPoint=resolved.find(x=>DAM_WORD_RE.test(x.str)&&x.pt);
+    const anchor=damPoint?damPoint.pt:((r.lat!=null&&r.lng!=null)?{lat:r.lat,lng:r.lng}:null);
+    if(!anchor)return r;
+    const distMi=p=>p?Math.hypot(p.lat-anchor.lat,p.lng-anchor.lng)*69:null;
+    // Elevation check: a genuine tailwater point can only be AT or BELOW the dam's own
+    // elevation - water that hasn't yet passed through the dam (upstream headwaters) can
+    // sit close by straight-line distance (a park a few miles from the dam's own town)
+    // while being a completely different, non-tailwater fishery - distance alone can't
+    // tell "close but upstream" from "close and genuinely tailwater". One batched
+    // Open-Meteo lookup (same utility computeDriveMinutes already uses elsewhere in this
+    // file) catches this. Fails open - a lookup failure never excludes a point that
+    // passed the distance check, it only strengthens the check when elevation is available.
+    const pts=resolved.map(x=>x.pt);
+    const elevs=await fetchElevations([anchor.lat,...pts.map(p=>p?p.lat:anchor.lat)],[anchor.lng,...pts.map(p=>p?p.lng:anchor.lng)]).catch(()=>null);
+    const anchorElevM=Array.isArray(elevs)?elevs[0]:null;
+    const ELEV_UP_M=45; // ~150 ft - conservative; ordinary downstream drop within one real reach shouldn't trip this
+    const tagged=resolved.map((x,i)=>{
+      const elevM=Array.isArray(elevs)?elevs[i+1]:null;
+      const tooHigh=(anchorElevM!=null&&elevM!=null)&&(elevM-anchorElevM)>ELEV_UP_M;
+      return {str:x.str,d:distMi(x.pt),tooHigh};
+    });
+    const far=tagged.filter(x=>(x.d!=null&&x.d>12)||x.tooHigh);
     if(!far.length)return r;
-    const kept=tagged.filter(a=>a.d==null||a.d<=12);
-    const keptPlaces=[...new Set(kept.map(a=>placeOf(a.str)).filter(Boolean))];
-    const farPlaces=[...new Set(far.map(a=>placeOf(a.str)).filter(Boolean))];
+    const kept=tagged.filter(x=>!((x.d!=null&&x.d>12)||x.tooHigh));
+    const keptPlaces=[...new Set(kept.map(x=>accessPointPlace(x.str)).filter(Boolean))];
+    const farPlaces=[...new Set(far.map(x=>accessPointPlace(x.str)).filter(Boolean))];
     let name=String(r.name||"");
     farPlaces.forEach(p=>{const esc=p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");name=name.replace(new RegExp("\\s*[/,]\\s*"+esc,"gi"),"");});
-    const note="⚠ This entry appears to combine two tailwaters below different dams. Narrowed to the "+(keptPlaces.join("/")||"mapped")+" section; the "+(farPlaces.join("/")||"other")+" stretch is below a different dam and is a separate fishery.";
-    return {...r,name,accessPoints:kept.length?kept.map(a=>a.str):r.accessPoints,why:(note+" "+(r.why||"")).trim()};
-  });
+    const note="⚠ This entry's access points spanned more than one stretch of water ("+(keptPlaces.join("/")||"the mapped section")+" vs. "+(farPlaces.join("/")||"another reach")+") — narrowed to the "+(keptPlaces.join("/")||"mapped")+" section that matches its Tailwater label; the other point(s) are a different stretch and not shown here.";
+    const base={...r,name,accessPoints:kept.length?kept.map(x=>x.str):r.accessPoints,why:(note+" "+(r.why||"")).trim()};
+    // If the pick's own attached live gauge is itself one of the far points (the gauge
+    // snapped to the OTHER stretch, not the one this entry now describes after narrowing),
+    // drop the gauge attachment rather than keep showing a flow number for water this entry
+    // no longer claims to be about. labGovernor (runs later) already falls back to the AI's
+    // own text "cfs" estimate whenever gaugeCfs is absent - no new fallback needed here.
+    const gaugeDistMi=(r.gaugeSnap&&r.lat!=null&&r.lng!=null)?distMi({lat:r.lat,lng:r.lng}):null;
+    if(gaugeDistMi!=null&&gaugeDistMi>12){
+      const{gaugeSnap,gaugeCfs,siteNo,_snapDistMi,_snapScore,...rest}=base;
+      return {...rest,lat:anchor.lat,lng:anchor.lng};
+    }
+    return base;
+  }));
 }
 
 // Geocode a river name via Google Places (through the injected aiCtx — direct on the
@@ -750,7 +813,7 @@ export async function finalizeLabRivers(rivers,gaugeList,loc,ground,aiCtx,opts){
   if(!out.length&&rivers.length)out=rivers.slice(0,1); // last resort: never return empty
 
   out=enforceStreamTypes(out,true);
-  out=labSplitFused(out);
+  out=await labSplitFused(out,aiCtx,regionHint);
   out=dropWarmwaterByText(out);
   out=dropWarmUrbanPicks(out);
   out=damNameReconcile(out);
