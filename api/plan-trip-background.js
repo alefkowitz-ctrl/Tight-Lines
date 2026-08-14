@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
 import { runTripPlannerPipeline, filterFishableGauges, directionalSpread } from "../src/lib/tripPlannerPipeline.js";
+import { fetchCODWRGauges } from "../src/lib/gaugeSources.js";
 
 // Same ceiling Vercel Hobby supports; Pro/Enterprise allow more but this is plenty —
 // the full pipeline has run in the 2-4 minute range in on-screen testing.
@@ -263,11 +264,27 @@ export default async function handler(req, res) {
         const dist = Math.sqrt(Math.pow(siteLat - lat, 2) + Math.pow(siteLng - lng, 2));
         return { name: (t.sourceInfo && t.sourceInfo.siteName) || "Unknown", cfs, label: cfsLbl, cls, siteNo, dist, lat: siteLat, lng: siteLng };
       }).filter(s => s.cfs != null && s.cfs >= 0 && s.cfs < 500000).sort((a, b) => a.dist - b.dist);
+      // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
+      // more states/agencies later. Only skips a DWR gauge when USGS already returned a
+      // LIVE reading for its cross-referenced site; DWR can list a usgsSiteId for a gauge
+      // that's been dead for decades (e.g. South Boulder Creek below Gross Reservoir).
+      // Kept identical to the client's on-screen version of this same step so a report
+      // doesn't differ depending on which path generated it.
+      try {
+        const dwrGauges = await fetchCODWRGauges(lat, lng, 100, new Set(pgScaled.map(s => s.siteNo)));
+        pgScaled = [...pgScaled, ...dwrGauges];
+      } catch { /* fails open — a supplemental source going down never blocks a report */ }
       pgScaled = directionalSpread([...pgScaled.filter(s => s.cfs >= 15), ...pgScaled.filter(s => s.cfs < 15)], 40, lat, lng);
 
       const ds = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-      const gSiteNos = filterFishableGauges(pgScaled, lat, lng).map(g => g.siteNo);
+      // Numeric-only: pgScaled can now include CO DWR gauges whose siteNo is a
+      // non-numeric DWR abbrev (e.g. "BOCBGRCO") rather than a USGS site number.
+      // Feeding one into fetchFlowAvgBatchServer (a USGS-only OGC endpoint) is
+      // harmless there (tested: it just skips unmatched IDs) but this filter is
+      // kept anyway to match the client path exactly and stay safe if this ever
+      // gets pointed at a less-tolerant USGS endpoint later.
+      const gSiteNos = filterFishableGauges(pgScaled, lat, lng).map(g => g.siteNo).filter(sn => /^\d+$/.test(sn));
 
       let savedGauges = [];
       let flowAvgMap = {};
