@@ -6416,41 +6416,47 @@ const CROP_RATIOS=[
 // when CatchCard changes. Every interactive control (edit/share/delete/photo) routes to
 // the signup prompt through gate().
 //
-// Photos are intentionally null, so each card shows the standard 🐟 placeholder — the
-// repo has no fish images and hotlinking someone else's would be both fragile and not
-// ours to use. Dropping 3 real photos into public/ and referencing them here is an easy
-// upgrade later.
+// Photos are Adam's own catches, served from public/. They were re-encoded with ALL
+// EXIF stripped before being committed — the originals carried GPS coordinates for
+// every fish, and public/ is served openly, so shipping them as-is would have published
+// his actual spots and contradicted the app's own "spots stay private" promise. Any
+// future photo added here must be stripped the same way.
 //
-// FISHING ACCURACY: fly/species/flow/season combinations below are plausible but are
-// Claude's, not verified by Adam. Worth a read-through before this is public-facing.
+// FISHING ACCURACY: species are read from the photos (2 rainbow, 2 brown) but the fly,
+// flow, and stream pairings are Claude's plausible fill-ins, NOT verified by Adam.
+// Worth a read-through — this is public-facing credibility content.
 const SAMPLE_CATCHES = [
   {
-    id:"sample-1", species:"Rainbow Trout", length:"17", time:"Aug 9, 2026 · 8:15 AM",
-    flies:["Blue Winged Olive #18","Pheasant Tail Nymph #16"], photo:null, gps:null,
-    notes:"Fish stacked in the seam below the riffle. Took the dropper on the swing.",
-    streamGaugeName:"South Platte River Deckers", streamCFS:"148", waterTemp:"54",
-    airTemp:"61", weatherDesc:"Overcast", windSpeed:"6", windDir:"NW",
+    id:"sample-1", species:"Rainbow Trout", length:"18", time:"Jun 27, 2026 · 12:54 PM",
+    flies:["Pat's Rubber Legs #8","Pheasant Tail Nymph #16"],
+    photo:"/sample-rainbow-1.jpg", gps:null,
+    notes:"Held in the soft water behind a mid-river boulder. Ate the dropper on the second drift.",
+    streamGaugeName:"Arkansas River Nathrop", streamCFS:"720", waterTemp:"54",
+    airTemp:"68", weatherDesc:"Partly cloudy", windSpeed:"7", windDir:"W",
   },
   {
-    id:"sample-2", species:"Brown Trout", length:"21", time:"Jul 28, 2026 · 6:40 PM",
-    flies:["Pat's Rubber Legs #8","San Juan Worm #14"], photo:null, gps:null,
-    notes:"Big fish holding tight to the undercut bank. Heavy tippet earned it.",
-    streamGaugeName:"Madison River Below Ennis", streamCFS:"1120", waterTemp:"58",
-    airTemp:"74", weatherDesc:"Partly cloudy", windSpeed:"11", windDir:"SW",
+    id:"sample-2", species:"Brown Trout", length:"16", time:"Aug 1, 2026 · 10:02 AM",
+    flies:["Elk Hair Caddis #14","Copper John #16"],
+    photo:"/sample-brown-1.jpg", gps:null,
+    notes:"Sipping in the tailout. Switched to a dry-dropper and it ate the caddis outright.",
+    streamGaugeName:"South Boulder Creek Below Gross", streamCFS:"64", waterTemp:"52",
+    airTemp:"73", weatherDesc:"Clear", windSpeed:"4", windDir:"SW",
   },
   {
-    id:"sample-3", species:"Cutthroat Trout", length:"13", time:"Jul 14, 2026 · 11:05 AM",
-    flies:["Elk Hair Caddis #14"], photo:null, gps:null,
-    notes:"Pocket water above the bridge. Ate on the first drift every time.",
-    streamGaugeName:"Cache la Poudre Canyon Mouth", streamCFS:"96", waterTemp:"52",
-    airTemp:"68", weatherDesc:"Clear", windSpeed:"4", windDir:"E",
+    id:"sample-3", species:"Rainbow Trout", length:"15", time:"Apr 28, 2026 · 3:31 PM",
+    flies:["San Juan Worm #14","Zebra Midge #20"],
+    photo:"/sample-rainbow-2.jpg", gps:null,
+    notes:"Cold, off-color water. Slowed everything down and got it deep along the bank seam.",
+    streamGaugeName:"Big Thompson River Estes", streamCFS:"118", waterTemp:"44",
+    airTemp:"49", weatherDesc:"Partly cloudy", windSpeed:"12", windDir:"NW",
   },
   {
-    id:"sample-4", species:"Brook Trout", length:"9", time:"Jun 30, 2026 · 7:20 AM",
-    flies:["Parachute Adams #16"], photo:null, gps:null,
-    notes:"Small headwater stream. Every plunge pool held a fish.",
-    streamGaugeName:"North St. Vrain Creek", streamCFS:"41", waterTemp:"49",
-    airTemp:"55", weatherDesc:"Light rain", windSpeed:"3", windDir:"N",
+    id:"sample-4", species:"Brown Trout", length:"11", time:"Aug 1, 2026 · 11:30 AM",
+    flies:["Parachute Adams #16"],
+    photo:"/sample-brown-2.jpg", gps:null,
+    notes:"Skinny clear water — one shot per pocket. Long leader and a soft landing did it.",
+    streamGaugeName:"North St. Vrain Creek", streamCFS:"38", waterTemp:"51",
+    airTemp:"75", weatherDesc:"Clear", windSpeed:"3", windDir:"S",
   },
 ];
 function SampleCatchLog({onSignUp}){
