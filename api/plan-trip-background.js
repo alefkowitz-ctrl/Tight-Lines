@@ -264,27 +264,32 @@ export default async function handler(req, res) {
         const dist = Math.sqrt(Math.pow(siteLat - lat, 2) + Math.pow(siteLng - lng, 2));
         return { name: (t.sourceInfo && t.sourceInfo.siteName) || "Unknown", cfs, label: cfsLbl, cls, siteNo, dist, lat: siteLat, lng: siteLng };
       }).filter(s => s.cfs != null && s.cfs >= 0 && s.cfs < 500000).sort((a, b) => a.dist - b.dist);
+      pgScaled = directionalSpread([...pgScaled.filter(s => s.cfs >= 15), ...pgScaled.filter(s => s.cfs < 15)], 40, lat, lng);
       // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
-      // more states/agencies later. Only skips a DWR gauge when USGS already returned a
-      // LIVE reading for its cross-referenced site; DWR can list a usgsSiteId for a gauge
-      // that's been dead for decades (e.g. South Boulder Creek below Gross Reservoir).
-      // Kept identical to the client's on-screen version of this same step so a report
-      // doesn't differ depending on which path generated it.
+      // more states/agencies later. Added AFTER the cap above, not before it: DWR only
+      // survives dedup when it's covering something USGS isn't (see fetchCODWRGauges's own
+      // comment), so by definition it's never redundant with what's already in pgScaled —
+      // but a dense-USGS area can still fill all 40 directional-spread slots on USGS alone,
+      // crowding DWR's gap-filling gauges out of a competition they never needed to be in.
+      // Confirmed by direct reproduction against a real Lafayette, CO search: 432 live USGS
+      // candidates + 128 qualifying DWR candidates in one search — BOCBGRCO (South Boulder
+      // Creek below Gross Reservoir) lost the 40-slot competition even with its own internal
+      // cap removed entirely. Capped internally at 25 inside fetchCODWRGauges already, so
+      // this can't grow unbounded. Kept identical to the client's on-screen version of this
+      // same step so a report doesn't differ depending on which path generated it.
       try {
         const dwrGauges = await fetchCODWRGauges(lat, lng, 100, new Set(pgScaled.map(s => s.siteNo)));
         pgScaled = [...pgScaled, ...dwrGauges];
       } catch { /* fails open — a supplemental source going down never blocks a report */ }
-      pgScaled = directionalSpread([...pgScaled.filter(s => s.cfs >= 15), ...pgScaled.filter(s => s.cfs < 15)], 40, lat, lng);
 
       const ds = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-      // Numeric-only: pgScaled can now include CO DWR gauges whose siteNo is a
-      // non-numeric DWR abbrev (e.g. "BOCBGRCO") rather than a USGS site number.
-      // Feeding one into fetchFlowAvgBatchServer (a USGS-only OGC endpoint) is
-      // harmless there (tested: it just skips unmatched IDs) but this filter is
-      // kept anyway to match the client path exactly and stay safe if this ever
-      // gets pointed at a less-tolerant USGS endpoint later.
-      const gSiteNos = filterFishableGauges(pgScaled, lat, lng).map(g => g.siteNo).filter(sn => /^\d+$/.test(sn));
+      // USGS-only, on purpose: fetchFlowAvgBatchServer is a USGS-specific OGC endpoint.
+      // A CO DWR gauge's siteNo is either a non-numeric DWR abbrev, or a numeric USGS
+      // cross-reference that's usually the dead gauge DWR is filling in for in the first
+      // place (a real query for it just returns no data — harmless, but a wasted call).
+      // Filtering to USGS-sourced entries here avoids both.
+      const gSiteNos = filterFishableGauges(pgScaled.filter(g => !g.sourceAgency), lat, lng).map(g => g.siteNo).filter(sn => /^\d+$/.test(sn));
 
       let savedGauges = [];
       let flowAvgMap = {};
