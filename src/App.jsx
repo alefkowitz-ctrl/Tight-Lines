@@ -5847,18 +5847,25 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
             const dist=Math.sqrt(Math.pow(siteLat-lat,2)+Math.pow(siteLng-lng,2));
             return{name:t.sourceInfo?.siteName??"Unknown",cfs,label,cls,siteNo,dist,lat:siteLat,lng:siteLng};
           }).filter(s=>s.cfs!=null&&s.cfs>=0&&s.cfs<500000).sort((a,b)=>a.dist-b.dist);
-          // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
-          // more states/agencies later. Only skips a DWR gauge when USGS already returned a
-          // LIVE reading for its cross-referenced site; DWR can list a usgsSiteId for a gauge
-          // that's been dead for decades (e.g. South Boulder Creek below Gross Reservoir).
-          try{
-            const dwrGauges=await fetchCODWRGauges(lat,lng,100,new Set(pgScaled.map(s=>s.siteNo)));
-            pgScaled=[...pgScaled,...dwrGauges];
-          }catch{}
           // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left.
           // Spread across compass directions so a dense cluster close to the origin can't crowd
           // out a real drainage farther out in a different direction (same radius, just not "nearest").
           pgScaled=directionalSpread([...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)],40,lat,lng);
+          // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
+          // more states/agencies later. Added AFTER the cap above, not before it: DWR only
+          // survives dedup when it's covering something USGS isn't (see fetchCODWRGauges's
+          // own comment), so by definition it's never redundant with what's already in
+          // pgScaled — but a dense-USGS area can still fill all 40 directional-spread slots
+          // on USGS alone, crowding DWR's gap-filling gauges out of a competition they never
+          // needed to be in. Confirmed by direct reproduction against a real Lafayette, CO
+          // search: 432 live USGS candidates + 128 qualifying DWR candidates in one search:
+          // BOCBGRCO (South Boulder Creek below Gross Reservoir) lost the 40-slot competition
+          // even with its own internal cap removed entirely. Capped internally at 25 inside
+          // fetchCODWRGauges already, so this can't grow unbounded.
+          try{
+            const dwrGauges=await fetchCODWRGauges(lat,lng,100,new Set(pgScaled.map(s=>s.siteNo)));
+            pgScaled=[...pgScaled,...dwrGauges];
+          }catch{}
         }catch(ge2){void 0;}
       }
       setGauges(pgScaled);
@@ -5871,13 +5878,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
         // elsewhere in the app) — the pipeline degrades gracefully to raw CFS if these are {}.
         let pTempMap={},flowAvgMap={};
         try{
-          // Numeric-only: pgScaled can now include CO DWR gauges whose siteNo is a
-          // non-numeric DWR abbrev (e.g. "BOCBGRCO") rather than a USGS site number.
-          // Feeding one of those into fetchUSGSTempBatch/fetchFlowAvgBatch (USGS-only
-          // endpoints) doesn't just skip that one gauge — tested directly, it 400s the
-          // whole batched request and silently drops temps for every real USGS gauge
-          // in it too.
-          const gSiteNos=filterFishableGauges(pgScaled,lat,lng).map(g=>g.siteNo).filter(sn=>/^\d+$/.test(sn));
+          // USGS-only, on purpose: fetchUSGSTempBatch/fetchFlowAvgBatch are USGS-specific
+          // endpoints. A CO DWR gauge's siteNo is either a non-numeric DWR abbrev (would 400
+          // the whole batch — tested directly) or a numeric USGS cross-reference that's
+          // usually the dead gauge DWR is filling in for in the first place (a real query for
+          // it, tested directly, just returns no data — harmless, but a wasted call). Filtering
+          // to USGS-sourced entries here avoids both.
+          const gSiteNos=filterFishableGauges(pgScaled.filter(g=>!g.sourceAgency),lat,lng).map(g=>g.siteNo).filter(sn=>/^\d+$/.test(sn));
           const [ptm,fam]=await Promise.all([
             fetchUSGSTempBatch(gSiteNos).catch(()=>({})),
             fetchFlowAvgBatch(gSiteNos).catch(()=>({}))
@@ -8234,7 +8241,16 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               .filter(g=>g.distMi<=50);
             if(!dwrParsed.length) return;
             setGauges(prev=>{
-              const merged=[...prev,...dwrParsed].sort((a,b)=>b.cfs-a.cfs).slice(0,25);
+              // Not re-sliced to 25: prev is already the USGS-only top-25-by-CFS list,
+              // and re-competing dwrParsed against it for the same 25 slots means a
+              // DWR gap-filling gauge's survival depends on how its CFS happens to
+              // rank against that day's specific USGS flow distribution — tested
+              // directly, BOCBGRCO only survived that competition by chance (68.9 CFS
+              // landing mid-pack), not because it was ever guaranteed to. DWR gauges
+              // only reach here because dedup already excluded anything USGS also
+              // covers, so appending them is adding non-redundant coverage, not
+              // padding out redundant entries.
+              const merged=[...prev,...dwrParsed].sort((a,b)=>b.cfs-a.cfs);
               const maxCFS2=Math.max(...merged.map(x=>x.cfs||0),1);
               const withPct=merged.map(g=>({...g,pct:g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
               window._loadedGauges=withPct;if(window._recomputeHatches)window._recomputeHatches();
