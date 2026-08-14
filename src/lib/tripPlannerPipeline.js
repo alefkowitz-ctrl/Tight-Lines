@@ -990,7 +990,21 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const flowAvgMap = input.flowAvgMap||{};
   const driveMinutes = input.driveMinutes||120;
 
-  const fishableGauges=filterFishableGauges(pgScaled||[],loc.lat,loc.lng);
+  // Non-USGS sources (sourceAgency set — see src/lib/gaugeSources.js) are already
+  // vetted by their own source-calibrated fishable-water filter at fetch time.
+  // Re-running filterFishableGauges's USGS-tuned word list on them a second time
+  // is not just redundant, it's WRONG for at least one real case: DWR names
+  // tailwater gauges "<creek> BELOW <name> RESERVOIR" (South Boulder Creek's own
+  // gauge: "SOUTH BOULDER CREEK BELOW GROSS RESERVOIR"), and "reservoir" is one
+  // of this filter's exclusion words — tuned correctly for USGS's own naming
+  // convention, where that word means a lake-type site, but wrong for DWR's,
+  // where it's standard tailwater phrasing. Confirmed by direct reproduction:
+  // BOCBGRCO survives gaugeSources.js's own filter, then gets silently dropped
+  // right here before ever reaching the AI prompt. Split by source so each
+  // source's own filter is the only one that runs on its own gauges.
+  const usgsOnly=(pgScaled||[]).filter(g=>!g.sourceAgency);
+  const preVetted=(pgScaled||[]).filter(g=>g.sourceAgency);
+  const fishableGauges=[...filterFishableGauges(usgsOnly,loc.lat,loc.lng),...preVetted];
   step("Analyzing area conditions…","active");
   const savedInRadius=savedGauges.filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-loc.lat,2)+Math.pow((sg.lng||0)-loc.lng,2))*69;return d<=140;});
 
