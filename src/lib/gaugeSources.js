@@ -200,7 +200,16 @@ export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
     // Same distance-spread budget the USGS path already uses (imported, not
     // reimplemented) — round-robins across compass directions so a dense
     // cluster near the origin can't crowd out a real drainage farther out.
-    return directionalSpread(normalized, 25, lat, lng);
+    // 60, not 25: tested directly against a real, dense search (Lafayette, CO — 239
+    // qualifying candidates within 100mi). A real, non-redundant gauge (South Boulder
+    // Creek below Gross Reservoir) ranked 33rd by pure distance but still lost a
+    // 25-slot directional-bucket competition to closer candidates crowding its
+    // specific compass direction; empirically it first survives at a 50-slot cap.
+    // 60 gives real margin above that. This runs AFTER USGS-redundant candidates are
+    // already excluded by the dedup step above, so everything competing here is
+    // already gap-filling, non-redundant coverage — no reason to cap it as tightly
+    // as a raw, unfiltered candidate pool would need.
+    return directionalSpread(normalized, 60, lat, lng);
   } catch (e) {
     return []; // fail closed — a supplemental source going down should never break a report
   }
