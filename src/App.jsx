@@ -5471,6 +5471,83 @@ function resizeForID(dataUrl,max=800,quality=0.7){
   });
 }
 
+// ── Sample trip report (signed-out visitors only) ──────────────────────────────
+// Guests opening the Plan tab previously hit a dead end: the prompt said "create a free
+// account to use Plan," which was wrong twice over — Plan is Consumer Pro, not free, and
+// there was nothing behind it to see. This shows a real, complete report instead.
+//
+// Shape matches the planner pipeline's output exactly, and it renders through the SAME
+// path a paid report does (applySavedReport -> the normal report renderer), so it can't
+// drift out of sync with the real thing and it's an honest preview of what's bought.
+//
+// FISHING ACCURACY: this content is Claude's, written to be plausible for a Front Range
+// late-summer day. Flows, hatches, access points, and fly choices are NOT verified by
+// Adam and are the most publicly-visible fishing claims in the app — worth a careful
+// read before leaning on this for conversion.
+const SAMPLE_TRIP_REPORT = {
+  date: "2026-08-13",
+  loc: { label: "Lafayette, CO", lat: 39.9936, lng: -105.0897 },
+  report: {
+    overview: "A warm, stable mid-August day across the northern Front Range. Freestone flows have dropped into late-summer shape — low, clear, and wading-friendly — which means fish are spooky in flat water and stacked in oxygenated riffles and pocket water. The tailwaters are holding cold and steady and are the safest bet if the afternoon heats up as forecast. Expect the best windows early and late, with a midday lull in the bright, direct sun.",
+    recommendation: "South Boulder Creek below Gross Reservoir",
+    bestFor: {
+      mostFish: "South Boulder Creek below Gross Reservoir",
+      bestScenery: "Cache la Poudre River — upper canyon",
+      mostSolitude: "North St. Vrain Creek near Allenspark",
+      beginners: "Clear Creek at Golden",
+    },
+    rivers: [
+      {
+        name: "South Boulder Creek below Gross Reservoir",
+        lat: 39.9472, lng: -105.3597, type: "Tailwater", source: "USGS 06729500",
+        verified: "gauge", cfs: "58", condition: "Good", crowdLevel: "Moderate",
+        conditions: "Cold, clear bottom-release water holding steady in the mid-50s regardless of air temperature. Low flow means technical presentations and light tippet, but the fish are concentrated and feeding.",
+        techniques: "Small nymphs under a light indicator through the deeper slots. Drop to 6X in the flat water. A dry-dropper works well in the faster pocket water up near the dam.",
+        bestTime: "Early morning through late morning, then again in the last two hours of light.",
+        accessPoints: ["Walker Ranch Loop trailhead", "Gross Dam Road pullouts"],
+        flies: ["Zebra Midge #20", "Pheasant Tail Nymph #18", "RS2 #20", "Parachute Adams #18"],
+        why: "The steadiest cold water within 40 minutes. On a day this warm, a bottom-release tailwater removes thermal risk entirely, and the low flow makes the fish easy to locate.",
+      },
+      {
+        name: "Clear Creek at Golden",
+        lat: 39.7555, lng: -105.2211, type: "Freestone", source: "USGS 06719505",
+        verified: "gauge", cfs: "112", condition: "Fair", crowdLevel: "Busy",
+        conditions: "Dropped into classic late-summer freestone shape — clear and very wadeable. Warms through the afternoon, so fish it early. Heavier foot traffic through the canyon on a weekday evening.",
+        techniques: "Short-line nymphing the pocket water and plunge pools. Attractor dries move fish in the broken water. Keep moving — one or two drifts per pocket.",
+        bestTime: "First light to about 10 AM.",
+        accessPoints: ["Clear Creek Canyon Park", "Tunnel 1 pullout", "Golden Canyon access"],
+        flies: ["Elk Hair Caddis #14", "Copper John #16", "Prince Nymph #16", "Stimulator #12"],
+        why: "The most forgiving water on this list — easy wading, willing fish, and short drifts. Best choice for anyone still learning to read water.",
+      },
+      {
+        name: "North St. Vrain Creek near Allenspark",
+        lat: 40.2003, lng: -105.5147, type: "Freestone", source: "USGS 06721000",
+        verified: "gauge", cfs: "38", condition: "Fair", crowdLevel: "Light",
+        conditions: "Small, low, and gin-clear. Skinny water fishing at its most technical — a heavy footfall or a sloppy cast puts a whole pool down. Cooler at elevation, so it fishes later into the day than the lower freestones.",
+        techniques: "One shot per pocket with a long leader and a soft landing. Small attractor dries. Approach from downstream and stay low.",
+        bestTime: "Mid-morning through early afternoon; elevation keeps it cool.",
+        accessPoints: ["Button Rock Preserve", "Allenspark trailheads"],
+        flies: ["Parachute Adams #16", "Royal Wulff #14", "Elk Hair Caddis #16"],
+        why: "Least pressure of anything in range. Small wild fish in a tight canyon — go here if solitude matters more than fish size.",
+      },
+      {
+        name: "Cache la Poudre River — upper canyon",
+        lat: 40.6869, lng: -105.5222, type: "Freestone", source: "USGS 06752260",
+        verified: "gauge", cfs: "96", condition: "Good", crowdLevel: "Moderate",
+        conditions: "Holding decent late-summer flow with good color. The upper canyon stays cooler than the lower river and fishes well through more of the day. Long drive, but the most water to spread out on.",
+        techniques: "Dry-dropper through the riffles and seams. Hoppers along the grassy banks in the afternoon wind.",
+        bestTime: "Mid-morning, and again from about 6 PM to dark.",
+        accessPoints: ["Poudre Canyon Highway pullouts", "Indian Meadows", "Big Bend"],
+        flies: ["Hopper #10", "Pheasant Tail Nymph #16", "Elk Hair Caddis #14", "Prince Nymph #14"],
+        why: "The best combination of scenery and elbow room in range. Worth the drive if you want a full day rather than a morning session.",
+      },
+    ],
+    hatches: "Pale Morning Duns tapering off through the morning on the tailwater. Caddis are the main event on the freestones, with the heaviest activity in the last two hours of light. Terrestrials — hoppers, ants, and beetles — matter more than anything hatching once the sun is high and the wind picks up. Midges hold steady all day on South Boulder Creek.",
+    bestTimes: "First light to roughly 10 AM, then again from about 6 PM until dark. Midday will be bright and slow on the freestones; that's the window to move to the tailwater or take a break.",
+    tips: "Water temperature is the day's real variable. Carry a thermometer and stop fishing any freestone that climbs past 67°F — fighting fish in warm water kills them even on a clean release. Flows this low mean the fish see you before you see them: stay off the skyline, wade less, and lengthen your leader. If the freestones feel dead by noon, that's your cue to go tailwater rather than push through it.",
+    flyBoxEssentials: ["Parachute Adams #14-18", "Elk Hair Caddis #14-16", "Pheasant Tail Nymph #16-18", "Zebra Midge #20", "Hopper #10-12", "RS2 #20", "Copper John #16", "5X and 6X tippet"],
+  },
+};
 function TripPlannerLoading({steps,onCancel,destination}){
   const [factIdx,setFactIdx]=React.useState(Math.floor(Math.random()*FLY_FACTS.length));
   const [fade,setFade]=React.useState(true);
@@ -5524,7 +5601,7 @@ function TripPlannerLoading({steps,onCancel,destination}){
   );
 }
 
-function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openReportId,onOpenedReportId,user,anglerHistory}){
+function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openReportId,onOpenedReportId,user,anglerHistory,sampleMode,onSignUp}){
   const [loc,setLoc]=useState({label:defaultLocation||"",lat:null,lng:null});
   const driveMinutes=120;
   const [date,setDate]=useState(()=>new Date().toISOString().split("T")[0]);
@@ -5634,6 +5711,14 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
     }catch(e){setError("Couldn't load that report: "+(e.message||"unknown error"));}
     finally{setOpeningReportId(null);}
   }
+
+  // Sample mode (guests): load the static sample through the SAME applySavedReport path
+  // a real saved report uses, so what a visitor previews is rendered by the real
+  // renderer rather than a mockup that could drift.
+  useEffect(()=>{
+    if(!sampleMode)return;
+    applySavedReport(SAMPLE_TRIP_REPORT);
+  },[sampleMode]);
 
   // Deep link from a background-report email: open it once sb is ready, then tell the
   // parent to clear the id so this doesn't refire on unrelated re-renders.
@@ -5869,6 +5954,16 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
 
   return(
     <div>
+      {sampleMode&&(
+        <div className="card" style={{border:"1px solid rgba(209,154,74,0.35)",background:"rgba(209,154,74,0.07)"}}>
+          <div className="ctitle">👀 Sample Report — Not Live Data</div>
+          <div className="csub">
+            This is a real report from a Front Range day, shown so you can see exactly what
+            the planner produces. Your own forecast is built live for your location and date,
+            off current flows and weather. Trip Planner is part of Consumer Pro.
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="ctitle">🗓 Plan Your Trip</div>
         <label className="lbl">Destination</label>
@@ -5879,7 +5974,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
         <input className="inp" type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e=>setDate(e.target.value)}/>
         <div style={{fontSize:14,color:"var(--stone)",marginBottom:12}}>Shows all fishable streams within a <span style={{color:"var(--gold)"}}>2 hour drive</span></div>
         {error&&<div className="err">{error}</div>}
-        <button className="gen" onClick={()=>{setEmailInput(user?.email||"");setEmailSubmitError("");setGenPopupStep("choice");}} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Forecast"}</button>
+        {sampleMode
+          ? <button className="gen" onClick={()=>onSignUp&&onSignUp("")}>✦ Get My Own Forecast</button>
+          : <button className="gen" onClick={()=>{setEmailInput(user?.email||"");setEmailSubmitError("");setGenPopupStep("choice");}} disabled={busy}>{busy?"Generating…":"✦ Generate Fishing Forecast"}</button>}
       </div>
 
       {genPopupStep&&(
@@ -8452,10 +8549,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         <div className="nav">
           {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].filter(t=>t.id!=="guide"||!hideGuide).map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{
-              // Guests may browse Intel (live conditions) and Log (read-only sample) —
-              // both are demos that need no account. Plan/Guide are paid features with
-              // nothing meaningful to show signed-out, so those still prompt.
-              if(!user&&t.id!=="conditions"&&t.id!=="log"){onRequestAuth&&onRequestAuth("Create a free account to use "+t.label+".");return;}
+              // Guests may browse Intel (live conditions), Log (sample catches), and
+              // Plan (sample report) — all previews needing no account. Guide is the
+              // CRM and has nothing meaningful to preview, so it still prompts.
+              if(!user&&t.id==="guide"){onRequestAuth&&onRequestAuth("Create a free account to use "+t.label+".");return;}
               setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});
             }}>
               <span className="ic">{t.icon}</span>{t.label}
@@ -8817,7 +8914,9 @@ ${shopPins}
             ))}
           </>}
 
-          {tab==="plan"&&((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user} anglerHistory={buildAnglerHistorySummary(personalTrips,catches)}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>))}
+          {tab==="plan"&&(!user
+            ? <TripPlanner key="trip-planner-sample" sampleMode onSignUp={reason=>onRequestAuth&&onRequestAuth(reason)} defaultLocation="" parentGauges={[]} savedGauges={[]} parentLoc={null} user={null} anglerHistory={null}/>
+            : ((tierChecking&&tier==="free")?<CheckingPlan/>:(PLAN_TIERS.has(tier)?<TripPlanner defaultLocation={loc?.label||""} key="trip-planner" parentGauges={gauges} savedGauges={savedGauges} parentLoc={loc} openReportId={pendingReportId} onOpenedReportId={()=>setPendingReportId(null)} user={user} anglerHistory={buildAnglerHistorySummary(personalTrips,catches)}/>:<UpgradeLock tierKey="consumer_pro" featureLabel="The AI Trip Planner"/>)))}
           {tab==="guide"&&!hideGuide&&((tierChecking&&tier==="free")?<CheckingPlan/>:(GUIDE_TIERS.has(tier)?<GuideBook user={user} loc={loc}/>:<UpgradeLock tierKey="guide_pro" featureLabel="The Guide CRM"/>))}
         </div>
 
