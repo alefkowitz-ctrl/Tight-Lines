@@ -560,7 +560,7 @@ function useAuth(){
 }
 
 // ── Login / Signup Screen ─────────────────────────────────────────────────────
-function AuthScreen({demoError, promptReason}){
+function AuthScreen({demoError, promptReason, compact}){
   const [returningUser, setReturningUser] = useLocalStorage("tl_returning_user", false);
   const [mode, setMode] = useState(returningUser ? "login" : "signup"); // defaults to signup for first-time visitors, login once this device has signed in before
   const [email, setEmail] = useState("");
@@ -614,12 +614,17 @@ function AuthScreen({demoError, promptReason}){
   }
 
   return(
-    <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",background:"var(--deep)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"safe center",padding:24,boxSizing:"border-box"}}>
+    <div style={compact
+      // Overlay mode: the modal must never exceed the viewport, so it caps at 88vh and
+      // scrolls internally instead of running off the bottom of the screen. Background
+      // is transparent because Root's overlay already supplies the dimmed backdrop.
+      ? {maxHeight:"88vh",overflowY:"auto",WebkitOverflowScrolling:"touch",background:"transparent",display:"flex",flexDirection:"column",alignItems:"center",padding:0,boxSizing:"border-box"}
+      : {height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",background:"var(--deep)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"safe center",padding:24,boxSizing:"border-box"}}>
       <div style={{width:"100%",maxWidth:380}}>
-        <div style={{textAlign:"center",marginBottom:40}}>
-          <Logo layout="stacked" scale={1} />
+        <div style={{textAlign:"center",marginBottom:compact?14:40}}>
+          <Logo layout="stacked" scale={compact?0.42:1} />
         </div>
-        <div style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:24}}>
+        <div style={{background:compact?"rgba(16,32,38,0.97)":"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,padding:compact?20:24}}>
           {demoError&&<div style={{background:"rgba(150,80,80,0.2)",border:"1px solid rgba(150,80,80,0.4)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--red)",marginBottom:14}}>Demo link couldn't sign you in automatically ({demoError}). Please contact support.</div>}
           {!demoError&&promptReason&&<div style={{background:"rgba(209,154,74,0.12)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:10,padding:"10px 14px",fontSize:14,color:"var(--gold)",marginBottom:14,textAlign:"center"}}>{promptReason}</div>}
           <div style={{fontFamily:"var(--font-head)",fontSize:18,color:"var(--gold)",marginBottom:20,textAlign:"center"}}>
@@ -6399,6 +6404,95 @@ const CROP_RATIOS=[
 // Extracted from the standalone Catch Log list (was inline there) so the trip detail
 // modal's "tap a photo" flow can show the exact same, already-proven card instead of
 // duplicating it — one place to fix if the card ever needs to change.
+// ── Sample catch log (signed-out visitors only) ────────────────────────────────
+// Guests can open the Catch Log tab and see what a populated log actually looks like,
+// rather than hitting a signup wall with nothing behind it. Real logging genuinely
+// requires an account — every catch row is keyed to user_id and photos live in
+// Supabase Storage behind auth — so this is a read-only demo, never a writable
+// local log that could silently lose someone's real data.
+//
+// Deliberately reuses the real <CatchCard> rather than a mock: what a visitor sees here
+// is pixel-identical to what they get after signing up, and it can't drift out of sync
+// when CatchCard changes. Every interactive control (edit/share/delete/photo) routes to
+// the signup prompt through gate().
+//
+// Photos are intentionally null, so each card shows the standard 🐟 placeholder — the
+// repo has no fish images and hotlinking someone else's would be both fragile and not
+// ours to use. Dropping 3 real photos into public/ and referencing them here is an easy
+// upgrade later.
+//
+// FISHING ACCURACY: fly/species/flow/season combinations below are plausible but are
+// Claude's, not verified by Adam. Worth a read-through before this is public-facing.
+const SAMPLE_CATCHES = [
+  {
+    id:"sample-1", species:"Rainbow Trout", length:"17", time:"Aug 9, 2026 · 8:15 AM",
+    flies:["Blue Winged Olive #18","Pheasant Tail Nymph #16"], photo:null, gps:null,
+    notes:"Fish stacked in the seam below the riffle. Took the dropper on the swing.",
+    streamGaugeName:"South Platte River Deckers", streamCFS:"148", waterTemp:"54",
+    airTemp:"61", weatherDesc:"Overcast", windSpeed:"6", windDir:"NW",
+  },
+  {
+    id:"sample-2", species:"Brown Trout", length:"21", time:"Jul 28, 2026 · 6:40 PM",
+    flies:["Pat's Rubber Legs #8","San Juan Worm #14"], photo:null, gps:null,
+    notes:"Big fish holding tight to the undercut bank. Heavy tippet earned it.",
+    streamGaugeName:"Madison River Below Ennis", streamCFS:"1120", waterTemp:"58",
+    airTemp:"74", weatherDesc:"Partly cloudy", windSpeed:"11", windDir:"SW",
+  },
+  {
+    id:"sample-3", species:"Cutthroat Trout", length:"13", time:"Jul 14, 2026 · 11:05 AM",
+    flies:["Elk Hair Caddis #14"], photo:null, gps:null,
+    notes:"Pocket water above the bridge. Ate on the first drift every time.",
+    streamGaugeName:"Cache la Poudre Canyon Mouth", streamCFS:"96", waterTemp:"52",
+    airTemp:"68", weatherDesc:"Clear", windSpeed:"4", windDir:"E",
+  },
+  {
+    id:"sample-4", species:"Brook Trout", length:"9", time:"Jun 30, 2026 · 7:20 AM",
+    flies:["Parachute Adams #16"], photo:null, gps:null,
+    notes:"Small headwater stream. Every plunge pool held a fish.",
+    streamGaugeName:"North St. Vrain Creek", streamCFS:"41", waterTemp:"49",
+    airTemp:"55", weatherDesc:"Light rain", windSpeed:"3", windDir:"N",
+  },
+];
+function SampleCatchLog({onSignUp}){
+  // Swallows whatever args a CatchCard setter would normally pass (including updater
+  // functions) so the prompt is never called with a React state updater as its reason.
+  const gate=()=>{ onSignUp&&onSignUp("Create a free account to start your own catch log."); };
+  return (
+    <>
+      <div className="card" style={{border:"1px solid rgba(209,154,74,0.35)",background:"rgba(209,154,74,0.07)"}}>
+        <div className="ctitle">👀 Sample Log — Not Your Data</div>
+        <div className="csub" style={{marginBottom:12}}>
+          This is what your catch log looks like once you start logging. Every catch
+          automatically captures flow, water temp, weather, and wind at the moment you
+          record it — so patterns show up over a season.
+        </div>
+        <button onClick={gate}
+          style={{width:"100%",background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 20px",fontSize:15.5,fontFamily:"var(--font-head)",fontWeight:600,letterSpacing:0.5,cursor:"pointer"}}>
+          Start My Own Log — Free
+        </button>
+      </div>
+      {SAMPLE_CATCHES.map(c=>(
+        <CatchCard key={c.id} c={c}
+          editingCatchId={null} setEditingCatchId={gate}
+          sharingCatchId={null} setSharingCatchId={gate}
+          sharingBusy={false} shareCatch={gate} deleteCatch={gate} updateCatch={gate}
+          editCatchFlyInput="" setEditCatchFlyInput={gate}
+          setLightboxPhoto={gate} setLightboxCatchId={gate} setCropCatchId={gate}/>
+      ))}
+      <div className="card" style={{textAlign:"center"}}>
+        <div style={{fontSize:15,color:"var(--foam)",marginBottom:6}}>🎣 Your log, your patterns</div>
+        <div style={{fontSize:14,color:"var(--stone)",lineHeight:1.5,marginBottom:14}}>
+          A free account saves your catches, photos, and trips — and the conditions
+          behind each one.
+        </div>
+        <button onClick={gate}
+          style={{width:"100%",background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:24,padding:"12px 20px",fontSize:15.5,fontFamily:"var(--font-head)",fontWeight:600,letterSpacing:0.5,cursor:"pointer"}}>
+          Create Free Account
+        </button>
+      </div>
+    </>
+  );
+}
 function CatchCard({c,editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,setLightboxPhoto,setLightboxCatchId,setCropCatchId}){
   return (
     <div className="cc">
@@ -8352,7 +8446,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         <div className="nav">
           {[{id:"conditions",icon:"🎯",label:"Intel"},{id:"log",icon:"🐟",label:"Catch Log"},{id:"plan",icon:"🗓",label:"Plan"},{id:"guide",icon:"🧭",label:"Guide"}].filter(t=>t.id!=="guide"||!hideGuide).map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" on":""}`} onClick={()=>{
-              if(!user&&t.id!=="conditions"){onRequestAuth&&onRequestAuth("Create a free account to use "+t.label+".");return;}
+              // Guests may browse Intel (live conditions) and Log (read-only sample) —
+              // both are demos that need no account. Plan/Guide are paid features with
+              // nothing meaningful to show signed-out, so those still prompt.
+              if(!user&&t.id!=="conditions"&&t.id!=="log"){onRequestAuth&&onRequestAuth("Create a free account to use "+t.label+".");return;}
               setTab(t.id);if(t.id==="conditions"&&sb&&user?.id)sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{if(data)setSavedGauges(data);});
             }}>
               <span className="ic">{t.icon}</span>{t.label}
@@ -8460,7 +8557,8 @@ ${shopPins}
             </>}
           </>}
 
-          {tab==="log"&&<>
+          {tab==="log"&&!user&&<SampleCatchLog onSignUp={reason=>onRequestAuth&&onRequestAuth(reason)}/>}
+          {tab==="log"&&user&&<>
             <div className="lhdr" style={{flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>setCatchLogTab("list")} style={{fontSize:14,padding:"4px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.3)",background:catchLogTab==="list"?"rgba(209,154,74,0.25)":"rgba(255,255,255,0.05)",color:catchLogTab==="list"?"var(--gold)":"var(--stone)",cursor:"pointer"}}>📋 Log</button>
@@ -8731,7 +8829,10 @@ ${shopPins}
           </div>
         )}
         {tab==="log"&&(
-          <button className="fab" onClick={()=>{setForm(blank);setAddOpen(true);}}
+          <button className="fab" onClick={()=>{
+            if(!user){onRequestAuth&&onRequestAuth("Create a free account to start your own catch log.");return;}
+            setForm(blank);setAddOpen(true);
+          }}
             style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
         )}
       </div>
@@ -9106,10 +9207,10 @@ function Root(){
     {!user&&authPromptReason!==null&&(
       <div style={{position:"fixed",inset:0,zIndex:3000,background:"rgba(10,20,17,0.82)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}
         onClick={e=>{if(e.target===e.currentTarget)setAuthPromptReason(null);}}>
-        <div style={{position:"relative",width:"100%",maxWidth:380}}>
+        <div style={{position:"relative",width:"100%",maxWidth:380,maxHeight:"92vh"}}>
           <button onClick={()=>setAuthPromptReason(null)} aria-label="Close"
-            style={{position:"absolute",top:-14,right:-6,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.25)",color:"var(--foam)",fontSize:16,cursor:"pointer",zIndex:1}}>✕</button>
-          <AuthScreen demoError={demoError} promptReason={authPromptReason}/>
+            style={{position:"absolute",top:-10,right:-4,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",color:"var(--foam)",fontSize:16,cursor:"pointer",zIndex:2}}>✕</button>
+          <AuthScreen demoError={demoError} promptReason={authPromptReason} compact/>
         </div>
       </div>
     )}
