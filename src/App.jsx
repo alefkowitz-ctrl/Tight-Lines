@@ -7268,6 +7268,9 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   // uses for its own trip photo handler.
   const locRef=useRef(loc);
   useEffect(()=>{locRef.current=loc;},[loc]);
+  // Guards loadConditions against overlapping invocations — see that function's own
+  // comment for why this exists and what it fixes.
+  const loadGenRef=useRef(0);
   const [weather,setWeather]=useState(null);
   const [wxLoading,setWxLoading]=useState(false);
   // Auto-detect user location on every load (cached loc shows immediately, then refreshes)
@@ -8189,6 +8192,22 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   }
 
   async function loadConditions(newLoc, preWarm=false){
+    // Two separate mount-time effects both call this function for what's usually the
+    // SAME location — a preWarm call from the last saved location (near-instant, no
+    // await before it fires) and a real geolocation call shortly after. When they
+    // overlap, their async DWR-merge steps (see applyGaugeData below) raced to append
+    // onto a shared `gauges` state with no way to tell an in-flight call apart from a
+    // newer one — confirmed directly: a user reported the same gauge appearing twice
+    // with the identical live CFS value, and this is the only place two independent
+    // calls both append DWR results onto shared state without any dedup. Pre-existing
+    // (unrelated to the DWR endpoint fix from earlier today), but the DWR fetch got
+    // much faster today (raw endpoint: ~300-700ms vs. the old daily endpoint), which
+    // narrowed the timing gap between two overlapping calls enough to make the race
+    // land visibly rather than being an unnoticed near-miss. myGen is captured once
+    // here and checked before every setGauges call downstream that resulted from an
+    // await/then — if a newer call has started by the time an older one's async step
+    // resolves, the older one's result is stale and gets dropped instead of applied.
+    const myGen=++loadGenRef.current;
     setLoc(newLoc);
     try{localStorage.setItem("tl_loc",JSON.stringify({lat:newLoc.lat,lng:newLoc.lng,label:newLoc.label}));}catch{}
     const{lat,lng}=newLoc;
@@ -8242,10 +8261,12 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           const{label,cls}=cfsLabel(g.cfs);
           return{...g,pct,histMax:null,waterTempF:null,label,cls};
         });
+        if(myGen!==loadGenRef.current) return; // a newer loadConditions call has started — this result is stale, don't apply it
         setGauges(parsed);window._loadedGauges=parsed;if(window._recomputeHatches)window._recomputeHatches();
         setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
         try{localStorage.setItem(gaugeKey,JSON.stringify({data:parsed,ts:Date.now()}));}catch{}
         fetchUSGSTempBatch(parsed.map(g=>g.siteNo)).then(tempMap=>{
+          if(myGen!==loadGenRef.current) return; // stale — a newer call has since taken over
           const withTemp=parsed.map(g=>({...g,waterTempF:(tempMap[g.siteNo]!=null?tempMap[g.siteNo]:null)}));
           setGauges(withTemp);window._loadedGauges=withTemp;if(window._recomputeHatches)window._recomputeHatches();
         }).catch(()=>{}).finally(()=>{
@@ -8260,6 +8281,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           // DWR-sourced gauges yet (kept out of Phase 1's scope); they'll just show
           // without a temp badge for now.
           fetchCODWRGauges(lat,lng,30,new Set(parsed.map(g=>g.siteNo))).then(dwrGauges=>{
+            if(myGen!==loadGenRef.current) return; // stale — an overlapping newer call already owns `gauges` state; applying this would append onto (and duplicate against) that call's own results
             if(!dwrGauges.length) return;
             const dwrParsed=dwrGauges.map(g=>({...g,distMi:Math.round(g.dist*69),fishable:true,histMax:null,waterTempF:null}))
               .filter(g=>g.distMi<=50);
@@ -8274,7 +8296,17 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               // only reach here because dedup already excluded anything USGS also
               // covers, so appending them is adding non-redundant coverage, not
               // padding out redundant entries.
-              const merged=[...prev,...dwrParsed].sort((a,b)=>b.cfs-a.cfs);
+              // Deduped by siteNo (keeping prev's copy on a collision) as a backstop —
+              // the generation guard above stops new duplicates from forming, but a
+              // gauge list cached from BEFORE that guard existed could already have
+              // one baked in, and this tab caches for 30min. Filtering here means the
+              // very next background refresh (which fires on every load regardless of
+              // cache freshness — see the "else" branch above) cleans an already-bad
+              // cache immediately rather than waiting out the full TTL.
+              const seenSiteNo=new Set();
+              const merged=[...prev,...dwrParsed]
+                .filter(g=>{if(seenSiteNo.has(g.siteNo))return false;seenSiteNo.add(g.siteNo);return true;})
+                .sort((a,b)=>b.cfs-a.cfs);
               const maxCFS2=Math.max(...merged.map(x=>x.cfs||0),1);
               const withPct=merged.map(g=>({...g,pct:g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
               window._loadedGauges=withPct;if(window._recomputeHatches)window._recomputeHatches();
