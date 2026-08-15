@@ -184,7 +184,19 @@ export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
           cfs,
           label,
           cls,
-          siteNo: s.usgsSiteId || s.abbrev, // fall back to the DWR abbrev when there's no USGS cross-reference at all
+          siteNo: s.abbrev, // ALWAYS the DWR abbrev (2026-08-15), never s.usgsSiteId. A
+          // usgsSiteId here, when present, is by construction a cross-reference that
+          // already failed to return a live USGS reading this run — this candidate only
+          // exists because the dedup step above excluded any DWR station whose usgsSiteId
+          // DID come back live. Treating that dead ID as this gauge's queryable identity
+          // breaks any future re-fetch by it. Confirmed directly: DWR abbrev BOCBGRCO
+          // (South Boulder Creek below Gross Reservoir) has a live ~69 CFS reading right
+          // now; its usgsSiteId cross-reference, 06729450, has returned zero live USGS
+          // timeSeries entries since 1980 — exactly the gauge a user starred from the
+          // Streams tab and then saw stuck on "Loading..." forever in My Gauges, because
+          // toggleStar persisted this siteNo verbatim and My Gauges only knew how to
+          // re-fetch from USGS. usgsSiteId is kept below for reference/display only.
+          usgsCrossRef: s.usgsSiteId || null,
           dist,
           lat: s.latitude,
           lng: s.longitude,
@@ -212,5 +224,21 @@ export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
     return directionalSpread(normalized, 60, lat, lng);
   } catch (e) {
     return []; // fail closed — a supplemental source going down should never break a report
+  }
+}
+
+// Single-station live fetch (2026-08-15) — for callers that already know exactly which
+// DWR abbrev they want (the saved-gauges "My Gauges" feature) and don't need the
+// station-search + dedup + directional-spread machinery fetchCODWRGauges does for a
+// fresh area sweep. Reuses fetchCODWRLatestValues rather than duplicating the
+// batching/lookback logic a second time.
+export async function fetchCODWRSingleValue(abbrev) {
+  if (!abbrev) return null;
+  try {
+    const values = await fetchCODWRLatestValues([abbrev]);
+    const v = values[abbrev];
+    return v && v.value != null ? parseFloat(v.value) : null;
+  } catch {
+    return null;
   }
 }
