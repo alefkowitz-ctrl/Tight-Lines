@@ -227,17 +227,69 @@ export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
   }
 }
 
-// Single-station live fetch (2026-08-15) — for callers that already know exactly which
-// DWR abbrev they want (the saved-gauges "My Gauges" feature) and don't need the
-// station-search + dedup + directional-spread machinery fetchCODWRGauges does for a
-// fresh area sweep. Reuses fetchCODWRLatestValues rather than duplicating the
-// batching/lookback logic a second time.
+function toMDY(d) {
+  // MM/DD/YYYY, built from the UTC calendar date (toISOString(), same timezone-safe
+  // approach isoDate() above already uses) — never the local calendar date. This
+  // function runs in both the browser (a user's own device timezone) and the Vercel
+  // server (UTC) per this file's own header comment; deriving the date from local
+  // getMonth()/getDate() would make the requested window depend on which environment
+  // ran it. Format confirmed directly against DWR's raw endpoint (zero-padded
+  // MM/DD/YYYY, e.g. "08/15/2026") — non-ISO, unlike the daily endpoint below.
+  const iso = d.toISOString().slice(0, 10);
+  const [y, m, day] = iso.split("-");
+  return m + "/" + day + "/" + y;
+}
+
+// Raw 15-minute telemetry fetch for a single gauge's truly-current reading
+// (2026-08-15). fetchCODWRLatestValues above deliberately stays on DWR's DAILY
+// endpoint (surfacewatertsday) — right tradeoff for fetchCODWRGauges' area sweep,
+// which can touch 100+ stations in one call and only needs "roughly current" at
+// acceptable payload size. But DWR doesn't publish a day's row until later that day,
+// so "most recent available" from the daily endpoint is routinely YESTERDAY's value,
+// not today's. Confirmed directly against the motivating case: BOCPINCO (South
+// Boulder Creek above Gross Reservoir at Pinecliffe) showed 47.5 CFS via the daily
+// endpoint — Aug 14's row, still the newest one DWR had published — while the actual
+// live reading, from this raw endpoint, was 25.5 CFS. Same station a user has pinned
+// in My Gauges and is comparing against a competitor app showing the true live value.
+// A single pinned gauge is exactly the case where that gap matters and the payload
+// cost of one station's worth of raw readings (up to ~192 rows for a 2-day window,
+// vs. ~2 for the daily endpoint) is negligible.
+async function fetchCODWRRawLatest(abbrev) {
+  const today = new Date();
+  const lookback = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000); // same 2-day buffer as fetchCODWRLatestValues, for consistency — far more than the ~15-50min lag actually observed on this endpoint, so it also absorbs a short station outage without extra code
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000); // endDate is EXCLUSIVE on this endpoint — tested directly: endDate=<today's date> silently dropped every reading from today itself (cut off exactly at the prior midnight), passing tomorrow's date is what actually includes today
+  const url =
+    CO_DWR_BASE +
+    "/telemetrystations/telemetrytimeseriesraw/?format=json&abbrev=" +
+    abbrev +
+    "&parameter=DISCHRG&startDate=" +
+    toMDY(lookback) +
+    "&endDate=" +
+    toMDY(tomorrow);
+  const r = await fetchWithTimeout(url, 6000);
+  if (!r.ok) return null;
+  const d = await r.json();
+  const rows = d.ResultList || [];
+  if (!rows.length) return null;
+  let latest = rows[0];
+  for (const row of rows) {
+    if (new Date(row.measDateTime) > new Date(latest.measDateTime)) latest = row;
+  }
+  return latest.measValue != null ? parseFloat(latest.measValue) : null;
+}
+
+// Single-station live fetch (2026-08-15, revised same day) — for callers that already
+// know exactly which DWR abbrev they want (the saved-gauges "My Gauges" feature) and
+// don't need the station-search + dedup + directional-spread machinery
+// fetchCODWRGauges does for a fresh area sweep. Originally reused
+// fetchCODWRLatestValues (the daily endpoint) to avoid duplicating batching/lookback
+// logic — switched to fetchCODWRRawLatest instead once live testing surfaced the
+// stale-value gap documented above. fetchCODWRLatestValues/fetchCODWRGauges are
+// untouched by this change.
 export async function fetchCODWRSingleValue(abbrev) {
   if (!abbrev) return null;
   try {
-    const values = await fetchCODWRLatestValues([abbrev]);
-    const v = values[abbrev];
-    return v && v.value != null ? parseFloat(v.value) : null;
+    return await fetchCODWRRawLatest(abbrev);
   } catch {
     return null;
   }
