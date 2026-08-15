@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -2289,9 +2289,15 @@ function GaugeChart({siteNo, siteName, initialCFS}){
   const [histAvg, setHistAvg] = useState([]);
   const [tempPoints, setTempPoints] = useState([]);
   const [loading, setLoading] = useState(false);
+  // DWR-sourced gauges (2026-08-15, see gaugeSources.js) store a letters abbrev as
+  // siteNo, not a USGS site number — none of this component's fetches (all USGS-only)
+  // can resolve one. Rather than silently render an empty chart, say so plainly.
+  // Historical charting from DWR's own surfacewatertsday endpoint is a real follow-up,
+  // just out of scope for tonight's fix (only the current CFS value was fixed above).
+  const isDWRAbbrev=siteNo&&!/^\d+$/.test(String(siteNo));
 
   useEffect(()=>{
-    if(!siteNo) return;
+    if(!siteNo||isDWRAbbrev) return;
     setLoading(true);
     // Fetch current year data
     fetchUSGSRange(siteNo, days).then(pts=>{
@@ -2425,9 +2431,10 @@ function GaugeChart({siteNo, siteName, initialCFS}){
         {histAvg.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(209,154,74,0.6)",borderTop:"1px dashed rgba(209,154,74,0.6)",verticalAlign:"middle",marginLeft:8}}></span>Prev avg</>}
         {tempPoints.length>0&&<><span style={{display:"inline-block",width:16,height:2,background:"rgba(255,100,100,0.7)",verticalAlign:"middle",marginLeft:8}}></span>Water Temp (°F)</>}
       </div>
-      {loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
-      {!loading&&points.length>0&&points.some(p=>p.v>0)&&renderChart()}
-      {!loading&&(points.length===0||!points.some(p=>p.v>0))&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>USGS history unavailable for this gauge{siteNo?` (site ${siteNo})`:""} — live flow shown above is current</div>}
+      {isDWRAbbrev&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0"}}>History chart isn't available yet for Colorado DWR gauges (this one's a DWR station, not USGS) — the current flow shown above is still live and accurate.</div>}
+      {!isDWRAbbrev&&loading&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic",padding:"8px 0",animation:"pulse 1.5s infinite"}}>Loading chart…</div>}
+      {!isDWRAbbrev&&!loading&&points.length>0&&points.some(p=>p.v>0)&&renderChart()}
+      {!isDWRAbbrev&&!loading&&(points.length===0||!points.some(p=>p.v>0))&&<div style={{fontSize:15,color:"var(--stone)",fontStyle:"italic"}}>USGS history unavailable for this gauge{siteNo?` (site ${siteNo})`:""} — live flow shown above is current</div>}
     </div>
   );
 }
@@ -6475,7 +6482,7 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
                 ?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name||g.site_no}</a>
                 :(g.name||g.site_no)}
             </div>
-            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":"Loading…"}</div>
+            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":(g.label||"Loading…")}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
@@ -8017,6 +8024,16 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         if(m) siteNo=m[1];
       }
       if(!siteNo) return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};
+      // DWR-sourced gauges store their DWR abbrev (letters, e.g. "BOCBGRCO") as site_no,
+      // not a USGS site number (see gaugeSources.js, 2026-08-15) — route those to DWR's
+      // API instead of USGS's, which has no record of them at all under that ID. This is
+      // exactly the South Boulder Creek below Gross Reservoir case: stuck on "Loading..."
+      // forever because this function only knew how to ask USGS.
+      if(!/^\d+$/.test(String(siteNo))){
+        var dwrCfs=await fetchCODWRSingleValue(siteNo);
+        var dwrLbl=cfsLabel(dwrCfs);
+        return {...gauge,cfs:dwrCfs,label:dwrLbl.label,cls:dwrLbl.cls};
+      }
       // Fetch CFS and location in parallel
       var [cfsResult,locResult]=await Promise.allSettled([
         (async()=>{
@@ -8083,7 +8100,14 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       const g=savedGauges.find(s=>s.site_no===gauge.siteNo);
       if(g) removeSavedGauge(g.id);
     } else {
-      const newG={user_id:user?.id,site_no:gauge.siteNo,name:gauge.name,url:"https://waterdata.usgs.gov/monitoring-location/"+gauge.siteNo+"/"};
+      // DWR-sourced gauges (siteNo is a letters abbrev, not numeric — see
+      // gaugeSources.js, 2026-08-15) don't have a USGS monitoring-location page; point
+      // at DWR's own station page instead so the saved link actually works.
+      const isNumericSite=/^\d+$/.test(String(gauge.siteNo||""));
+      const url=isNumericSite
+        ?"https://waterdata.usgs.gov/monitoring-location/"+gauge.siteNo+"/"
+        :"https://dwr.state.co.us/Tools/StationsLite/"+gauge.siteNo+"?params=DISCHRG";
+      const newG={user_id:user?.id,site_no:gauge.siteNo,name:gauge.name,url};
       if(sb&&user&&!String(user.id).startsWith("local")){
         const{data}=await sb.from("saved_gauges").insert(newG).select().single();
         if(data) setSavedGauges(gs=>[...gs,data]);
