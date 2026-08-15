@@ -280,8 +280,22 @@ async function labGovernor(rivers,loc,opts){
   });
   const thorough=!!(opts&&opts.thorough);
   const anyInRange=annotated.some(r=>r.driveMin==null||r.driveMin<=DAY_TRIP_CAP_MIN);
+  // Nothing the AI picked is genuinely in range — SELECTION RULE 6 in buildLabSynth only
+  // ever wanted ONE honestly-flagged fallback water in this case ("STILL include the
+  // single nearest real trout fishery... NEVER return an empty rivers list"), not every
+  // out-of-range pick the AI happened to return. Without this, a report can read like
+  // "three premier options" are within reach when every single one requires an overnight
+  // trip. Keep just the closest by drive time; picks with unknown drive time (no origin)
+  // fall back to keeping everything, same as before. (2026-08-14)
+  let closestOutOfRange=null;
+  if(!anyInRange){
+    const withKnownDrive=annotated.filter(r=>r.driveMin!=null);
+    const pool=withKnownDrive.length?withKnownDrive:annotated;
+    closestOutOfRange=pool.reduce((a,b)=>(a.driveMin??Infinity)<=(b.driveMin??Infinity)?a:b);
+  }
   return annotated.map(r=>{
     if(r.driveMin==null||r.driveMin<=DAY_TRIP_CAP_MIN)return r;
+    if(!anyInRange&&closestOutOfRange&&r!==closestOutOfRange)return null; // drop every out-of-range pick except the single closest
     if(thorough&&anyInRange)return null; // dropped — see opts.thorough note above
     const hrs=r.driveMin?Math.round(r.driveMin/6)/10:null;
     const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — plan an overnight rather than a day trip.";
@@ -620,7 +634,12 @@ async function verifyOmissions(omissions,loc,gaugeList,flowAvgMap,aiCtx){
       const fva=(p.gaugeCfs!=null)?flowVsAverageLocal(p.gaugeCfs,flowAvgMap[p.siteNo]):null;
       const flowPart=p.gaugeCfs!=null?(Math.round(p.gaugeCfs)+" CFS"+(fva?" ("+fva.label+")":"")):"";
       const parts=[p.desc,flowPart].filter(Boolean);
-      return p.name+(parts.length?" ("+parts.join(", ")+")":"");
+      const text=p.name+(parts.length?" ("+parts.join(", ")+")":"");
+      // Structured, not just display text (2026-08-14) — callers that only want the
+      // footer sentence use .text (unchanged from before); the promotion check below
+      // needs the real cfs/flowLabel to decide whether this omission is strong enough
+      // to headline "Best Bet Today" when every AI-picked river is out of range.
+      return {text,name:p.name,desc:p.desc||"",cfs:p.gaugeCfs!=null?Math.round(p.gaugeCfs):null,flowLabel:fva?fva.label:null,lat:p.lat,lng:p.lng};
     });
   }catch(_o){return[];}
 }
@@ -678,8 +697,22 @@ export function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
       candidates.push({...g,_d:d,_score:score});
     }
     if(!candidates.length)return r;
-    const topScore=Math.max(...candidates.map(c=>c._score));
-    const top=candidates.filter(c=>c._score===topScore);
+    // DISTANCE TOLERANCE FIRST (2026-08-14): apply the caller's maxDeg BEFORE tie-
+    // detection, not just at the final attach step below. Confirmed by direct
+    // reproduction against a real Denver-area search: adding CO DWR gauges as a
+    // supplemental source reintroduced "SOUTH PLATTE RIVER NEAR KERSEY, CO" (~85mi
+    // away, plains water, not trout habitat) into the candidate pool via its USGS
+    // cross-reference — a site the pre-DWR pipeline never surfaced this far out. A
+    // bare "South Platte River" omission then tied Kersey against the correct
+    // Deckers/Cheesman gauge (~34mi, in range) on name-score alone, and the OLD code
+    // hit the ambiguity guard below and bailed with NO gauge attached, even though
+    // Kersey would have failed the maxDeg check anyway had it ever been reached. Pre-
+    // filtering to in-tolerance candidates first means a candidate that could never
+    // have been the final answer can't block a match to the one that could.
+    const inTolerance=Number.isFinite(maxDeg)?candidates.filter(c=>c._d<=maxDeg):candidates;
+    if(!inTolerance.length)return r;
+    const topScore=Math.max(...inTolerance.map(c=>c._score));
+    const top=inTolerance.filter(c=>c._score===topScore);
     // AMBIGUITY GUARD (2026-08-12): streamPart strips the "AT/NEAR/BELOW X" qualifier
     // before scoring, so a bare name like "St. Vrain Creek" or "Clear Creek" scores
     // IDENTICALLY against every gauge on that named creek regardless of which reach -
@@ -689,14 +722,16 @@ export function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
     // distance-wins then silently picked whichever happened to be geographically
     // closer, with no signal that the two candidates disagreed by 20x. When 2+
     // DIFFERENT gauges (by siteNo, falling back to name) genuinely tie for the top
-    // score, the name alone can't tell them apart - rather than guess, treat it as
-    // unresolved: no gauge attaches, the pick keeps its own name/coordinates untouched,
-    // same as if nothing had matched. Multiple timeSeries entries for the SAME physical
-    // site are not ambiguous and proceed normally.
+    // score AFTER the distance tolerance above has already ruled out the candidates
+    // that could never have qualified, the name alone can't tell the REMAINING ones
+    // apart - rather than guess, treat it as unresolved: no gauge attaches, the pick
+    // keeps its own name/coordinates untouched, same as if nothing had matched.
+    // Multiple timeSeries entries for the SAME physical site are not ambiguous and
+    // proceed normally.
     const distinctTopIds=new Set(top.map(c=>c.siteNo||c.name));
     if(distinctTopIds.size>1)return r;
     const best=top[0];
-    return (best._d<=maxDeg)?{...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(best._d*69*10)/10,_snapScore:topScore}:r;
+    return {...r,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||r.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(best._d*69*10)/10,_snapScore:topScore};
   });
 }
 
@@ -1100,7 +1135,28 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
         if(thorough){
           const gaugeListForOmissions=fishableGauges.length?fishableGauges:(pgScaled||[]);
           const verified=await verifyOmissions(review.omissions,loc,gaugeListForOmissions,flowAvgMap,aiCtx).catch(()=>[]);
-          if(verified.length){nb.overview=applyVerifiedReviewNotes(nb.overview,verified);changed=true;}
+          if(verified.length){
+            nb.overview=applyVerifiedReviewNotes(nb.overview,verified.map(v=>v.text));
+            changed=true;
+            // Promote the strongest verified, gauge-backed omission to Best Bet Today
+            // when literally every AI-picked river is out of range (2026-08-14). A
+            // verified omission has already been geocoded, day-trip distance checked,
+            // and (usually, post the snapRiversToGauges fix above) snapped to a real
+            // live gauge — a genuinely closer, real answer beats leaving the AI's
+            // original out-of-range "Best Bet Today" text standing unchallenged just
+            // because reconcileBestBet (below) had no in-range river CARD to swap to.
+            // Scope: only the recommendation line — bestFor categories keep their
+            // existing flag-in-place behavior from reconcileBestBet rather than also
+            // being upgraded, since each bestFor category's own reasoning (e.g. "most
+            // solitude") doesn't necessarily still apply to a different river.
+            const anyRiverInRange=Array.isArray(nb.rivers)&&nb.rivers.some(r=>!r.outOfRange&&!(r.restriction&&r.restriction.status==="closure"));
+            const withCfs=verified.filter(v=>v.cfs!=null);
+            if(!anyRiverInRange&&withCfs.length){
+              const top=withCfs[0];
+              const flowPart=top.flowLabel?(top.cfs+" CFS, "+top.flowLabel):(top.cfs+" CFS");
+              nb.recommendation="⚠ Every pick above is beyond realistic day-trip range today — the closest real, live-verified option is "+top.name+(top.desc?" ("+top.desc+")":"")+", running "+flowPart+".";
+            }
+          }
           // else: nothing survived verification — say nothing rather than hedge.
         }else{
           nb.overview=applyReviewNotes(nb.overview,review);changed=true;
