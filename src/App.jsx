@@ -1058,7 +1058,12 @@ async function reverseGeocode(lat,lng){
   return r.json();
 }
 async function fetchWeather(lat,lng){
-  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean,uv_index_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
+  // hourly= added 2026-08-16 for the Weather tab's hour-by-hour strip. Same call the
+  // daily forecast already used — one extra query string, not a second fetch — so every
+  // caller of this shared function (Weather tab, trip planner, background email path)
+  // gets hourly data for free. Open-Meteo returns hourly out to the same forecast_days
+  // window already requested below, so it's available for all 7 days shown, not just today.
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean,uv_index_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
   try{
     const r=await fetch(url);
     if(r.ok) return r.json();
@@ -1084,6 +1089,68 @@ async function encryptGPS(gps,key){
 async function decryptGPS(gps,key){
   if(!gps||!gps.startsWith('ENC:')) return gps;
   try{const combined=Uint8Array.from(atob(gps.slice(4)),c=>c.charCodeAt(0));const iv=combined.slice(0,12),ct=combined.slice(12);const dec=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct);return new TextDecoder().decode(dec);}catch{return gps;}
+}
+
+// Resolves "today" and "the current hour" IN THE FORECAST LOCATION'S OWN TIMEZONE, not
+// the device's. Matters when checking weather for a trip somewhere other than where the
+// person currently is — Open-Meteo's timezone=auto already resolves tz per-location
+// (returned as data.timezone); this just reads the clock in that same zone so "today" and
+// "now" in the hourly strip line up with the location's dates, not the phone's.
+// Loads a user's saved gauges ordered by sort_order (manual "My Gauges" order, added
+// 2026-08-16), lazily backfilling sort_order — once — for any rows saved before manual
+// ordering existed. Shared by the consumer Streams tab's My Gauges AND the Guide CRM's
+// My Gauges: both read/write the exact same saved_gauges rows (filtered only by
+// user_id, no per-screen distinction), just rendered on two different screens. One
+// shared loader means the backfill only ever needs to run once, whichever screen a
+// person opens first, and a future fix to this logic only has one place to land.
+async function loadSavedGaugesOrdered(userId){
+  if(!sb||!userId) return [];
+  const{data,error}=await sb.from("saved_gauges").select("*").eq("user_id",userId).order("sort_order",{ascending:true,nullsFirst:false});
+  if(error||!data) return [];
+  const needsBackfill=data.some(g=>g.sort_order==null);
+  if(!needsBackfill) return data;
+  const withOrder=data.map((g,i)=>g.sort_order==null?{...g,sort_order:i}:g);
+  withOrder.forEach((g,i)=>{if(data[i]?.sort_order==null) sb.from("saved_gauges").update({sort_order:g.sort_order}).eq("id",g.id).then(()=>{});});
+  return withOrder;
+}
+// Swaps two adjacent saved-gauge entries' sort_order, in local state (via the caller's
+// own setter, functional-update form so a fast double-tap can't race stale state) and in
+// Supabase. Shared for the same reason as loadSavedGaugesOrdered above. direction: -1 up,
+// +1 down.
+function moveSavedGaugeCore(setList,userId,id,direction){
+  setList(gs=>{
+    const idx=gs.findIndex(g=>g.id===id);
+    if(idx<0) return gs;
+    const swapIdx=idx+direction;
+    if(swapIdx<0||swapIdx>=gs.length) return gs;
+    const a=gs[idx],b=gs[swapIdx];
+    const aOrder=a.sort_order??idx,bOrder=b.sort_order??swapIdx;
+    const next=[...gs];
+    next[idx]={...b,sort_order:aOrder};
+    next[swapIdx]={...a,sort_order:bOrder};
+    if(sb&&userId&&!String(userId).startsWith("local")){
+      Promise.all([
+        sb.from("saved_gauges").update({sort_order:aOrder}).eq("id",b.id).select(),
+        sb.from("saved_gauges").update({sort_order:bOrder}).eq("id",a.id).select(),
+      ]).then(([r1,r2])=>{
+        if(!r1.data?.length||!r2.data?.length) console.warn("[Saved Gauges] reorder didn't persist — check the saved_gauges UPDATE RLS policy");
+      });
+    }
+    return next;
+  });
+}
+
+function localDateHourAt(tz){
+  try{
+    const parts=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hour12:false}).formatToParts(new Date());
+    const get=t=>parts.find(p=>p.type===t)?.value;
+    let hour=parseInt(get("hour"),10);
+    if(hour===24)hour=0; // some ICU builds report midnight as "24" with hour12:false
+    return {date:`${get("year")}-${get("month")}-${get("day")}`,hour};
+  }catch{
+    const n=new Date();
+    return {date:`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`,hour:n.getHours()};
+  }
 }
 
 function windDir(deg){
@@ -2228,6 +2295,40 @@ function WeekForecast({data, highlightDay}){
           {selDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
           {" — "}{WX_DESC[d.weather_code?.[sel]]||""}
         </div>
+        {/* Hour-by-hour strip for the selected day — same data pull as everything else on
+            this screen, no extra fetch. "Where available" just means: Open-Meteo's hourly
+            block covers the same 7-day window as the daily strip, so this renders for every
+            selectable day; if the block is ever missing (network hiccup, etc.) this quietly
+            shows nothing rather than an error, consistent with the rest of the tab. */}
+        {(()=>{
+          const h=data?.hourly;
+          if(!h?.time?.length) return null;
+          const{date:todayStr,hour:curHour}=localDateHourAt(data?.timezone);
+          const isToday=d.time[sel]===todayStr;
+          const rows=h.time.map((t,i)=>({t,i})).filter(({t})=>t.slice(0,10)===d.time[sel])
+            .filter(({t})=>!isToday||parseInt(t.slice(11,13),10)>=curHour);
+          if(!rows.length) return null;
+          return(
+            <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:4,marginBottom:10}}>
+              {rows.map(({t,i})=>{
+                const hr=parseInt(t.slice(11,13),10);
+                const hLabel=hr===0?"12a":hr<12?hr+"a":hr===12?"12p":(hr-12)+"p";
+                const isNow=isToday&&hr===curHour;
+                const precip=h.precipitation_probability?.[i];
+                return(
+                  <div key={i} style={{flex:"0 0 auto",width:44,background:isNow?"rgba(209,154,74,0.15)":"rgba(0,0,0,0.15)",
+                    border:`1px solid ${isNow?"var(--gold)":"rgba(255,255,255,0.06)"}`,
+                    borderRadius:8,padding:"6px 2px",textAlign:"center"}}>
+                    <div style={{fontSize:12,color:isNow?"var(--gold)":"var(--stone)",textTransform:"uppercase"}}>{isNow?"Now":hLabel}</div>
+                    <div style={{fontSize:18,margin:"2px 0"}}>{WX_EMOJI[h.weather_code?.[i]]||"🌡"}</div>
+                    <div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)"}}>{h.temperature_2m?.[i]!=null?Math.round(h.temperature_2m[i])+"°":"—"}</div>
+                    {precip>0&&<div style={{fontSize:11,color:"#7ec8c8"}}>💧{precip}%</div>}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
         {/* Plain-language fishing read for the selected day — deterministic, no AI. Shown first. */}
         {(()=>{const read=weekWeatherRead(d,sel);return read?(
           <div style={{background:"rgba(209,154,74,0.08)",border:"1px solid rgba(209,154,74,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
@@ -3729,15 +3830,16 @@ function GuideSavedGauges({user}){
   const [savedGauges,setSavedGauges]=useState([]);
   const [showStarredOnly,setShowStarredOnly]=useState(false);
   const [gaugeAdding,setGaugeAdding]=useState(false);
-  const [sgData,setSgData]=useState([]);
+  const [sgMap,setSgMap]=useState({});
   const [expanded,setExpanded]=useState(null);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
     if(!sb||!user?.id){setLoading(false);return;}
-    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data})=>{setSavedGauges(data||[]);setLoading(false);}).catch(()=>setLoading(false));
+    loadSavedGaugesOrdered(user.id).then(d=>{setSavedGauges(d);setLoading(false);});
   },[user?.id]);
+  const idSetKey=[...savedGauges.map(g=>g.id)].sort().join(",");
   useEffect(()=>{
-    if(!savedGauges.length){setSgData([]);return;}
+    if(!savedGauges.length){setSgMap({});return;}
     (async()=>{
       // One batched new-API call for all gauges; legacy per-site fallback for any it misses
       var nwMap={};
@@ -3750,16 +3852,22 @@ function GuideSavedGauges({user}){
         try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
-      setSgData(rows);
+      setSgMap(m=>{const next={...m};rows.forEach(r=>{next[r.id]=r;});return next;});
     })();
-  },[savedGauges.length]);
+  },[idSetKey]);
+  // Render order always follows savedGauges (the manually-orderable source of truth) —
+  // reordering just re-maps already-fetched data, it never re-fetches or re-orders on its own.
+  const sgData=savedGauges.map(g=>sgMap[g.id]||g);
+  function moveGauge(id,direction){
+    moveSavedGaugeCore(setSavedGauges,user?.id,id,direction);
+  }
   async function addGauge(){
     if(!gaugeInput.trim()||!sb)return;setGaugeAdding(true);
     let siteNo=gaugeInput.trim();const match=siteNo.match(/sites?=(\d+)/i)||siteNo.match(/(\d{8,})/);if(match)siteNo=match[1];
     try{let name=null;
       try{const loc=await nwLocation(siteNo);if(loc&&loc.name&&!loc.name.startsWith("Site "))name=loc.name;}catch{}
       if(!name){try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+siteNo+"&parameterCd=00060");const d=await r.json();const ts=d.value?.timeSeries?.[0];name=ts?.sourceInfo?.siteName||null;}catch{}}
-      name=name||"Site "+siteNo;const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:"https://waterdata.usgs.gov/monitoring-location/"+siteNo+"/"}).select().single();if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}}
+      name=name||"Site "+siteNo;const{data}=await sb.from("saved_gauges").insert({user_id:user.id,site_no:siteNo,name,url:"https://waterdata.usgs.gov/monitoring-location/"+siteNo+"/",sort_order:savedGauges.length}).select().single();if(data){setSavedGauges(g=>[...g,data]);setGaugeInput("");}}
     catch(e){alert("Could not add gauge: "+e.message);}setGaugeAdding(false);
   }
   return(
@@ -3778,10 +3886,16 @@ function GuideSavedGauges({user}){
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
             </div>
           </div>
-          <div style={{display:"flex",gap:10,marginTop:10}}>
+          <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
             <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
             <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",padding:0,fontFamily:"var(--font-body)"}}>✕ Remove</button>
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:8}}>{expanded===i?"▲ hide":"▼ chart"}</span>
+            <span style={{display:"flex",alignItems:"center",marginLeft:"auto",gap:2}}>
+              <button onClick={e=>{e.stopPropagation();moveGauge(g.id,-1);}} disabled={i===0}
+                style={{background:"none",border:"none",color:i===0?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===0?"default":"pointer",fontSize:16,padding:4,lineHeight:1}}>↑</button>
+              <button onClick={e=>{e.stopPropagation();moveGauge(g.id,1);}} disabled={i===sgData.length-1}
+                style={{background:"none",border:"none",color:i===sgData.length-1?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===sgData.length-1?"default":"pointer",fontSize:16,padding:4,lineHeight:1}}>↓</button>
+            </span>
           </div>
           {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
         </div>
@@ -6455,13 +6569,19 @@ function GaugeCard({gauges,gaugeLoading,gaugeError,lastUpd,onRefresh,isStarred,t
   );
 }
 
-function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,setGaugeInput,gaugeAdding,addSavedGauge,removeSavedGauge,fetchSavedGaugeData,cfsLabel}){
-  const [sgData,setSgData]=useState([]);
+function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,setGaugeInput,gaugeAdding,addSavedGauge,removeSavedGauge,moveSavedGauge,fetchSavedGaugeData,cfsLabel}){
+  const [sgMap,setSgMap]=useState({});
   const [expanded,setExpanded]=useState(null);
+  const idSetKey=[...savedGauges.map(g=>g.id)].sort().join(",");
   useEffect(()=>{
     if(!savedGauges.length) return;
-    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(setSgData).catch(()=>{});
-  },[savedGauges.length]);
+    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(results=>{
+      setSgMap(m=>{const next={...m};results.forEach(r=>{next[r.id]=r;});return next;});
+    }).catch(()=>{});
+  },[idSetKey]);
+  // Render order always follows savedGauges (the manually-orderable source of truth) —
+  // reordering just re-maps existing fetched data, it never re-fetches.
+  const sgData=savedGauges.map(g=>sgMap[g.id]||g);
   return(
     <div className="card" style={{marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -6484,7 +6604,13 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
             </div>
             <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":(g.label||"Loading…")}</div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:2}}>
+            {moveSavedGauge&&<>
+              <button onClick={e=>{e.stopPropagation();moveSavedGauge(g.id,-1);}} disabled={i===0}
+                style={{background:"none",border:"none",color:i===0?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===0?"default":"pointer",fontSize:16,padding:4,lineHeight:1}}>↑</button>
+              <button onClick={e=>{e.stopPropagation();moveSavedGauge(g.id,1);}} disabled={i===sgData.length-1}
+                style={{background:"none",border:"none",color:i===sgData.length-1?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===sgData.length-1?"default":"pointer",fontSize:16,padding:4,lineHeight:1,marginRight:4}}>↓</button>
+            </>}
             <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
           </div>
@@ -8010,14 +8136,18 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     return()=>{window.removeEventListener('online',goOnline);window.removeEventListener('offline',goOffline);};
   },[]);
 
-  // Load saved gauges from Supabase
+  // Load saved gauges ordered by sort_order — shared loadSavedGaugesOrdered() (see above)
+  // also backs the Guide CRM's My Gauges, since both read the same saved_gauges rows.
   useEffect(()=>{
     if(!sb||!user||String(user.id).startsWith("local")) return;
-    sb.from("saved_gauges").select("*").eq("user_id",user.id).then(({data,error})=>{
-      if(data) setSavedGauges(data);
-      if(error) void 0;
-    }).catch(()=>{});
+    loadSavedGaugesOrdered(user.id).then(setSavedGauges);
   },[user?.id]);
+
+  // Swaps two adjacent My Gauges entries' positions — shared moveSavedGaugeCore() (see
+  // above) also backs the Guide CRM's My Gauges. direction: -1 to move up, +1 to move down.
+  function moveSavedGauge(id,direction){
+    moveSavedGaugeCore(setSavedGauges,user?.id,id,direction);
+  }
 
   async function fetchSavedGaugeData(gauge){
     try{
@@ -8086,7 +8216,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         if(r.ok){var d=await r.json();var ts=(d.value&&d.value.timeSeries)||[];if(ts.length) name=ts[0].sourceInfo&&ts[0].sourceInfo.siteName||name;}
       }catch(e){}
     }
-    var newGauge={user_id:user.id,site_no:siteNo,name:name,url:url};
+    var newGauge={user_id:user.id,site_no:siteNo,name:name,url:url,sort_order:savedGauges.length};
     if(sb&&!String(user.id).startsWith("local")){
       var{data}=await sb.from("saved_gauges").insert(newGauge).select().single();
       if(data) setSavedGauges(gs=>[...gs,data]);
@@ -8110,7 +8240,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       const url=isNumericSite
         ?"https://waterdata.usgs.gov/monitoring-location/"+gauge.siteNo+"/"
         :"https://dwr.state.co.us/Tools/StationsLite/"+gauge.siteNo+"?params=DISCHRG";
-      const newG={user_id:user?.id,site_no:gauge.siteNo,name:gauge.name,url};
+      const newG={user_id:user?.id,site_no:gauge.siteNo,name:gauge.name,url,sort_order:savedGauges.length};
       if(sb&&user&&!String(user.id).startsWith("local")){
         const{data}=await sb.from("saved_gauges").insert(newG).select().single();
         if(data) setSavedGauges(gs=>[...gs,data]);
@@ -8254,7 +8384,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           const distMi=Math.round(dist*69);
           return{name,cfs,siteNo,dist,distMi,lat:siteLat,lng:siteLng,fishable:isFishable(name)};
         }).filter(s=>s.fishable&&s.cfs!==null&&s.cfs>=0&&s.cfs<500000&&s.distMi<=50)
-          .sort((a,b)=>b.cfs-a.cfs).slice(0,25);
+          .sort((a,b)=>a.distMi-b.distMi).slice(0,25);
         const maxCFS=Math.max(...rawParsed.map(x=>x.cfs||0),1);
         const parsed=rawParsed.map(g=>{
           const pct=g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS)*95),100):0;
@@ -8306,7 +8436,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               const seenSiteNo=new Set();
               const merged=[...prev,...dwrParsed]
                 .filter(g=>{if(seenSiteNo.has(g.siteNo))return false;seenSiteNo.add(g.siteNo);return true;})
-                .sort((a,b)=>b.cfs-a.cfs);
+                .sort((a,b)=>(a.distMi??9999)-(b.distMi??9999));
               const maxCFS2=Math.max(...merged.map(x=>x.cfs||0),1);
               const withPct=merged.map(g=>({...g,pct:g.cfs!=null?Math.min(Math.round((g.cfs/maxCFS2)*95),100):0}));
               window._loadedGauges=withPct;if(window._recomputeHatches)window._recomputeHatches();
@@ -8700,6 +8830,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                 gaugeAdding={gaugeAdding}
                 addSavedGauge={addSavedGauge}
                 removeSavedGauge={removeSavedGauge}
+                moveSavedGauge={moveSavedGauge}
                 fetchSavedGaugeData={fetchSavedGaugeData}
                 cfsLabel={cfsLabel}
               />}
