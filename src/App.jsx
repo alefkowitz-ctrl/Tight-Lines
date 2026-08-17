@@ -7398,6 +7398,18 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [lightboxPhoto,setLightboxPhoto]=useState(null);
   const [lightboxCatchId,setLightboxCatchId]=useState(null);
   const [cropCatchId,setCropCatchId]=useState(null);
+  const [mapPinCatchId,setMapPinCatchId]=useState(null);
+  useEffect(()=>{
+    // The catch-locations map (Catch Log tab) runs Leaflet inside a sandboxed iframe —
+    // a separate document, so a marker tap can't call setState directly. It posts a
+    // message instead; this is the one listener for it, mounted once for the component's
+    // life. Filtered by message type so it can't be triggered by anything else on the page.
+    function onMapMsg(e){
+      if(e.data&&e.data.type==="gc_catch_pin_tap") setMapPinCatchId(e.data.id);
+    }
+    window.addEventListener("message",onMapMsg);
+    return()=>window.removeEventListener("message",onMapMsg);
+  },[]);
   useEffect(()=>{
     // Trip-photo viewers (Guide tab) call this with just a URL — no catch id in that
     // context, so the lightbox's crop button correctly stays hidden for those. Crop is
@@ -9013,11 +9025,12 @@ ${shopPins}
               // All pins render but outliers clamp to edge
               const projX=lng=>Math.max(P+6,Math.min(W-P-6,P+(lng-lngMin)/((lngMax-lngMin)||0.01)*(W-P*2)));
               const ty=lat=>Math.max(P+6,Math.min(H-P-6,H-P-(lat-latMin)/((latMax-latMin)||0.01)*(H-P*2)));
-              // Build Leaflet map in iframe with real map tiles
+              // Build Leaflet map in iframe with real map tiles. Tapping a pin posts a
+              // message to the parent window (see the gc_catch_pin_tap listener above)
+              // instead of showing a text popup, so it opens the real CatchCard directly.
               const markers=cr.map((co,i)=>{
                 const c=wg[i];
-                const tip=(c.species||"Catch")+(c.length?' '+c.length+'"':'')+(c.time?' | '+c.time:'');
-                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#d09a4a',color:'#876430',weight:2,fillOpacity:0.85}).bindPopup('${tip.replace(/'/g,"\'")}').addTo(map);`;
+                return `L.circleMarker([${co.lat},${co.lng}],{radius:8,fillColor:'#d09a4a',color:'#876430',weight:2,fillOpacity:0.85}).addTo(map).on('click',function(){window.parent.postMessage({type:'gc_catch_pin_tap',id:${JSON.stringify(c.id)}},'*');});`;
               }).join('\n');
               const mapHtml=`<!DOCTYPE html><html><head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -9037,13 +9050,6 @@ ${shopPins}
                     <span style={{fontSize:15,color:"var(--gold)",fontFamily:"var(--font-head)"}}>📍 Catch Locations · {wg.length} mapped</span>
                   </div>
                   <iframe title="Catch map" srcDoc={mapHtml} style={{width:"100%",height:280,border:"none",display:"block"}} sandbox="allow-scripts allow-same-origin allow-popups"/>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"6px 12px 10px"}}>
-                    {wg.slice(0,10).map((c,i)=>(
-                      <span key={i} style={{fontSize:14,background:"rgba(209,154,74,0.15)",border:"1px solid rgba(209,154,74,0.3)",borderRadius:20,padding:"2px 10px",color:"var(--gold)"}}>
-                        📍 {c.species||"Catch"}{c.length?" "+c.length+'"':""} 
-                      </span>
-                    ))}
-                  </div>
                 </div>
               );
             })()}
@@ -9248,6 +9254,26 @@ ${shopPins}
             deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,
             setLightboxPhoto,setLightboxCatchId,setCropCatchId
           }}/>;
+      })()}
+
+      {mapPinCatchId&&(()=>{
+        const pc=catches.find(c2=>c2.id===mapPinCatchId);
+        if(!pc){ setMapPinCatchId(null); return null; }
+        return (
+          <div style={{position:"fixed",inset:0,zIndex:2500,background:"rgba(10,20,17,0.82)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}
+            onClick={e=>{if(e.target===e.currentTarget)setMapPinCatchId(null);}}>
+            <div style={{position:"relative",width:"100%",maxWidth:420,maxHeight:"88vh",overflowY:"auto"}}>
+              <button onClick={()=>setMapPinCatchId(null)} aria-label="Close"
+                style={{position:"absolute",top:-10,right:-4,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",color:"var(--foam)",fontSize:16,cursor:"pointer",zIndex:2}}>✕</button>
+              <CatchCard c={pc}
+                editingCatchId={editingCatchId} setEditingCatchId={setEditingCatchId}
+                sharingCatchId={sharingCatchId} setSharingCatchId={setSharingCatchId}
+                sharingBusy={sharingBusy} shareCatch={shareCatch} deleteCatch={deleteCatch} updateCatch={updateCatch}
+                editCatchFlyInput={editCatchFlyInput} setEditCatchFlyInput={setEditCatchFlyInput}
+                setLightboxPhoto={setLightboxPhoto} setLightboxCatchId={setLightboxCatchId} setCropCatchId={setCropCatchId}/>
+            </div>
+          </div>
+        );
       })()}
 
       <div className={`slide${addOpen?" on":""}`}>
