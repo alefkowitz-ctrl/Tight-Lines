@@ -38,7 +38,7 @@ function Logo({ layout = "horizontal", scale = 1, mark = true, tagline = true })
   ) : null;
   const title = (
     <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: px(stacked ? 32 : 23), lineHeight: 1.02, letterSpacing: px(1.5), color: "var(--foam)", whiteSpace: "nowrap" }}>
-      {"GUIDE'S CHOICE"}
+      {"GUIDE'S CHOICE FISHING"}
     </div>
   );
   const tag = tagline ? (
@@ -8790,7 +8790,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               </div>,
               document.body
             )}
-          <Logo layout="horizontal" scale={0.62} tagline={false} />
+          <div style={{textAlign:"left"}}><Logo layout="horizontal" scale={0.58} tagline={false} /></div>
         </div>
 
         {tab==="conditions"&&<>
