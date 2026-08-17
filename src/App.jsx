@@ -168,35 +168,63 @@ function parseExif(buffer){
 }
 
 // ── Storage Upload Helper (module-level, used by both App and GuideBook) ──────
+// Resizes a base64 data URL to fit within maxDim on its longest side, re-encoding as
+// JPEG at the given quality. Resolves to the original string unchanged if decoding
+// fails (e.g. already small enough, or an unexpected format) so callers never break.
+function resizeDataUrl(base64DataUrl,maxDim,quality){
+  return new Promise((res2)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(1,maxDim/Math.max(img.width,img.height));
+      if(scale>=1)return res2(base64DataUrl);
+      const cv=document.createElement("canvas");
+      cv.width=Math.round(img.width*scale);cv.height=Math.round(img.height*scale);
+      cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+      res2(cv.toDataURL("image/jpeg",quality));
+    };
+    img.onerror=()=>res2(base64DataUrl);
+    img.src=base64DataUrl;
+  });
+}
 async function uploadPhotoToStorage(base64DataUrl, folder){
   if(!sb) return null;
   try{
-    // Downscale before upload: full-res photos time out on cell connections
-    let uploadUrl=base64DataUrl;
+    // Downscale before upload: full-res photos time out on cell connections. Also
+    // generates a small companion thumbnail (same base filename + "_thumb") — catch
+    // avatars and grid views load this instead of the full photo, which was the actual
+    // cause of slow photo loading (a 44px thumbnail was fetching the same ~1600px file
+    // as the full card view). Thumb upload is best-effort: if it fails, the main photo
+    // still saves normally and toThumbUrl()'s onError fallback covers the gap.
+    let uploadUrl=base64DataUrl,thumbDataUrl=base64DataUrl;
     try{
-      uploadUrl=await new Promise((res2)=>{
-        const img=new Image();
-        img.onload=()=>{
-          const scale=Math.min(1,1600/Math.max(img.width,img.height));
-          if(scale>=1)return res2(base64DataUrl);
-          const cv=document.createElement("canvas");
-          cv.width=Math.round(img.width*scale);cv.height=Math.round(img.height*scale);
-          cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-          res2(cv.toDataURL("image/jpeg",0.82));
-        };
-        img.onerror=()=>res2(base64DataUrl);
-        img.src=base64DataUrl;
-      });
-    }catch{uploadUrl=base64DataUrl;}
+      [uploadUrl,thumbDataUrl]=await Promise.all([
+        resizeDataUrl(base64DataUrl,1600,0.82),
+        resizeDataUrl(base64DataUrl,240,0.75)
+      ]);
+    }catch{uploadUrl=base64DataUrl;thumbDataUrl=base64DataUrl;}
     const res=await fetch(uploadUrl);
     const blob=await res.blob();
     const ext=blob.type.split("/")[1]||"jpg";
-    const fileName=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const {data,error}=await sb.storage.from("trip-photos").upload(fileName,blob,{contentType:blob.type,upsert:false});
-    if(error){console.error("uploadPhotoToStorage: storage upload failed:",error.message||error);return null;}
+    const id=`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const fileName=`${folder}/${id}.${ext}`;
+    const thumbName=`${folder}/${id}_thumb.${ext}`;
+    const thumbBlob=await fetch(thumbDataUrl).then(r=>r.blob()).catch(()=>null);
+    const [mainUpload]=await Promise.all([
+      sb.storage.from("trip-photos").upload(fileName,blob,{contentType:blob.type,upsert:false}),
+      thumbBlob?sb.storage.from("trip-photos").upload(thumbName,thumbBlob,{contentType:thumbBlob.type,upsert:false}).catch(e=>{console.error("uploadPhotoToStorage: thumb upload failed (non-fatal):",e.message||e);return null;}):Promise.resolve(null)
+    ]);
+    if(mainUpload.error){console.error("uploadPhotoToStorage: storage upload failed:",mainUpload.error.message||mainUpload.error);return null;}
     const {data:{publicUrl}}=sb.storage.from("trip-photos").getPublicUrl(fileName);
     return publicUrl;
   }catch(e){console.error("uploadPhotoToStorage: threw:",e.message||e);return null;}
+}
+// Derives a photo's small-thumbnail URL from its main storage URL (see uploadPhotoToStorage
+// above). Photos uploaded before this shipped have no "_thumb" file — pair with
+// onError={e=>{e.target.onerror=null;e.target.src=originalUrl;}} on the <img> to fall
+// back to the full photo for those.
+function toThumbUrl(url){
+  if(!url) return url;
+  return url.replace(/(\.[a-zA-Z0-9]+)(\?.*)?$/,"_thumb$1$2");
 }
 
 
@@ -6468,7 +6496,7 @@ function PhotoJournal({catches,onPhotoClick}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
             {lc.map((c2,i)=>(
               <div key={i} style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8,cursor:"pointer"}} onClick={()=>onPhotoClick&&onPhotoClick(c2.photo,c2.id)}>
-                <img src={c2.photo} alt={c2.species} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                <img src={toThumbUrl(c2.photo)} alt={c2.species} loading="lazy" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.onerror=null;e.target.src=c2.photo;}}/>
                 <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px"}}>
                   <div style={{fontSize:14,color:"white",fontFamily:"var(--font-body)"}}>{c2.species}{c2.length?" "+c2.length+'"':""}</div>
                 </div>
@@ -7048,7 +7076,7 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
                     <div key={c.id} style={{cursor:"pointer"}} onClick={()=>setExpandedCatchId(c.id)}>
                       {c.photo?(
                         <div style={{position:"relative",aspectRatio:"1",overflow:"hidden",borderRadius:8}}>
-                          <img src={c.photo} alt={c.species||"catch"} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                          <img src={toThumbUrl(c.photo)} alt={c.species||"catch"} loading="lazy" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.onerror=null;e.target.src=c.photo;}}/>
                         </div>
                       ):(
                         <div style={{position:"relative",aspectRatio:"1",borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🐟</div>
@@ -9059,7 +9087,7 @@ ${shopPins}
                             return (
                               <div key={c.id} onClick={()=>setLogTripForm(f=>({...f,linkedCatchIds:picked?f.linkedCatchIds.filter(x=>x!==c.id):[...f.linkedCatchIds,c.id]}))}
                                 style={{display:"flex",gap:10,alignItems:"center",padding:8,borderRadius:10,marginBottom:6,cursor:"pointer",background:picked?"rgba(209,154,74,0.18)":"rgba(0,0,0,0.2)",border:"1px solid "+(picked?"rgba(209,154,74,0.4)":"rgba(255,255,255,0.08)")}}>
-                                {c.photo?<img src={c.photo} style={{width:44,height:44,objectFit:"cover",borderRadius:8}} alt="catch"/>:<div style={{width:44,height:44,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🐟</div>}
+                                {c.photo?<img src={toThumbUrl(c.photo)} style={{width:44,height:44,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy" onError={e=>{e.target.onerror=null;e.target.src=c.photo;}}/>:<div style={{width:44,height:44,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🐟</div>}
                                 <div style={{flex:1,fontSize:15,color:"var(--foam)"}}>{c.species}{c.length?` · ${c.length}"`:""}<div style={{fontSize:13,color:"var(--stone)"}}>{c.time}</div></div>
                                 <span style={{fontSize:18,color:picked?"var(--gold)":"var(--stone)"}}>{picked?"✓":"+"}</span>
                               </div>
@@ -9102,7 +9130,7 @@ ${shopPins}
                           if(!c) return null;
                           return(
                             <div key={id} style={{display:"flex",gap:10,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:10,marginBottom:8,alignItems:"center"}}>
-                              {c.photo?<img src={c.photo} style={{width:48,height:48,objectFit:"cover",borderRadius:8}} alt="catch"/>:<div style={{width:48,height:48,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🐟</div>}
+                              {c.photo?<img src={toThumbUrl(c.photo)} style={{width:48,height:48,objectFit:"cover",borderRadius:8}} alt="catch" loading="lazy" onError={e=>{e.target.onerror=null;e.target.src=c.photo;}}/>:<div style={{width:48,height:48,borderRadius:8,background:"rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🐟</div>}
                               <div style={{flex:1,fontSize:15,color:"var(--foam)"}}>{c.species}{c.length?` · ${c.length}"`:""}<div style={{fontSize:14,color:"var(--stone)"}}>{c.time}</div></div>
                               <button onClick={()=>setLogTripForm(f=>({...f,linkedCatchIds:f.linkedCatchIds.filter(x=>x!==id)}))} style={{background:"none",border:"none",color:"var(--stone)",fontSize:16,cursor:"pointer"}}>✕</button>
                             </div>
@@ -9150,7 +9178,7 @@ ${shopPins}
                       {tripPhotos.length>0&&(
                         <div style={{display:"flex",gap:6,marginTop:8}}>
                           {tripPhotos.slice(0,4).map((c,i)=>(
-                            <img key={i} src={c.photo} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)"}}/>
+                            <img key={i} src={toThumbUrl(c.photo)} alt="" loading="lazy" style={{width:52,height:52,objectFit:"cover",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)"}} onError={e=>{e.target.onerror=null;e.target.src=c.photo;}}/>
                           ))}
                           {tripPhotos.length>4&&<div style={{width:52,height:52,borderRadius:8,background:"rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"var(--stone)"}}>+{tripPhotos.length-4}</div>}
                         </div>
