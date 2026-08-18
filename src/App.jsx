@@ -8506,7 +8506,25 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               try{localStorage.setItem(gaugeKey,JSON.stringify({data:withPct,ts:Date.now()}));}catch{}
               return withPct;
             });
-          }).catch(()=>{});
+          }).catch(()=>{}).then(()=>{
+            // NOAA NWPS forecast enrichment (SPEC_nwps_forecast_integration.md) — same
+            // progressive-enrichment pattern as DWR just above: fires after DWR settles
+            // (success or failure, via the .catch before this .then), never blocks or
+            // blanks the stream list USGS/DWR already built. Attaches onto whatever
+            // gauges are already showing — USGS or DWR sourced — rather than adding new
+            // cards (see attachNWPSForecasts's own comment in gaugeSources.js for why).
+            if(myGen!==loadGenRef.current) return;
+            fetchNWPSGauges(lat,lng,30).then(nwpsGauges=>{
+              if(myGen!==loadGenRef.current) return;
+              if(!nwpsGauges.length) return;
+              setGauges(prev=>{
+                const withForecasts=attachNWPSForecasts(prev,nwpsGauges);
+                window._loadedGauges=withForecasts;
+                try{localStorage.setItem(gaugeKey,JSON.stringify({data:withForecasts,ts:Date.now()}));}catch{}
+                return withForecasts;
+              });
+            }).catch(()=>{});
+          });
         });
       }catch{if(!silent)setGaugeError("Could not load stream data.");}
       finally{if(!silent)setGaugeLoading(false);}
