@@ -268,3 +268,162 @@ export async function fetchCODWRSingleValue(abbrev) {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// NOAA NWPS (National Water Prediction Service) — forecast layer, nationwide.
+// Adds a 96-hour flow forecast alongside DWR/USGS's observed-only data.
+//
+// 2026-08-18: an earlier version of this tried to sync NWPS's app-facing
+// /v1/gauges endpoint (its full national list — 12,846 gauges, ~13MB, no
+// geographic filter) into a local Supabase table on a schedule, since that
+// endpoint ignores every filter param (state=, bbox=, lat/lon/radius all
+// tested directly and ignored). That endpoint turned out to be unreliable at
+// that scale — tested directly: 55+ seconds when it worked, outright
+// timeouts 2 of 3 tries. NOAA's own ArcGIS map service underneath the same
+// data supports real bounding-box queries instead — tested directly across
+// five regions nationwide (CO, AK, NY, WY/MT, front-range CO), consistently
+// under 1 second every time — so this fetches live, per-request, the same
+// pattern as DWR above. No sync table, no cron job.
+// ---------------------------------------------------------------------------
+const NWPS_ARCGIS_BASE =
+  "https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer";
+const NWPS_OBSERVED_LAYER = 0;
+// Longest forecast horizon this service offers (24/48/72/96hr layers exist;
+// 96hr is the closest fit to a typical trip-planning lead time). If a future
+// pass wants day-by-day granularity, layers 1–3 (24/48/72hr) use the exact
+// same field shape — confirmed directly, not assumed.
+const NWPS_FORECAST_LAYER = 4;
+const NWPS_FORECAST_HORIZON_HRS = 96;
+
+function milesToNWPSBBox(lat, lng, radiusMiles) {
+  const dLat = radiusMiles / 69; // ~69 miles/degree latitude, effectively constant
+  const dLng = radiusMiles / (69 * Math.cos((lat * Math.PI) / 180)); // longitude compresses toward the poles
+  return [lng - dLng, lat - dLat, lng + dLng, lat + dLat];
+}
+
+async function queryNWPSLayer(layerId, bbox, outFields) {
+  const url =
+    NWPS_ARCGIS_BASE +
+    "/" +
+    layerId +
+    "/query?where=1%3D1&geometry=" +
+    bbox.join(",") +
+    "&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=" +
+    outFields +
+    "&f=json";
+  const r = await fetchWithTimeout(url, 6000);
+  if (!r.ok) return [];
+  const d = await r.json();
+  return d.features || [];
+}
+
+// Same filter reasoning as isDWRFishableName above, applied to NWPS's own `waterbody`
+// field. That field arrives already separated from the place name by ArcGIS's schema
+// (e.g. waterbody:"Frying Pan River", location:"Thomasville") — unlike DWR's single
+// combined station name, so no textual disambiguation is needed to reach the same
+// correctness DWR's filter had to earn the hard way. Reusing the exact same word lists
+// rather than re-tuning for NWPS specifically: NOAA's own convention names tailwater
+// gauges "<river> below <name> Reservoir/Resv." too (confirmed directly: RUDC2's own
+// raw name is "Frying Pan River below Ruedi Resv.", while ITS OWN waterbody field is
+// just "Frying Pan River" — the reservoir itself gets a separate gauge entry, e.g.
+// TPIC2 waterbody:"Taylor Park Reservoir", confirmed directly). Same motivating case
+// DWR's filter already handles correctly, not a fresh guess.
+function isNWPSFishableName(waterbody) {
+  return isDWRFishableName(waterbody);
+}
+
+function parseKcfsToCfs(value, unit) {
+  if (unit !== "kcfs" || value == null || value === "") return null;
+  const n = parseFloat(value) * 1000;
+  return isNaN(n) ? null : n;
+}
+
+// lat/lng/radiusMiles: same meaning as fetchCODWRGauges. Returns the same normalized
+// shape every other source in this file returns, PLUS two new optional fields callers
+// can ignore if they don't care about forecast: forecastCfs, forecastHorizonHrs.
+export async function fetchNWPSGauges(lat, lng, radiusMiles) {
+  try {
+    const bbox = milesToNWPSBBox(lat, lng, radiusMiles);
+    const [observedFeatures, forecastFeatures] = await Promise.all([
+      queryNWPSLayer(
+        NWPS_OBSERVED_LAYER,
+        bbox,
+        "gaugelid,waterbody,location,observed,secvalue,secunit,latitude,longitude"
+      ),
+      queryNWPSLayer(NWPS_FORECAST_LAYER, bbox, "gaugelid,secvalue,secunit"),
+    ]);
+    if (!observedFeatures.length) return [];
+
+    const forecastByLid = {};
+    for (const f of forecastFeatures) forecastByLid[f.attributes.gaugelid] = f.attributes;
+
+    const normalized = observedFeatures
+      .map((f) => {
+        const a = f.attributes;
+        if (!isNWPSFishableName(a.waterbody)) return null;
+        const cfs = parseKcfsToCfs(a.secvalue, a.secunit);
+        if (cfs == null) return null; // stage-only gauge — not usable in a cfs-based app, dropped rather than converted/estimated
+        const { label, cls } = cfsLabel(cfs);
+        const fcAttrs = forecastByLid[a.gaugelid];
+        const forecastCfs = fcAttrs ? parseKcfsToCfs(fcAttrs.secvalue, fcAttrs.secunit) : null;
+        const dist = Math.sqrt(Math.pow(a.latitude - lat, 2) + Math.pow(a.longitude - lng, 2));
+        return {
+          name: a.waterbody + (a.location ? " near " + a.location : ""),
+          cfs,
+          label,
+          cls,
+          siteNo: a.gaugelid,
+          dist,
+          lat: a.latitude,
+          lng: a.longitude,
+          sourceAgency: "NOAA-NWPS",
+          forecastCfs, // null when this gauge has no active 96hr discharge forecast — callers must treat that as "don't render", not "zero"
+          forecastHorizonHrs: forecastCfs != null ? NWPS_FORECAST_HORIZON_HRS : null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.dist - b.dist); // closest first, same reason as the DWR sort above
+
+    return directionalSpread(normalized, 60, lat, lng);
+  } catch (e) {
+    return []; // fail closed — a supplemental source going down should never break a report
+  }
+}
+
+// Single-gauge fetch, for callers that already know the exact NWPS gaugelid (the
+// saved-gauges "My Gauges" feature) — mirrors fetchCODWRSingleValue's role for DWR.
+// Returns { cfs, forecastCfs } rather than a bare number, since both are useful here
+// and neither should be assumed present.
+export async function fetchNWPSSingleValue(lid) {
+  if (!lid) return null;
+  try {
+    const [obsFeatures, fcFeatures] = await Promise.all([
+      fetchWithTimeout(
+        NWPS_ARCGIS_BASE +
+          "/" +
+          NWPS_OBSERVED_LAYER +
+          "/query?where=gaugelid%3D%27" +
+          encodeURIComponent(lid) +
+          "%27&outFields=secvalue,secunit&f=json",
+        6000
+      ).then((r) => (r.ok ? r.json() : { features: [] })),
+      fetchWithTimeout(
+        NWPS_ARCGIS_BASE +
+          "/" +
+          NWPS_FORECAST_LAYER +
+          "/query?where=gaugelid%3D%27" +
+          encodeURIComponent(lid) +
+          "%27&outFields=secvalue,secunit&f=json",
+        6000
+      ).then((r) => (r.ok ? r.json() : { features: [] })),
+    ]);
+    const obsAttrs = obsFeatures.features && obsFeatures.features[0] && obsFeatures.features[0].attributes;
+    const fcAttrs = fcFeatures.features && fcFeatures.features[0] && fcFeatures.features[0].attributes;
+    const cfs = obsAttrs ? parseKcfsToCfs(obsAttrs.secvalue, obsAttrs.secunit) : null;
+    const forecastCfs = fcAttrs ? parseKcfsToCfs(fcAttrs.secvalue, fcAttrs.secunit) : null;
+    if (cfs == null && forecastCfs == null) return null;
+    return { cfs, forecastCfs };
+  } catch (e) {
+    return null;
+  }
+}
