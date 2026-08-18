@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -2598,6 +2598,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
           <div className="grow">
             <span className="gval">{g.cfs!=null?`${Math.round(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
             {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
+            {g.forecastCfs!=null&&<span style={{fontSize:14,color:"#8ea9c9",marginLeft:8}}>{g.forecastCfs>g.cfs*1.05?"↗":g.forecastCfs<g.cfs*0.95?"↘":"→"} {Math.round(g.forecastCfs)} CFS in 4 days</span>}
             {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
@@ -6028,6 +6029,14 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           try{
             const dwrGauges=await fetchCODWRGauges(lat,lng,100,new Set(pgScaled.map(s=>s.siteNo)));
             pgScaled=[...pgScaled,...dwrGauges];
+          }catch{}
+          // NOAA NWPS forecast enrichment (SPEC_nwps_forecast_integration.md) — attaches
+          // a forecast onto gauges already built above; never adds new cards (see
+          // attachNWPSForecasts's own comment for why). Independent try/catch: a slow or
+          // down NWPS must never block or blank the stream list USGS/DWR already built.
+          try{
+            const nwpsGauges=await fetchNWPSGauges(lat,lng,30);
+            pgScaled=attachNWPSForecasts(pgScaled,nwpsGauges);
           }catch{}
         }catch(ge2){void 0;}
       }
