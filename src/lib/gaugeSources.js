@@ -390,6 +390,43 @@ export async function fetchNWPSGauges(lat, lng, radiusMiles) {
   }
 }
 
+// Attaches a forecast onto gauges the app already shows, rather than adding NWPS as a
+// fourth parallel source the way DWR was added as a third. NWPS forecast points are
+// frequently the exact same physical gauge as an existing USGS/DWR entry — RFCs
+// typically forecast AT established gauge sites — so treating NWPS like DWR (a new
+// standalone card) would very often duplicate a river the app already shows a card
+// for. Matches by proximity, not name: NWPS's `waterbody` naming and USGS's site
+// naming don't share a convention reliable enough to match on text.
+//
+// Threshold ~0.7 miles (0.01 degrees, same simple degree-distance math every dist
+// field in this file already uses) — tight enough this shouldn't ever attach a
+// forecast to the wrong tributary. NWPS points with no existing match within that
+// distance are dropped, not added as new cards — most forecast-active points ARE
+// co-located with a gauge already shown, and this avoids disturbing the
+// directionalSpread/count tuning fetchCODWRGauges's own comment above documents.
+// Real tradeoff, flagged rather than made silently: a forecast-active tailwater with
+// no nearby USGS/DWR gauge already on the list won't surface a forecast badge yet.
+export function attachNWPSForecasts(existingGauges, nwpsGauges) {
+  if (!nwpsGauges || !nwpsGauges.length) return existingGauges;
+  const MATCH_THRESHOLD_DEG = 0.01;
+  return existingGauges.map((g) => {
+    let closest = null;
+    let closestDist = Infinity;
+    for (const n of nwpsGauges) {
+      if (n.forecastCfs == null) continue; // nothing to attach — don't let it win the closest-match slot
+      const d = Math.sqrt(Math.pow(n.lat - g.lat, 2) + Math.pow(n.lng - g.lng, 2));
+      if (d < closestDist) {
+        closestDist = d;
+        closest = n;
+      }
+    }
+    if (closest && closestDist <= MATCH_THRESHOLD_DEG) {
+      return { ...g, forecastCfs: closest.forecastCfs, forecastHorizonHrs: closest.forecastHorizonHrs };
+    }
+    return g;
+  });
+}
+
 // Single-gauge fetch, for callers that already know the exact NWPS gaugelid (the
 // saved-gauges "My Gauges" feature) — mirrors fetchCODWRSingleValue's role for DWR.
 // Returns { cfs, forecastCfs } rather than a bare number, since both are useful here
