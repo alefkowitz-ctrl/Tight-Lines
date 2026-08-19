@@ -533,6 +533,121 @@ export function attachNWPSForecasts(existingGauges, nwpsGauges) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// NOAA National Water Model (NWM) — last-resort coverage for water with no
+// gauge nearby at all. USGS, DWR, and the NWPS forecast layer above all
+// depend on a physical monitoring station existing somewhere near the water.
+// NWM instead computes a modeled flow value for every mapped stream reach in
+// the country, gauged or not — this fills exactly the gap those three can't
+// reach: a remote headwater trout stream with nothing else on this app's
+// radar. See SPEC_streamflow_forecast.md for the full design.
+//
+// IMPORTANT — this is current MODELED conditions, not a forecast. NOAA also
+// computes a multi-day-ahead prediction for every reach, but the one service
+// that serves it is a different NOAA host entirely, and it failed 3/3 times
+// in testing (503, ~15s each) — not building on top of that until it proves
+// reliable. Every caller of this function must treat and label its result as
+// "modeled" — see confidenceTier below — never with the same visual weight
+// as a real gauge reading or an official NWS forecast.
+//
+// 2026-08-18: NOAA's REST API for this (api.water.noaa.gov/nwps/v1/reaches/
+// {id}/streamflow) looked fine in isolated testing but failed 7/7 times
+// under real back-to-back use (30-45s timeouts) — same class of problem the
+// NWPS /v1/gauges endpoint had, per that section's comment above. NOAA also
+// publishes this exact data through an ArcGIS map service instead — tested
+// directly, consistently under 0.2s, values matching the REST API's own
+// numbers on the same reach almost exactly (confirmed: South Boulder Creek,
+// reach 2891272, both surfaces agree to within floating-point rounding).
+// Same reliability trade the NWPS layer already made above; same fix.
+//
+// Point lookup, not an area sweep, deliberately: a bbox wide enough to match
+// DWR/NWPS's typical 30-100mi search radius returns 1000+ segments and this
+// service hard-caps a single response at 1000 features (exceededTransferLimit
+// confirmed directly at a 30mi radius around a real front-range CO search) —
+// most of them tiny, unnamed, sub-1-cfs headwater trickles nobody is fishing.
+// This function instead answers one question at a time — "what's the flow at
+// THIS specific spot" — the same shape fetchNWPSSingleValue below uses for
+// its own single-point case. Intended caller: a trip-planner pick or saved
+// location that came back with no gauge match from USGS/DWR/NWPS above.
+// ---------------------------------------------------------------------------
+const NWM_ARCGIS_LAYER =
+  "https://mapservices.weather.noaa.gov/vector/rest/services/obs/NWM_Stream_Analysis/MapServer/5/query";
+// ~2 miles — tight enough that a match is genuinely "at this spot," not a
+// different drainage a couple ridgelines over. Wider than DWR/NWPS's ~0.7mi
+// forecast-attach threshold deliberately: those are matching to an EXISTING
+// gauge card that already has its own precise identity; this is finding the
+// nearest reasonable reach for a location that otherwise has nothing.
+const NWM_SEARCH_RADIUS_DEG = 0.03;
+
+export async function fetchNWMStreamflow(lat, lng) {
+  if (lat == null || lng == null) return null;
+  try {
+    const bbox = [
+      lng - NWM_SEARCH_RADIUS_DEG,
+      lat - NWM_SEARCH_RADIUS_DEG,
+      lng + NWM_SEARCH_RADIUS_DEG,
+      lat + NWM_SEARCH_RADIUS_DEG,
+    ].join(",");
+    const url =
+      NWM_ARCGIS_LAYER +
+      "?where=" +
+      encodeURIComponent("raw.gnis_name IS NOT NULL") +
+      "&geometry=" +
+      bbox +
+      "&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=" +
+      encodeURIComponent(
+        "raw.feature_id,raw.gnis_name,raw.lat,raw.lon,analysis_assim.streamflow,analysis_assim.cg_valid_time"
+      ) +
+      "&returnGeometry=false&f=json";
+    const r = await fetchWithTimeout(url, 6000);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const feats = d.features || [];
+    if (!feats.length) return null;
+
+    const candidates = feats
+      .map((f) => f.attributes)
+      // Server-side where= only guarantees a name exists, not that it's fishable —
+      // "Eli Cerise Ditch" has a real gnis_name and passes that filter fine (confirmed
+      // directly, same 2-mile search around the Fryingpan). Same fishable-name check
+      // DWR's own candidates already go through, reused rather than re-tuned.
+      .filter((a) => isDWRFishableName(a["raw.gnis_name"]))
+      .filter((a) => a["analysis_assim.streamflow"] != null && a["analysis_assim.streamflow"] >= 0)
+      .map((a) => ({
+        name: a["raw.gnis_name"],
+        cfs: a["analysis_assim.streamflow"],
+        siteNo: "NWM" + a["raw.feature_id"],
+        lat: a["raw.lat"],
+        lng: a["raw.lon"],
+        validTime: a["analysis_assim.cg_valid_time"],
+        dist: Math.sqrt(Math.pow(a["raw.lat"] - lat, 2) + Math.pow(a["raw.lon"] - lng, 2)),
+      }))
+      .sort((a, b) => a.dist - b.dist); // closest named, fishable reach to the actual point wins
+
+    if (!candidates.length) return null;
+    const best = candidates[0];
+    const { label, cls } = cfsLabel(best.cfs);
+    return {
+      name: best.name,
+      cfs: best.cfs,
+      label,
+      cls,
+      siteNo: best.siteNo,
+      dist: best.dist,
+      lat: best.lat,
+      lng: best.lng,
+      sourceAgency: "NOAA-NWM",
+      // Every caller MUST branch on this — render distinctly (e.g. "modeled" badge/
+      // muted styling), never identically to a real gauge reading or NWPS official
+      // forecast. This is the trust guardrail from SPEC_streamflow_forecast.md, not
+      // optional polish.
+      confidenceTier: "modeled",
+    };
+  } catch (e) {
+    return null; // fail closed — same as every other source in this file
+  }
+}
+
 // Single-gauge fetch, for callers that already know the exact NWPS gaugelid (the
 // saved-gauges "My Gauges" feature) — mirrors fetchCODWRSingleValue's role for DWR.
 // Returns { cfs, forecastCfs } rather than a bare number, since both are useful here
