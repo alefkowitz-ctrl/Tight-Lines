@@ -332,10 +332,25 @@ function isNWPSFishableName(waterbody) {
   return isDWRFishableName(waterbody);
 }
 
-function parseKcfsToCfs(value, unit) {
-  if (unit !== "kcfs" || value == null || value === "") return null;
-  const n = parseFloat(value) * 1000;
-  return isNaN(n) ? null : n;
+// Checks BOTH primary and secondary fields for a kcfs value, since NWPS gauges don't
+// use a consistent orientation: some report discharge as the SECONDARY field alongside
+// a primary stage value (pedts starting with "H", e.g. RUDC2/FPTC2 — primary "ft",
+// secondary "kcfs"), while others report discharge directly as the PRIMARY field
+// (pedts starting with "Q", e.g. ESSC2/Big Thompson at Lake Estes — primary "kcfs",
+// secondary invalid/"-999"). Confirmed directly, 2026-08-18: an earlier version of this
+// only checked the secondary field, so every Q-type gauge — including ESSC2, which
+// Adam found showing a live 64 cfs forecast directly on water.noaa.gov — was invisible
+// to fetchNWPSGauges, understating real coverage everywhere this ran.
+function extractCfs(primaryValue, primaryUnit, secondaryValue, secondaryUnit) {
+  if (primaryUnit === "kcfs" && primaryValue != null && primaryValue !== "" && primaryValue !== "-999") {
+    const n = parseFloat(primaryValue) * 1000;
+    if (!isNaN(n)) return n;
+  }
+  if (secondaryUnit === "kcfs" && secondaryValue != null && secondaryValue !== "" && secondaryValue !== "-999") {
+    const n = parseFloat(secondaryValue) * 1000;
+    if (!isNaN(n)) return n;
+  }
+  return null;
 }
 
 // lat/lng/radiusMiles: same meaning as fetchCODWRGauges. Returns the same normalized
@@ -348,9 +363,9 @@ export async function fetchNWPSGauges(lat, lng, radiusMiles) {
       queryNWPSLayer(
         NWPS_OBSERVED_LAYER,
         bbox,
-        "gaugelid,waterbody,location,observed,secvalue,secunit,latitude,longitude"
+        "gaugelid,waterbody,location,observed,units,secvalue,secunit,latitude,longitude"
       ),
-      queryNWPSLayer(NWPS_FORECAST_LAYER, bbox, "gaugelid,secvalue,secunit"),
+      queryNWPSLayer(NWPS_FORECAST_LAYER, bbox, "gaugelid,forecast,units,secvalue,secunit"),
     ]);
     if (!observedFeatures.length) return [];
 
@@ -361,11 +376,17 @@ export async function fetchNWPSGauges(lat, lng, radiusMiles) {
       .map((f) => {
         const a = f.attributes;
         if (!isNWPSFishableName(a.waterbody)) return null;
-        const cfs = parseKcfsToCfs(a.secvalue, a.secunit);
-        if (cfs == null) return null; // stage-only gauge — not usable in a cfs-based app, dropped rather than converted/estimated
-        const { label, cls } = cfsLabel(cfs);
+        const cfs = extractCfs(a.observed, a.units, a.secvalue, a.secunit);
         const fcAttrs = forecastByLid[a.gaugelid];
-        const forecastCfs = fcAttrs ? parseKcfsToCfs(fcAttrs.secvalue, fcAttrs.secunit) : null;
+        const forecastCfs = fcAttrs ? extractCfs(fcAttrs.forecast, fcAttrs.units, fcAttrs.secvalue, fcAttrs.secunit) : null;
+        // Confirmed directly (ESSC2/Big Thompson at Lake Estes): a gauge can have NO
+        // current reading of its own (status "obs_not_current") and STILL carry a valid
+        // forecast — these are independent facts, not one gating the other. Requiring a
+        // current cfs before even checking forecast dropped exactly this gauge from
+        // every area sweep, silently, even though fetchNWPSSingleValue found it fine.
+        // Only drop when NEITHER value is usable.
+        if (cfs == null && forecastCfs == null) return null;
+        const { label, cls } = cfs != null ? cfsLabel(cfs) : { label: null, cls: null };
         const dist = Math.sqrt(Math.pow(a.latitude - lat, 2) + Math.pow(a.longitude - lng, 2));
         return {
           name: a.waterbody + (a.location ? " near " + a.location : ""),
@@ -441,7 +462,7 @@ export async function fetchNWPSSingleValue(lid) {
           NWPS_OBSERVED_LAYER +
           "/query?where=gaugelid%3D%27" +
           encodeURIComponent(lid) +
-          "%27&outFields=secvalue,secunit&f=json",
+          "%27&outFields=observed,units,secvalue,secunit&f=json",
         6000
       ).then((r) => (r.ok ? r.json() : { features: [] })),
       fetchWithTimeout(
@@ -450,14 +471,14 @@ export async function fetchNWPSSingleValue(lid) {
           NWPS_FORECAST_LAYER +
           "/query?where=gaugelid%3D%27" +
           encodeURIComponent(lid) +
-          "%27&outFields=secvalue,secunit&f=json",
+          "%27&outFields=forecast,units,secvalue,secunit&f=json",
         6000
       ).then((r) => (r.ok ? r.json() : { features: [] })),
     ]);
     const obsAttrs = obsFeatures.features && obsFeatures.features[0] && obsFeatures.features[0].attributes;
     const fcAttrs = fcFeatures.features && fcFeatures.features[0] && fcFeatures.features[0].attributes;
-    const cfs = obsAttrs ? parseKcfsToCfs(obsAttrs.secvalue, obsAttrs.secunit) : null;
-    const forecastCfs = fcAttrs ? parseKcfsToCfs(fcAttrs.secvalue, fcAttrs.secunit) : null;
+    const cfs = obsAttrs ? extractCfs(obsAttrs.observed, obsAttrs.units, obsAttrs.secvalue, obsAttrs.secunit) : null;
+    const forecastCfs = fcAttrs ? extractCfs(fcAttrs.forecast, fcAttrs.units, fcAttrs.secvalue, fcAttrs.secunit) : null;
     if (cfs == null && forecastCfs == null) return null;
     return { cfs, forecastCfs };
   } catch (e) {
