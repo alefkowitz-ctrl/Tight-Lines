@@ -3,7 +3,7 @@ import { Resend } from "resend";
 import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
 import { runTripPlannerPipeline, filterFishableGauges, directionalSpread } from "../src/lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges } from "../src/lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchNWMStreamflow } from "../src/lib/gaugeSources.js";
 
 // Same ceiling Vercel Hobby supports; Pro/Enterprise allow more but this is plenty —
 // the full pipeline has run in the 2-4 minute range in on-screen testing.
@@ -316,6 +316,26 @@ export default async function handler(req, res) {
         aiCtx,
         null // no onStep — nobody's watching a background job's progress
       );
+
+      // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — same
+      // additive, fail-closed enrichment as the on-screen planner in App.jsx, so an
+      // emailed report doesn't fall behind the on-screen one for the same location.
+      // Only touches picks with no gauge match at all; never overwrites a real
+      // reading or an AI-written condition note.
+      if (report?.rivers?.length) {
+        try {
+          await Promise.all(report.rivers.map(async (r) => {
+            if (r.cfs != null || r.lat == null || r.lng == null) return;
+            try {
+              const nwm = await fetchNWMStreamflow(r.lat, r.lng);
+              if (nwm && nwm.cfs != null) {
+                r.cfs = Math.round(nwm.cfs);
+                if (!r.condition) r.condition = "modeled, no gauge nearby";
+              }
+            } catch {}
+          }));
+        } catch {}
+      }
 
       const payload = { v: 1, ts: Date.now(), loc: { label, lat, lng }, date, wxData: wx, gauges: pgScaled, report };
       const saved = await patchReport(rowId, rowUserId, { status: "complete", payload });
