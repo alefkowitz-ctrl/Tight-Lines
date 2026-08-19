@@ -1429,6 +1429,29 @@ function nwFresh(f,now){
   var t=Date.parse(f?.properties?.time||"");
   return !isNaN(t)&&(now-t)<=NW_STALE_MS;
 }
+// Same staleness rule as nwFresh above, adapted for the legacy waterservices.usgs.gov
+// {value,dateTime} shape instead of the new API's GeoJSON feature shape. The new-API
+// path already filters through nwFresh; the legacy fallback path never did, which is
+// how a site offline since 1994 (Colorado River at Hot Sulphur Springs, confirmed
+// directly 2026-08-19) was still being shown as a live "current" reading — the new-API
+// lookup found no fresh feature for that site/bbox, fell through to the legacy
+// endpoint, which returns whatever it has on file with no age check at all. Reuses the
+// same NW_STALE_MS threshold rather than inventing a second one.
+function legacyFresh(dateTimeStr){
+  var t=Date.parse(dateTimeStr||"");
+  return !isNaN(t)&&(Date.now()-t)<=NW_STALE_MS;
+}
+// Drops stale entries from a legacy {value:{timeSeries:[...]}} payload before it
+// reaches any caller — every consumer of fetchUSGSLive's legacy-fallback branch gets
+// this for free, no per-call-site changes needed.
+function filterFreshTimeSeries(legacyPayload){
+  var ts=(legacyPayload&&legacyPayload.value&&legacyPayload.value.timeSeries)||[];
+  var fresh=ts.filter(function(t){
+    var dt=t&&t.values&&t.values[0]&&t.values[0].value&&t.values[0].value[0]&&t.values[0].value[0].dateTime;
+    return legacyFresh(dt);
+  });
+  return {value:{timeSeries:fresh}};
+}
 function chunkArr(a,n){var o=[];for(var i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;}
 
 // Latest readings for many sites in few calls. Returns fresh features only.
@@ -1653,10 +1676,12 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2,fullSweep=false){
         if(feats.length){var legacyShaped=nwToLegacy(feats,locs);if(legacyShaped.value.timeSeries.length>0) return legacyShaped;}
       }
     }catch{}
-    // Legacy fallback (covers gauges not yet on the new API), until decommission
+    // Legacy fallback (covers gauges not yet on the new API), until decommission.
+    // Filtered through filterFreshTimeSeries — this endpoint returns whatever's on
+    // file for a site with no age check, including sites offline for decades.
     try{
       var r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST");
-      if(r.ok){var j=await r.json();if(j&&j.value&&j.value.timeSeries&&j.value.timeSeries.length>0) return j;}
+      if(r.ok){var j0=await r.json();var j=filterFreshTimeSeries(j0);if(j.value.timeSeries.length>0) return j;}
     }catch{}
   }
   return {value:{timeSeries:[]}};
@@ -3907,7 +3932,7 @@ function GuideSavedGauges({user}){
       }catch{}
       var rows=await Promise.all(savedGauges.map(async g=>{
         if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
-        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const cfs=raw!=null?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const cfs=(raw!=null&&legacyFresh(rawDt))?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
       setSgMap(m=>{const next={...m};rows.forEach(r=>{next[r.id]=r;});return next;});
@@ -5566,8 +5591,10 @@ function StreamGaugeChart({streamName, localGauges, lat, lng, knownSiteNo}){
           if(leg.value.timeSeries.length) return leg;
         }
       }catch{}
-      // Legacy fallback until decommission
-      try{const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`);return await r.json();}catch{return{value:{timeSeries:[]}};}
+      // Legacy fallback until decommission — filtered through filterFreshTimeSeries,
+      // same as fetchUSGSLive above, so a name-search match can't silently resolve to
+      // a decades-stale reading.
+      try{const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bbox}&parameterCd=00060&siteType=ST`);return filterFreshTimeSeries(await r.json());}catch{return{value:{timeSeries:[]}};}
     })()
       .then(d=>{
         const ts=d.value?.timeSeries||[];
