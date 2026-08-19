@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -2583,6 +2583,21 @@ function GaugeChart({siteNo, siteName, initialCFS}){
 }
 
 // ── Gauge List with expandable charts ────────────────────────────────────────
+// Single shared forecast badge — used by ALL THREE gauge surfaces (the Intel tab's
+// discovered list, the Intel tab's "My Gauges", and the Guide CRM gauge list). Those
+// three each render gauges independently, which is why the forecast badge originally
+// appeared on only one of them. Keeping the markup in one component means wording,
+// color, and threshold changes land everywhere at once instead of drifting apart.
+// Renders nothing at all when there's no forecast — a missing forecast is the common
+// case (most gauges don't have one active), not an error state to announce.
+function ForecastBadge({cfs,forecastCfs,style}){
+  if(forecastCfs==null) return null;
+  // Arrow needs a current reading to compare against; a forecast-only gauge gets the
+  // neutral marker rather than a fabricated trend direction.
+  const arrow = cfs!=null ? (forecastCfs>cfs*1.05?"↗":forecastCfs<cfs*0.95?"↘":"→") : "→";
+  return <span style={{fontSize:14,color:"#8ea9c9",...(style||{})}}>{arrow} {Math.round(forecastCfs).toLocaleString()} CFS in 4 days</span>;
+}
+
 function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
   const [expanded, setExpanded] = useState(null);
   return(
@@ -2598,7 +2613,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
           <div className="grow">
             <span className="gval">{g.cfs!=null?`${Math.round(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
             {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
-            {g.forecastCfs!=null&&<span style={{fontSize:14,color:"#8ea9c9",marginLeft:8}}>{g.forecastCfs>g.cfs*1.05?"↗":g.forecastCfs<g.cfs*0.95?"↘":"→"} {Math.round(g.forecastCfs)} CFS in 4 days</span>}
+            <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
             {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
@@ -3896,6 +3911,19 @@ function GuideSavedGauges({user}){
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
       setSgMap(m=>{const next={...m};rows.forEach(r=>{next[r.id]=r;});return next;});
+      // Forecast enrichment via the same shared enrichWithNWPSForecasts the Intel tab's
+      // two gauge lists use. This list never resolved coordinates before (it only ever
+      // needed CFS), so lat/lng is fetched here first — matching NWPS points is done by
+      // proximity, and without coords nothing can match. Second pass, so CFS still
+      // renders immediately and a slow NOAA never delays the list.
+      try{
+        const withCoords=await Promise.all(rows.map(async r=>{
+          if(r.lat!=null&&r.lng!=null) return r;
+          try{const loc=await nwLocation(r.site_no);return loc?{...r,lat:loc.lat,lng:loc.lng}:r;}catch{return r;}
+        }));
+        const enriched=await enrichWithNWPSForecasts(withCoords);
+        setSgMap(m=>{const next={...m};enriched.forEach(r=>{next[r.id]=r;});return next;});
+      }catch{}
     })();
   },[idSetKey]);
   // Render order always follows savedGauges (the manually-orderable source of truth) —
@@ -3927,6 +3955,7 @@ function GuideSavedGauges({user}){
             <div><div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
+              <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs}/>
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
@@ -6626,8 +6655,18 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
   const idSetKey=[...savedGauges.map(g=>g.id)].sort().join(",");
   useEffect(()=>{
     if(!savedGauges.length) return;
-    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(results=>{
+    Promise.all(savedGauges.map(g=>fetchSavedGaugeData(g))).then(async results=>{
       setSgMap(m=>{const next={...m};results.forEach(r=>{next[r.id]=r;});return next;});
+      // Forecast enrichment via the SAME shared function the discovered-gauge list uses
+      // (see enrichWithNWPSForecasts in gaugeSources.js). Runs as a second pass rather
+      // than blocking the first: CFS values render immediately, forecasts fill in when
+      // NOAA answers. Only gauges fetchSavedGaugeData resolved coordinates for can
+      // match — DWR-sourced saved gauges return without lat/lng and pass through
+      // unenriched, which is a known gap, not a silent failure.
+      try{
+        const enriched=await enrichWithNWPSForecasts(results);
+        setSgMap(m=>{const next={...m};enriched.forEach(r=>{next[r.id]=r;});return next;});
+      }catch{}
     }).catch(()=>{});
   },[idSetKey]);
   // Render order always follows savedGauges (the manually-orderable source of truth) —
@@ -6653,7 +6692,10 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
                 ?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name||g.site_no}</a>
                 :(g.name||g.site_no)}
             </div>
-            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>{g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":(g.label||"Loading…")}</div>
+            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>
+              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":(g.label||"Loading…")}
+              <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
+            </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:2}}>
             {moveSavedGauge&&<>
@@ -8514,14 +8556,26 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
             // gauges are already showing — USGS or DWR sourced — rather than adding new
             // cards (see attachNWPSForecasts's own comment in gaugeSources.js for why).
             if(myGen!==loadGenRef.current) return;
-            fetchNWPSGauges(lat,lng,30).then(nwpsGauges=>{
+            // Source list is window._loadedGauges, which every prior pass in this chain
+            // (USGS parse, temp patch, DWR merge) already keeps current — so this picks
+            // up DWR-sourced gauges too, not just the USGS ones.
+            const snapshot=Array.isArray(window._loadedGauges)?window._loadedGauges:[];
+            if(!snapshot.length) return;
+            enrichWithNWPSForecasts(snapshot).then(enriched=>{
               if(myGen!==loadGenRef.current) return;
-              if(!nwpsGauges.length) return;
+              if(!enriched||!enriched.length) return;
               setGauges(prev=>{
-                const withForecasts=attachNWPSForecasts(prev,nwpsGauges);
-                window._loadedGauges=withForecasts;
-                try{localStorage.setItem(gaugeKey,JSON.stringify({data:withForecasts,ts:Date.now()}));}catch{}
-                return withForecasts;
+                // Re-map by siteNo onto whatever `prev` is NOW rather than replacing it
+                // wholesale — the DWR pass above may have appended gauges after this
+                // enrichment started, and blindly returning `enriched` would drop them.
+                const fcBySite={};
+                enriched.forEach(g=>{if(g.forecastCfs!=null)fcBySite[g.siteNo]=g;});
+                const merged=prev.map(g=>fcBySite[g.siteNo]
+                  ?{...g,forecastCfs:fcBySite[g.siteNo].forecastCfs,forecastHorizonHrs:fcBySite[g.siteNo].forecastHorizonHrs}
+                  :g);
+                window._loadedGauges=merged;
+                try{localStorage.setItem(gaugeKey,JSON.stringify({data:merged,ts:Date.now()}));}catch{}
+                return merged;
               });
             }).catch(()=>{});
           });
