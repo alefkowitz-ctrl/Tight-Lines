@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -6108,6 +6108,27 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
             {askAI:askClaude,geocodePlaces:geocodePlacesBrowser},
             (text,state)=>addStep(text,state)
           );
+          // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — fills in a
+          // flow number for picks that came back with NO gauge match at all (r.cfs null).
+          // Purely additive: only touches picks that would otherwise show no flow, never
+          // overwrites a real USGS/DWR/NWPS-matched reading. Independent try/catch per
+          // pick AND around the whole block — a slow or down NWM must never block or
+          // blank a report that's otherwise ready. r.condition is only filled in when
+          // empty, so a real AI-written condition note is never overwritten.
+          if(builtReport?.rivers?.length){
+            try{
+              await Promise.all(builtReport.rivers.map(async(r)=>{
+                if(r.cfs!=null||r.lat==null||r.lng==null) return;
+                try{
+                  const nwm=await fetchNWMStreamflow(r.lat,r.lng);
+                  if(nwm&&nwm.cfs!=null){
+                    r.cfs=Math.round(nwm.cfs);
+                    if(!r.condition) r.condition="modeled, no gauge nearby";
+                  }
+                }catch{}
+              }));
+            }catch{}
+          }
           setReport(builtReport);
         }catch(e2){
           const msg=(e2&&e2.message)||String(e2);
