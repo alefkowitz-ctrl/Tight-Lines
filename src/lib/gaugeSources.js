@@ -332,15 +332,40 @@ function isNWPSFishableName(waterbody) {
   return isDWRFishableName(waterbody);
 }
 
+// SHEF physical-element gate — the single most important correctness check in this
+// module. NWPS's `waterbody` field does NOT distinguish what a point actually
+// MEASURES: ESSC2's waterbody reads "Big Thompson River (CO)" and its location reads
+// "Lake Estes", but NOAA's own gauge page calls it "Natural Inflow into Lake Estes" —
+// a modeled reservoir INFLOW, not river flow. Its pedts code (QI…) is the only field
+// in the ArcGIS response that reveals this.
+//
+// Why this matters concretely (confirmed directly, 2026-08-18): ESSC2 (inflow, forecast
+// 64 cfs) sits 0.16 miles from BTBC2 "Big Thompson River below Lake Estes" (a real
+// river gauge reading ~247 cfs). Well inside attachNWPSForecasts's 0.7-mile match
+// radius — so without this gate, the app would print water flowing INTO the reservoir
+// as the forecast for water released BELOW the dam. Wrong by a factor of ~4, on a
+// gauge an angler specifically pinned. An invented number is worse than no number.
+//
+// Allowlist, not denylist, deliberately: HG (Height, river Gauge — stage, carrying
+// discharge in the secondary field) and QR (Discharge, River) are the two codes that
+// mean actual river flow. Everything else is excluded even if it carries a plausible
+// kcfs value — QI (inflow), HP (pool/reservoir level), HM, and any future code NOAA
+// adds. Measured cost across Colorado (confirmed directly): of 113 forecast points
+// carrying a usable kcfs value, 106 are HG and 7 are QI — so this drops ~6% of
+// candidates, all of them ones that would have been wrong.
+const NWPS_RIVER_FLOW_PE_CODES = ["HG", "QR"];
+function isNWPSRiverFlowGauge(pedts) {
+  if (!pedts || typeof pedts !== "string" || pedts.length < 2) return false; // unknown/missing → exclude, don't guess
+  return NWPS_RIVER_FLOW_PE_CODES.includes(pedts.slice(0, 2).toUpperCase());
+}
+
 // Checks BOTH primary and secondary fields for a kcfs value, since NWPS gauges don't
 // use a consistent orientation: some report discharge as the SECONDARY field alongside
 // a primary stage value (pedts starting with "H", e.g. RUDC2/FPTC2 — primary "ft",
 // secondary "kcfs"), while others report discharge directly as the PRIMARY field
-// (pedts starting with "Q", e.g. ESSC2/Big Thompson at Lake Estes — primary "kcfs",
-// secondary invalid/"-999"). Confirmed directly, 2026-08-18: an earlier version of this
-// only checked the secondary field, so every Q-type gauge — including ESSC2, which
-// Adam found showing a live 64 cfs forecast directly on water.noaa.gov — was invisible
-// to fetchNWPSGauges, understating real coverage everywhere this ran.
+// (pedts starting with "Q"). Confirmed directly, 2026-08-18: an earlier version of this
+// only checked the secondary field, so every Q-type gauge was invisible to
+// fetchNWPSGauges, understating real coverage everywhere this ran.
 function extractCfs(primaryValue, primaryUnit, secondaryValue, secondaryUnit) {
   if (primaryUnit === "kcfs" && primaryValue != null && primaryValue !== "" && primaryValue !== "-999") {
     const n = parseFloat(primaryValue) * 1000;
@@ -363,19 +388,26 @@ export async function fetchNWPSGauges(lat, lng, radiusMiles) {
       queryNWPSLayer(
         NWPS_OBSERVED_LAYER,
         bbox,
-        "gaugelid,waterbody,location,observed,units,secvalue,secunit,latitude,longitude"
+        "gaugelid,waterbody,location,observed,units,secvalue,secunit,latitude,longitude,pedts"
       ),
-      queryNWPSLayer(NWPS_FORECAST_LAYER, bbox, "gaugelid,forecast,units,secvalue,secunit"),
+      queryNWPSLayer(NWPS_FORECAST_LAYER, bbox, "gaugelid,forecast,units,secvalue,secunit,pedts"),
     ]);
     if (!observedFeatures.length) return [];
 
+    // Forecast records are gated on their OWN pedts, independently of the observed
+    // record's — it's the forecast value this feature actually publishes, so that's the
+    // one that has to earn its way past the river-flow gate.
     const forecastByLid = {};
-    for (const f of forecastFeatures) forecastByLid[f.attributes.gaugelid] = f.attributes;
+    for (const f of forecastFeatures) {
+      if (!isNWPSRiverFlowGauge(f.attributes.pedts)) continue;
+      forecastByLid[f.attributes.gaugelid] = f.attributes;
+    }
 
     const normalized = observedFeatures
       .map((f) => {
         const a = f.attributes;
         if (!isNWPSFishableName(a.waterbody)) return null;
+        if (!isNWPSRiverFlowGauge(a.pedts)) return null; // reservoir inflow / pool level / unknown — see isNWPSRiverFlowGauge
         const cfs = extractCfs(a.observed, a.units, a.secvalue, a.secunit);
         const fcAttrs = forecastByLid[a.gaugelid];
         const forecastCfs = fcAttrs ? extractCfs(fcAttrs.forecast, fcAttrs.units, fcAttrs.secvalue, fcAttrs.secunit) : null;
@@ -408,6 +440,59 @@ export async function fetchNWPSGauges(lat, lng, radiusMiles) {
     return directionalSpread(normalized, 60, lat, lng);
   } catch (e) {
     return []; // fail closed — a supplemental source going down should never break a report
+  }
+}
+
+// ── SINGLE SHARED ENTRY POINT for forecast enrichment ───────────────────────
+// Every gauge surface in the app calls THIS — the Intel tab's discovered list, the
+// Intel tab's "My Gauges" saved list, and the Guide CRM's saved list. Those three
+// each had their own independent gauge-fetching code, which is exactly why a change
+// made to one (the discovered list) silently failed to appear in the others. Any
+// future change to forecast behavior now lands in all three at once.
+//
+// Takes any array of gauges carrying lat/lng and returns the same array with
+// forecastCfs/forecastHorizonHrs attached where a match exists. Gauges without
+// coordinates pass through untouched rather than being dropped.
+//
+// Queries are grouped onto a coarse geographic grid rather than one giant bounding
+// box: ArcGIS truncates at 10,000 features (confirmed directly — a whole-CONUS query
+// returns exactly 10,000 with exceededTransferLimit:true), which would silently drop
+// forecasts for a user whose saved gauges span the country. An 8-degree grid keeps
+// every query far under that (a CO→MT span returned 567), and real users cluster
+// anyway, so this is normally a single request.
+const NWPS_GRID_SPAN_DEG = 8;
+
+export async function enrichWithNWPSForecasts(gauges) {
+  if (!Array.isArray(gauges) || !gauges.length) return gauges;
+  const withCoords = gauges.filter((g) => g && g.lat != null && g.lng != null);
+  if (!withCoords.length) return gauges;
+
+  const buckets = new Map();
+  for (const g of withCoords) {
+    const key = Math.floor(g.lat / NWPS_GRID_SPAN_DEG) + ":" + Math.floor(g.lng / NWPS_GRID_SPAN_DEG);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(g);
+  }
+
+  try {
+    const perBucket = await Promise.all(
+      [...buckets.values()].map(async (bucket) => {
+        const lats = bucket.map((g) => g.lat);
+        const lngs = bucket.map((g) => g.lng);
+        const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+        // Radius covers the bucket's own spread plus a 5-mile pad, so a gauge sitting
+        // right at a grid boundary still sees forecast points just across that line.
+        const spreadMiles =
+          Math.max(Math.max(...lats) - Math.min(...lats), Math.max(...lngs) - Math.min(...lngs)) * 69;
+        return fetchNWPSGauges(centerLat, centerLng, spreadMiles / 2 + 5);
+      })
+    );
+    const allNwps = perBucket.flat();
+    if (!allNwps.length) return gauges;
+    return attachNWPSForecasts(gauges, allNwps);
+  } catch (e) {
+    return gauges; // fail closed — enrichment is supplemental, never load-bearing
   }
 }
 
@@ -462,7 +547,7 @@ export async function fetchNWPSSingleValue(lid) {
           NWPS_OBSERVED_LAYER +
           "/query?where=gaugelid%3D%27" +
           encodeURIComponent(lid) +
-          "%27&outFields=observed,units,secvalue,secunit&f=json",
+          "%27&outFields=observed,units,secvalue,secunit,pedts&f=json",
         6000
       ).then((r) => (r.ok ? r.json() : { features: [] })),
       fetchWithTimeout(
@@ -471,14 +556,21 @@ export async function fetchNWPSSingleValue(lid) {
           NWPS_FORECAST_LAYER +
           "/query?where=gaugelid%3D%27" +
           encodeURIComponent(lid) +
-          "%27&outFields=forecast,units,secvalue,secunit&f=json",
+          "%27&outFields=forecast,units,secvalue,secunit,pedts&f=json",
         6000
       ).then((r) => (r.ok ? r.json() : { features: [] })),
     ]);
     const obsAttrs = obsFeatures.features && obsFeatures.features[0] && obsFeatures.features[0].attributes;
     const fcAttrs = fcFeatures.features && fcFeatures.features[0] && fcFeatures.features[0].attributes;
-    const cfs = obsAttrs ? extractCfs(obsAttrs.observed, obsAttrs.units, obsAttrs.secvalue, obsAttrs.secunit) : null;
-    const forecastCfs = fcAttrs ? extractCfs(fcAttrs.forecast, fcAttrs.units, fcAttrs.secvalue, fcAttrs.secunit) : null;
+    // Same river-flow gate as the area sweep. Without it this path stayed a hole:
+    // confirmed directly, it happily returned ESSC2's reservoir-inflow forecast even
+    // after fetchNWPSGauges had been fixed to exclude it.
+    const cfs = obsAttrs && isNWPSRiverFlowGauge(obsAttrs.pedts)
+      ? extractCfs(obsAttrs.observed, obsAttrs.units, obsAttrs.secvalue, obsAttrs.secunit)
+      : null;
+    const forecastCfs = fcAttrs && isNWPSRiverFlowGauge(fcAttrs.pedts)
+      ? extractCfs(fcAttrs.forecast, fcAttrs.units, fcAttrs.secvalue, fcAttrs.secunit)
+      : null;
     if (cfs == null && forecastCfs == null) return null;
     return { cfs, forecastCfs };
   } catch (e) {
