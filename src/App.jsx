@@ -3931,8 +3931,8 @@ function GuideSavedGauges({user}){
         feats.forEach(f=>{var sn=nwSiteNo(f.properties.monitoring_location_id);var v=parseFloat(f.properties.value);if(sn&&!isNaN(v))nwMap[sn]=v;});
       }catch{}
       var rows=await Promise.all(savedGauges.map(async g=>{
-        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
-        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const cfs=(raw!=null&&legacyFresh(rawDt))?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label:label+" [DBG:new-api]",cls};}
+        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const fresh=raw!=null&&legacyFresh(rawDt);const cfs=fresh?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);const dbgTag=raw==null?" [DBG:legacy-no-value]":fresh?" [DBG:legacy-fresh]":` [DBG:legacy-stale:${rawDt}]`;return{...g,cfs,label:label+dbgTag,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
       setSgMap(m=>{const next={...m};rows.forEach(r=>{next[r.id]=r;});return next;});
