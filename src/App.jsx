@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -6142,6 +6142,13 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           // pick AND around the whole block — a slow or down NWM must never block or
           // blank a report that's otherwise ready. r.condition is only filled in when
           // empty, so a real AI-written condition note is never overwritten.
+          //
+          // Multi-day outlook (added 2026-08-19/20): only has data for reaches the daily
+          // sync job tracks (see nwm_tracked_reaches, currently 2 seeded reaches — this
+          // will show for very few picks until that list grows to cover real usage,
+          // which is a known, deliberate next step, not a bug). r.nwmOutlook stays
+          // undefined for everyone else, and the render side must treat it as fully
+          // optional — most reports will never have it.
           if(builtReport?.rivers?.length){
             try{
               await Promise.all(builtReport.rivers.map(async(r)=>{
@@ -6151,6 +6158,12 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
                   if(nwm&&nwm.cfs!=null){
                     r.cfs=Math.round(nwm.cfs);
                     if(!r.condition) r.condition="modeled, no gauge nearby";
+                    if(nwm.reachId!=null){
+                      try{
+                        const outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);
+                        if(outlook&&outlook.length) r.nwmOutlook=outlook;
+                      }catch{}
+                    }
                   }
                 }catch{}
               }));
@@ -6404,7 +6417,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.restriction&&<div style={{fontSize:14,color:"#ffb4a3",background:"rgba(140,73,54,0.25)",border:"1px solid rgba(140,73,54,0.5)",borderRadius:8,padding:"6px 10px",marginBottom:6,fontWeight:600}}>⚠️ {r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}{r.restriction.hours?" — "+r.restriction.hours:""}{r.restriction.reach?" ("+r.restriction.reach+")":""}</div>}{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.restriction&&<div style={{fontSize:14,color:"#ffb4a3",background:"rgba(140,73,54,0.25)",border:"1px solid rgba(140,73,54,0.5)",borderRadius:8,padding:"6px 10px",marginBottom:6,fontWeight:600}}>⚠️ {r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}{r.restriction.hours?" — "+r.restriction.hours:""}{r.restriction.reach?" ("+r.restriction.reach+")":""}</div>}{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.nwmOutlook&&r.nwmOutlook.length>0&&(()=>{const vals=r.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
