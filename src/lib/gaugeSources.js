@@ -537,7 +537,7 @@ export function attachNWPSForecasts(existingGauges, nwpsGauges) {
 // NOAA National Water Model (NWM) — last-resort coverage for water with no
 // gauge nearby at all. USGS, DWR, and the NWPS forecast layer above all
 // depend on a physical monitoring station existing somewhere near the water.
-// NWM instead computes a modeled flow value for every mapped stream reach in
+// NWM instead computes an estimated flow value for every mapped stream reach in
 // the country, gauged or not — this fills exactly the gap those three can't
 // reach: a remote headwater trout stream with nothing else on this app's
 // radar. See SPEC_streamflow_forecast.md for the full design.
@@ -547,7 +547,7 @@ export function attachNWPSForecasts(existingGauges, nwpsGauges) {
 // that serves it is a different NOAA host entirely, and it failed 3/3 times
 // in testing (503, ~15s each) — not building on top of that until it proves
 // reliable. Every caller of this function must treat and label its result as
-// "modeled" — see confidenceTier below — never with the same visual weight
+// "estimated" — see confidenceTier below — never with the same visual weight
 // as a real gauge reading or an official NWS forecast.
 //
 // 2026-08-18: NOAA's REST API for this (api.water.noaa.gov/nwps/v1/reaches/
@@ -639,11 +639,11 @@ export async function fetchNWMStreamflow(lat, lng) {
       lat: best.lat,
       lng: best.lng,
       sourceAgency: "NOAA-NWM",
-      // Every caller MUST branch on this — render distinctly (e.g. "modeled" badge/
+      // Every caller MUST branch on this — render distinctly (e.g. "estimated" badge/
       // muted styling), never identically to a real gauge reading or NWPS official
       // forecast. This is the trust guardrail from SPEC_streamflow_forecast.md, not
       // optional polish.
-      confidenceTier: "modeled",
+      confidenceTier: "estimated",
     };
   } catch (e) {
     return null; // fail closed — same as every other source in this file
@@ -710,7 +710,7 @@ export async function fetchNWPSSingleValue(lid) {
 //
 // Returns an array of {day, cfs, validDate} sorted by day (1-5), or null if this
 // reach isn't tracked yet / the cache is empty for it. Every result should be
-// labeled "modeled" in the UI, same confidence-tier rule as fetchNWMStreamflow —
+// labeled "estimated" in the UI, same confidence-tier rule as fetchNWMStreamflow —
 // this is NOT an official NWS forecast.
 export async function fetchNWMForecastOutlook(sb, reachId) {
   if (!sb || reachId == null) return null;
