@@ -2639,7 +2639,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
             <span className="gval">{g.cfs!=null?`${Math.round(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
             {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
             <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
-            {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
+            {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (estimated)</span>})()}
             {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
@@ -3952,9 +3952,9 @@ function GuideSavedGauges({user}){
         // NWM fallback (SPEC_streamflow_forecast.md) — for gauges with a dead or
         // never-reporting sensor (real confirmed cases tonight: Hot Sulphur Springs
         // offline since 1994, Boulder Creek near Orodell offline since 1993), show a
-        // modeled current reading instead of blank, plus a 5-day outlook for whichever
+        // estimated current reading instead of blank, plus a 5-day outlook for whichever
         // reaches happen to be in nwm_tracked_reaches. Purely additive — never touches a
-        // gauge that already has a real cfs. Label always says "(modeled)" — this must
+        // gauge that already has a real cfs. Label always says "(estimated)" — this must
         // never look identical to a real gauge reading, same trust rule as everywhere
         // else this fallback appears.
         try{
@@ -3965,7 +3965,7 @@ function GuideSavedGauges({user}){
               if(nwm&&nwm.cfs!=null){
                 const rounded=Math.round(nwm.cfs);
                 const{label,cls}=cfsLabel(rounded);
-                r.cfs=rounded;r.label=label+" (modeled)";r.cls=cls;
+                r.cfs=rounded;r.label=label+" (estimated)";r.cls=cls;
                 if(nwm.reachId!=null){
                   try{const outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);if(outlook&&outlook.length)r.nwmOutlook=outlook;}catch{}
                 }
@@ -4007,7 +4007,7 @@ function GuideSavedGauges({user}){
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
               <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs}/>
-              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
+              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (estimated)</span>})()}
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
@@ -6184,7 +6184,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
                   const nwm=await fetchNWMStreamflow(r.lat,r.lng);
                   if(nwm&&nwm.cfs!=null){
                     r.cfs=Math.round(nwm.cfs);
-                    if(!r.condition) r.condition="modeled, no gauge nearby";
+                    if(!r.condition) r.condition="estimated, no gauge nearby";
                     if(nwm.reachId!=null){
                       try{
                         const outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);
@@ -6444,7 +6444,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
             {report.rivers.map((r,i)=>{
               return(
               <div className="rb" key={i}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.restriction&&<div style={{fontSize:14,color:"#ffb4a3",background:"rgba(140,73,54,0.25)",border:"1px solid rgba(140,73,54,0.5)",borderRadius:8,padding:"6px 10px",marginBottom:6,fontWeight:600}}>⚠️ {r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}{r.restriction.hours?" — "+r.restriction.hours:""}{r.restriction.reach?" ("+r.restriction.reach+")":""}</div>}{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.nwmOutlook&&r.nwmOutlook.length>0&&(()=>{const vals=r.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div className="rriver">🏞 {r.name}</div><a href={r.lat&&r.lng?`https://maps.google.com/?q=${r.lat},${r.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(r.name)}`} target="_blank" rel="noreferrer" style={{fontSize:14,color:"var(--sky)",textDecoration:"none",padding:"2px 8px",background:"rgba(44,95,110,0.2)",borderRadius:12,flexShrink:0}}>📍 Map</a></div>{r.restriction&&<div style={{fontSize:14,color:"#ffb4a3",background:"rgba(140,73,54,0.25)",border:"1px solid rgba(140,73,54,0.5)",borderRadius:8,padding:"6px 10px",marginBottom:6,fontWeight:600}}>⚠️ {r.restriction.status==="closure"?"Closed to fishing":"Hoot Owl restriction"}{r.restriction.hours?" — "+r.restriction.hours:""}{r.restriction.reach?" ("+r.restriction.reach+")":""}</div>}{(r.cfs||r.type||r.crowdLevel||r.driveMin!=null)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>{r.type&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--sky)"}}>{r.type}</span>}{r.cfs&&r.cfs!=="unknown"&&<span style={{fontSize:14,background:"rgba(44,95,110,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--gold)"}}>💧 {r.cfs} · {r.condition||""}</span>}{r.nwmOutlook&&r.nwmOutlook.length>0&&(()=>{const vals=r.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (estimated)</span>})()}{r.crowdLevel&&<span style={{fontSize:14,background:r.crowdLevel==="Light"?"rgba(90,122,74,0.2)":r.crowdLevel==="Heavy"?"rgba(150,80,80,0.2)":"rgba(209,154,74,0.15)",borderRadius:12,padding:"2px 8px",color:r.crowdLevel==="Light"?"#9cd47a":r.crowdLevel==="Heavy"?"var(--red)":"var(--gold)"}}>👥 {r.crowdLevel} crowds</span>}{r.driveMin!=null&&<span style={{fontSize:14,background:"rgba(255,255,255,0.07)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🚗 ~{r.driveMin} min</span>}{r.bestTime&&<span style={{fontSize:14,background:"rgba(0,0,0,0.2)",borderRadius:12,padding:"2px 8px",color:"var(--stone)"}}>🕐 {r.bestTime}</span>}</div>}{r.why&&<div style={{fontSize:15,color:"#9cd47a",fontStyle:"italic",marginBottom:4}}>✓ {r.why}</div>}
                 {r.accessPoints?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:14,color:"var(--stone)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Access Points</div>{r.accessPoints.map((ap,ai)=><a key={ai} href={"https://www.google.com/maps/search/"+encodeURIComponent(ap)} target="_blank" rel="noreferrer" style={{display:"block",fontSize:14,color:"var(--sky)",textDecoration:"none",marginBottom:2}}>📍 {ap}</a>)}</div>}
                 <div className="rbody">{(r.conditions||"").replace(/<cite[^>]*>|<\/cite>/g,"")}</div>
                 {r.techniques&&<div className="rtech">{(r.techniques||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s*\(\d+-?\d*%\)/g,"").trim()}</div>}
@@ -6781,9 +6781,9 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
                 :(g.name||g.site_no)}
             </div>
             <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>
-              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS"+(g.nwmModeled?" (modeled)":""):(g.label||"Loading…")}
+              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS"+(g.nwmModeled?" (estimated)":""):(g.label||"Loading…")}
               <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
-              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
+              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (estimated)</span>})()}
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:2}}>
@@ -8401,7 +8401,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       // list and the Guide tab's gauge list, and the same real confirmed cases (Hot
       // Sulphur Springs, Boulder Creek near Orodell). Only fires when cfsVal is still
       // null after both the new-API and legacy-fallback attempts above. Label always
-      // says "(modeled)" — same trust rule as everywhere else this fallback appears.
+      // says "(estimated)" — same trust rule as everywhere else this fallback appears.
       var nwmOutlook=null;
       var nwmModeled=false;
       if(cfsVal==null&&lat!=null&&lng!=null){
@@ -8701,7 +8701,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               // gauges still showing no reading at all (confirmed real cases tonight: Hot
               // Sulphur Springs offline since 1994, Boulder Creek near Orodell offline
               // since 1993 — both currently in this exact list). Never overwrites a real
-              // reading. Label always says "(modeled)" — same trust rule as everywhere
+              // reading. Label always says "(estimated)" — same trust rule as everywhere
               // else this fallback appears.
               if(myGen!==loadGenRef.current) return;
               const snapshot2=Array.isArray(window._loadedGauges)?window._loadedGauges:[];
@@ -8717,7 +8717,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                   if(nwm.reachId!=null){
                     try{outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);}catch{}
                   }
-                  return{siteNo:g.siteNo,cfs:rounded,label:label+" (modeled)",cls,nwmOutlook:(outlook&&outlook.length)?outlook:null};
+                  return{siteNo:g.siteNo,cfs:rounded,label:label+" (estimated)",cls,nwmOutlook:(outlook&&outlook.length)?outlook:null};
                 }catch{return null;}
               })).then(results=>{
                 if(myGen!==loadGenRef.current) return;
