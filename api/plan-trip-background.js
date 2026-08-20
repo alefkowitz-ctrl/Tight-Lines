@@ -330,7 +330,7 @@ export default async function handler(req, res) {
               const nwm = await fetchNWMStreamflow(r.lat, r.lng);
               if (nwm && nwm.cfs != null) {
                 r.cfs = Math.round(nwm.cfs);
-                if (!r.condition) r.condition = "modeled, no gauge nearby";
+                if (!r.condition) r.condition = "estimated, no gauge nearby";
               }
             } catch {}
           }));
