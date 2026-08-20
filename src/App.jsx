@@ -6781,8 +6781,9 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
                 :(g.name||g.site_no)}
             </div>
             <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>
-              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS":(g.label||"Loading…")}
+              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS"+(g.nwmModeled?" (modeled)":""):(g.label||"Loading…")}
               <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
+              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:2}}>
@@ -8396,7 +8397,26 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       var lat=loc2?.lat||null,lng=loc2?.lng||null;
       var name=nameFromCfs||loc2?.name||gauge.name;
       var lbl=cfsLabel(cfsVal);
-      return{...gauge,cfs:cfsVal,label:lbl.label,cls:lbl.cls,name,lat,lng};
+      // NWM fallback (SPEC_streamflow_forecast.md) — same treatment as the Stream Gauges
+      // list and the Guide tab's gauge list, and the same real confirmed cases (Hot
+      // Sulphur Springs, Boulder Creek near Orodell). Only fires when cfsVal is still
+      // null after both the new-API and legacy-fallback attempts above. Label always
+      // says "(modeled)" — same trust rule as everywhere else this fallback appears.
+      var nwmOutlook=null;
+      var nwmModeled=false;
+      if(cfsVal==null&&lat!=null&&lng!=null){
+        try{
+          var nwm=await fetchNWMStreamflow(lat,lng);
+          if(nwm&&nwm.cfs!=null){
+            cfsVal=Math.round(nwm.cfs);
+            nwmModeled=true;
+            if(nwm.reachId!=null){
+              try{var outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);if(outlook&&outlook.length)nwmOutlook=outlook;}catch{}
+            }
+          }
+        }catch{}
+      }
+      return{...gauge,cfs:cfsVal,label:lbl.label,cls:lbl.cls,name,lat,lng,nwmOutlook,nwmModeled};
     }catch(e){return {...gauge,cfs:null,label:"NO DATA",cls:"nodata"};}
   }
 
