@@ -2639,6 +2639,7 @@ function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
             <span className="gval">{g.cfs!=null?`${Math.round(g.cfs).toLocaleString()} CFS`:"No reading"}</span>
             {g.waterTempF&&<span style={{fontSize:14,color:"#7ec8c8",marginLeft:8}}>💧 {g.waterTempF}°F</span>}
             <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
+            {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",marginLeft:8,color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
             {g.histMax&&<span style={{fontSize:14,color:"var(--stone)",marginLeft:6}}>{g.pct}%</span>}
             <span style={{fontSize:14,color:"var(--stone)",marginLeft:"auto",paddingLeft:8}}>{expanded===i?"▲ hide chart":"▼ view chart"}</span>
           </div>
@@ -3948,6 +3949,31 @@ function GuideSavedGauges({user}){
         }));
         const enriched=await enrichWithNWPSForecasts(withCoords);
         setSgMap(m=>{const next={...m};enriched.forEach(r=>{next[r.id]=r;});return next;});
+        // NWM fallback (SPEC_streamflow_forecast.md) — for gauges with a dead or
+        // never-reporting sensor (real confirmed cases tonight: Hot Sulphur Springs
+        // offline since 1994, Boulder Creek near Orodell offline since 1993), show a
+        // modeled current reading instead of blank, plus a 5-day outlook for whichever
+        // reaches happen to be in nwm_tracked_reaches. Purely additive — never touches a
+        // gauge that already has a real cfs. Label always says "(modeled)" — this must
+        // never look identical to a real gauge reading, same trust rule as everywhere
+        // else this fallback appears.
+        try{
+          await Promise.all(enriched.map(async(r)=>{
+            if(r.cfs!=null||r.lat==null||r.lng==null) return;
+            try{
+              const nwm=await fetchNWMStreamflow(r.lat,r.lng);
+              if(nwm&&nwm.cfs!=null){
+                const rounded=Math.round(nwm.cfs);
+                const{label,cls}=cfsLabel(rounded);
+                r.cfs=rounded;r.label=label+" (modeled)";r.cls=cls;
+                if(nwm.reachId!=null){
+                  try{const outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);if(outlook&&outlook.length)r.nwmOutlook=outlook;}catch{}
+                }
+              }
+            }catch{}
+          }));
+          setSgMap(m=>{const next={...m};enriched.forEach(r=>{next[r.id]=r;});return next;});
+        }catch{}
       }catch{}
     })();
   },[idSetKey]);
@@ -3981,6 +4007,7 @@ function GuideSavedGauges({user}){
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
               <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs}/>
+              {g.nwmOutlook&&g.nwmOutlook.length>0&&(()=>{const vals=g.nwmOutlook.map(d=>d.cfs).filter(v=>v!=null);if(!vals.length)return null;const lo=Math.round(Math.min(...vals)),hi=Math.round(Math.max(...vals));return<span style={{fontSize:14,background:"rgba(150,130,180,0.15)",border:"1px dashed rgba(150,130,180,0.4)",borderRadius:12,padding:"2px 8px",color:"#b8a8d0"}} title="NOAA National Water Model — not an official NWS forecast, and not calibrated to a local gauge">📅 5-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (modeled)</span>})()}
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
@@ -8648,7 +8675,43 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                 try{localStorage.setItem(gaugeKey,JSON.stringify({data:merged,ts:Date.now()}));}catch{}
                 return merged;
               });
-            }).catch(()=>{});
+            }).catch(()=>{}).then(()=>{
+              // NWM fallback (SPEC_streamflow_forecast.md) — same progressive-enrichment
+              // pattern as DWR and NWPS above: fires after NWPS settles, only ever touches
+              // gauges still showing no reading at all (confirmed real cases tonight: Hot
+              // Sulphur Springs offline since 1994, Boulder Creek near Orodell offline
+              // since 1993 — both currently in this exact list). Never overwrites a real
+              // reading. Label always says "(modeled)" — same trust rule as everywhere
+              // else this fallback appears.
+              if(myGen!==loadGenRef.current) return;
+              const snapshot2=Array.isArray(window._loadedGauges)?window._loadedGauges:[];
+              const needsFallback=snapshot2.filter(g=>g.cfs==null&&g.lat!=null&&g.lng!=null);
+              if(!needsFallback.length) return;
+              Promise.all(needsFallback.map(async(g)=>{
+                try{
+                  const nwm=await fetchNWMStreamflow(g.lat,g.lng);
+                  if(!nwm||nwm.cfs==null) return null;
+                  const rounded=Math.round(nwm.cfs);
+                  const{label,cls}=cfsLabel(rounded);
+                  let outlook=null;
+                  if(nwm.reachId!=null){
+                    try{outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);}catch{}
+                  }
+                  return{siteNo:g.siteNo,cfs:rounded,label:label+" (modeled)",cls,nwmOutlook:(outlook&&outlook.length)?outlook:null};
+                }catch{return null;}
+              })).then(results=>{
+                if(myGen!==loadGenRef.current) return;
+                const bySite={};
+                results.forEach(r=>{if(r)bySite[r.siteNo]=r;});
+                if(!Object.keys(bySite).length) return;
+                setGauges(prev=>{
+                  const merged2=prev.map(g=>bySite[g.siteNo]?{...g,...bySite[g.siteNo]}:g);
+                  window._loadedGauges=merged2;
+                  try{localStorage.setItem(gaugeKey,JSON.stringify({data:merged2,ts:Date.now()}));}catch{}
+                  return merged2;
+                });
+              });
+            });
           });
         });
       }catch{if(!silent)setGaugeError("Could not load stream data.");}
