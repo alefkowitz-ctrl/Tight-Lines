@@ -692,3 +692,35 @@ export async function fetchNWPSSingleValue(lid) {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Multi-day NWM outlook — reads the cache api/sync-nwm-forecast.js writes once a
+// day (SPEC_streamflow_forecast.md, Phase 4). Companion to fetchNWMStreamflow
+// above: that one is a live, on-demand current-conditions fetch for ANY reach;
+// this one only has data for reaches in the nwm_tracked_reaches table, since the
+// underlying files are too large to parse live per-request (confirmed directly,
+// 2026-08-19 — see the sync job's own comment for the full reasoning).
+//
+// Takes the already-initialized Supabase client as a parameter rather than
+// creating its own — this file talks to external gauge APIs directly everywhere
+// else and has never needed its own Supabase instance; matching that shape here
+// would mean two separate client instances doing the same job for no reason.
+//
+// Returns an array of {day, cfs, validDate} sorted by day (1-5), or null if this
+// reach isn't tracked yet / the cache is empty for it. Every result should be
+// labeled "modeled" in the UI, same confidence-tier rule as fetchNWMStreamflow —
+// this is NOT an official NWS forecast.
+export async function fetchNWMForecastOutlook(sb, reachId) {
+  if (!sb || reachId == null) return null;
+  try {
+    const { data, error } = await sb
+      .from("nwm_forecast_cache")
+      .select("forecast_day,cfs,valid_date")
+      .eq("reach_id", reachId)
+      .order("forecast_day", { ascending: true });
+    if (error || !data || !data.length) return null;
+    return data.map((r) => ({ day: r.forecast_day, cfs: r.cfs, validDate: r.valid_date }));
+  } catch (e) {
+    return null;
+  }
+}
