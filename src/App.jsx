@@ -3931,8 +3931,8 @@ function GuideSavedGauges({user}){
         feats.forEach(f=>{var sn=nwSiteNo(f.properties.monitoring_location_id);var v=parseFloat(f.properties.value);if(sn&&!isNaN(v))nwMap[sn]=v;});
       }catch{}
       var rows=await Promise.all(savedGauges.map(async g=>{
-        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label:label+" [DBG:new-api]",cls};}
-        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const fresh=raw!=null&&legacyFresh(rawDt);const cfs=fresh?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);const dbgTag=raw==null?" [DBG:legacy-no-value]":fresh?" [DBG:legacy-fresh]":` [DBG:legacy-stale:${rawDt}]`;return{...g,cfs,label:label+dbgTag,cls};}
+        if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const cfs=(raw!=null&&legacyFresh(rawDt))?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
       setSgMap(m=>{const next={...m};rows.forEach(r=>{next[r.id]=r;});return next;});
@@ -8336,7 +8336,17 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           var ts=(d.value&&d.value.timeSeries)||[];
           if(!ts.length)return{cfs:null,name:null};
           var raw=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].value;
-          return{cfs:raw!=null?parseFloat(raw):null,name:(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||null};
+          var rawDt=ts[0].values&&ts[0].values[0]&&ts[0].values[0].value&&ts[0].values[0].value[0]&&ts[0].values[0].value[0].dateTime;
+          // Same staleness guard as the two other USGS legacy-fallback call sites
+          // (gaugeSources.js NW_STALE_MS / legacyFresh) — this THIRD, independent copy of
+          // the same fallback pattern was missed by the original codebase-wide search
+          // because it uses old-style `&&` guards instead of `?.` optional chaining, so a
+          // text search for the `?.` pattern didn't catch it. This is the actual function
+          // powering the on-screen "My Gauges" list (SavedGaugesList component) — confirmed
+          // directly, 2026-08-19, via a temporary on-screen debug tag that proved the other
+          // two (already-fixed) copies were never being called for this view at all.
+          if(raw==null||!legacyFresh(rawDt))return{cfs:null,name:(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||null};
+          return{cfs:parseFloat(raw),name:(ts[0].sourceInfo&&ts[0].sourceInfo.siteName)||null};
         })(),
         nwLocation(siteNo)
       ]);
