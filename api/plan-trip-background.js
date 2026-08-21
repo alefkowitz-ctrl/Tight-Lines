@@ -327,7 +327,7 @@ export default async function handler(req, res) {
           await Promise.all(report.rivers.map(async (r) => {
             if (r.cfs != null || r.lat == null || r.lng == null) return;
             try {
-              const nwm = await fetchNWMStreamflow(r.lat, r.lng);
+              const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
               if (nwm && nwm.cfs != null) {
                 r.cfs = Math.round(nwm.cfs);
                 if (!r.condition) r.condition = "estimated, no gauge nearby";
