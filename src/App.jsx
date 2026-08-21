@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, normalizeStreamName } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -1777,28 +1777,9 @@ async function fetchNearestGaugeSiteAnyStatus(lat,lng,radiusDeg){
     return best;
   }catch{return null;}
 }
-// Extracts the core water-body name from a USGS site name like "CLEAR CREEK AT
-// GOLDEN, CO" -> "CLEAR CREEK", so two gauges can be recognized as being on the
-// same named stream even when USGS abbreviates it differently ("CLEAR C") or
-// gives it a different qualifier phrase. A tributary like "NORTH CLEAR CREEK"
-// normalizes to a different, distinct name — it does NOT match "CLEAR CREEK".
-function normalizeStreamName(rawName){
-  if(!rawName) return "";
-  const QUALIFIERS=/\b(AT|NEAR|NR|ABOVE|ABV|BELOW|BLW|BL|AB|MOUTH|CONFLUENCE)\b/;
-  let core=rawName.split(QUALIFIERS)[0].trim();
-  core=core.replace(/,.*$/,"").trim();
-  core=core
-    .replace(/\bCR\b/g,"CREEK")
-    .replace(/\bC\b/g,"CREEK")
-    .replace(/\bRV\b/g,"RIVER")
-    .replace(/\bR\b/g,"RIVER")
-    .replace(/\bFK\b/g,"FORK")
-    .replace(/\bBR\b/g,"BRANCH")
-    .replace(/\s+/g," ")
-    .trim()
-    .toUpperCase();
-  return core;
-}
+// normalizeStreamName now lives in gaugeSources.js (imported above) — fetchNWMStreamflow
+// needs the identical logic for its own same-stream matching (2026-08-21 Kinikinik fix),
+// so it was moved to the shared gauge-matching file rather than kept duplicated here.
 // Given gauges that have valid current data, picks the nearest one that's on the
 // SAME named stream as the catch (identified via the nearest gauge overall, active
 // or not). This lets a real reading further downstream on the correct river win
@@ -3961,7 +3942,7 @@ function GuideSavedGauges({user}){
           await Promise.all(enriched.map(async(r)=>{
             if(r.cfs!=null||r.lat==null||r.lng==null) return;
             try{
-              const nwm=await fetchNWMStreamflow(r.lat,r.lng);
+              const nwm=await fetchNWMStreamflow(r.lat,r.lng,r.name);
               if(nwm&&nwm.cfs!=null){
                 const rounded=Math.round(nwm.cfs);
                 const{label,cls}=cfsLabel(rounded);
@@ -6181,7 +6162,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
               await Promise.all(builtReport.rivers.map(async(r)=>{
                 if(r.cfs!=null||r.lat==null||r.lng==null) return;
                 try{
-                  const nwm=await fetchNWMStreamflow(r.lat,r.lng);
+                  const nwm=await fetchNWMStreamflow(r.lat,r.lng,r.name);
                   if(nwm&&nwm.cfs!=null){
                     r.cfs=Math.round(nwm.cfs);
                     if(!r.condition) r.condition="estimated, no gauge nearby";
@@ -8406,7 +8387,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       var nwmModeled=false;
       if(cfsVal==null&&lat!=null&&lng!=null){
         try{
-          var nwm=await fetchNWMStreamflow(lat,lng);
+          var nwm=await fetchNWMStreamflow(lat,lng,name);
           if(nwm&&nwm.cfs!=null){
             cfsVal=Math.round(nwm.cfs);
             nwmModeled=true;
@@ -8709,7 +8690,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
               if(!needsFallback.length) return;
               Promise.all(needsFallback.map(async(g)=>{
                 try{
-                  const nwm=await fetchNWMStreamflow(g.lat,g.lng);
+                  const nwm=await fetchNWMStreamflow(g.lat,g.lng,g.name);
                   if(!nwm||nwm.cfs==null) return null;
                   const rounded=Math.round(nwm.cfs);
                   const{label,cls}=cfsLabel(rounded);
