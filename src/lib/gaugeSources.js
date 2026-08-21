@@ -56,6 +56,32 @@ function cfsLabel(cfs) {
   return { label: Math.round(cfs).toLocaleString() + " CFS", cls: "" };
 }
 
+// Extracts the core water-body name from a gauge/site name like "CLEAR CREEK AT
+// GOLDEN, CO" -> "CLEAR CREEK", so two gauges/reaches can be recognized as being on
+// the same named stream even when abbreviated differently ("CLEAR C") or given a
+// different qualifier phrase. A tributary like "NORTH CLEAR CREEK" normalizes to a
+// distinct name — it does NOT match "CLEAR CREEK". Canonical home for this (moved
+// here 2026-08-21, was duplicated in App.jsx for the catch-log same-stream gauge
+// match) — fetchNWMStreamflow below needs the identical logic, and gauge-name
+// normalization belongs with the rest of the gauge-matching code, not the UI file.
+export function normalizeStreamName(rawName) {
+  if (!rawName) return "";
+  const QUALIFIERS = /\b(AT|NEAR|NR|ABOVE|ABV|BELOW|BLW|BL|AB|MOUTH|CONFLUENCE)\b/;
+  let core = rawName.split(QUALIFIERS)[0].trim();
+  core = core.replace(/,.*$/, "").trim();
+  core = core
+    .replace(/\bCR\b/g, "CREEK")
+    .replace(/\bC\b/g, "CREEK")
+    .replace(/\bRV\b/g, "RIVER")
+    .replace(/\bR\b/g, "RIVER")
+    .replace(/\bFK\b/g, "FORK")
+    .replace(/\bBR\b/g, "BRANCH")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  return core;
+}
+
 async function fetchWithTimeout(url, ms) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), ms);
@@ -569,6 +595,21 @@ export function attachNWPSForecasts(existingGauges, nwpsGauges) {
 // THIS specific spot" — the same shape fetchNWPSSingleValue below uses for
 // its own single-point case. Intended caller: a trip-planner pick or saved
 // location that came back with no gauge match from USGS/DWR/NWPS above.
+//
+// targetName (optional, but every in-app caller now passes it — 2026-08-21):
+// confirmed real bug — a saved gauge for "CACHE LA POUDRE R AT KINIKINIK, C."
+// (a real USGS site number, but one that's only ever taken a single 1973 water-
+// quality sample and has no live telemetry, so it always needs this fallback)
+// was showing 268 CFS. The mainstem Poudre's own nearby NWM segments that day
+// modeled ~228-290 CFS — plausible — but the single CLOSEST reach in the search
+// box, by raw distance, turned out to be a named tributary, "Roaring Creek",
+// whose own upstream forks modeled at only 3-21 CFS — i.e. NOAA's flowline data
+// has this segment mislabeled or misattributed, and "closest wins" silently
+// substituted a different waterway's number under the Poudre's name with no way
+// for the user to tell. When targetName is given, a same-named candidate (via
+// normalizeStreamName, same logic App.jsx already uses to match a catch to the
+// right gauge) is preferred over a closer but differently-named one. Only
+// engages when it can genuinely do better than plain-closest — see below.
 // ---------------------------------------------------------------------------
 const NWM_ARCGIS_LAYER =
   "https://mapservices.weather.noaa.gov/vector/rest/services/obs/NWM_Stream_Analysis/MapServer/5/query";
@@ -579,7 +620,7 @@ const NWM_ARCGIS_LAYER =
 // nearest reasonable reach for a location that otherwise has nothing.
 const NWM_SEARCH_RADIUS_DEG = 0.03;
 
-export async function fetchNWMStreamflow(lat, lng) {
+export async function fetchNWMStreamflow(lat, lng, targetName) {
   if (lat == null || lng == null) return null;
   try {
     const bbox = [
@@ -626,7 +667,20 @@ export async function fetchNWMStreamflow(lat, lng) {
       .sort((a, b) => a.dist - b.dist); // closest named, fishable reach to the actual point wins
 
     if (!candidates.length) return null;
-    const best = candidates[0];
+    let best = candidates[0]; // plain-closest — unchanged default when no name match applies
+    if (targetName) {
+      const targetNorm = normalizeStreamName(targetName);
+      if (targetNorm) {
+        const sameStream = candidates.filter((c) => normalizeStreamName(c.name) === targetNorm);
+        // Reject an exact-zero same-stream candidate when a positive-flow one also
+        // exists on that same stream (a dry side-braid segment right at a confluence
+        // is a known NHD artifact, confirmed present in this exact Kinikinik search —
+        // picking it would trade one wrong number for an even more implausible one).
+        const usable = sameStream.filter((c) => c.cfs > 0);
+        if (usable.length) best = usable[0]; // already distance-sorted, so first = closest
+        else if (sameStream.length) best = sameStream[0]; // all-zero same-stream is still better than a different river
+      }
+    }
     const { label, cls } = cfsLabel(best.cfs);
     return {
       name: best.name,
