@@ -481,10 +481,12 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
       report.hatches?("Hatch Activity text: "+String(report.hatches).slice(0,600)):"",
       report.bestTimes?("Best Times text: "+String(report.bestTimes).slice(0,300)):"",
       report.tips?("Insider Tips text: "+String(report.tips).slice(0,600)):"",
+      report.overview?("Overview text: "+String(report.overview).slice(0,600)):"",
+      report.recommendation?("Recommendation text: "+String(report.recommendation).slice(0,600)):"",
       "Do TWO things:",
       "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Format each 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
-      "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, or unsafe/self-contradictory timing. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
-      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
+      "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, unsafe/self-contradictory timing, or the Overview/Recommendation text naming ANY water by name that is not one of the Streams listed above (even a real, well-known one) — that water was never added as its own verified pick, so mentioning it by name is not backed by this report's own data; if you find this, rewrite that field's FULL text with the outside mention removed (fall back to a general phrase like 'other waters in range' if you need to preserve the sentence, or drop the clause entirely) rather than naming it. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
+      'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","overview":"","recommendation":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
     ].filter(Boolean).join(" ");
     const race=Promise.race([aiCtx.askAI(promptCtx,true,2600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),95000))]);
     const clean=String(await race||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
@@ -499,6 +501,8 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
     if(txt(fxIn.hatches))fixes.hatches=txt(fxIn.hatches);
     if(txt(fxIn.bestTimes))fixes.bestTimes=txt(fxIn.bestTimes);
     if(txt(fxIn.tips))fixes.tips=txt(fxIn.tips);
+    if(txt(fxIn.overview))fixes.overview=txt(fxIn.overview);
+    if(txt(fxIn.recommendation))fixes.recommendation=txt(fxIn.recommendation);
     if(Array.isArray(fxIn.rivers)){
       const rv=fxIn.rivers.map(r=>({name:String((r&&r.name)||"").trim(),flies:(Array.isArray(r&&r.flies)?r.flies:[]).map(f=>String(f||"").replace(/<cite[^>]*>|<\/cite>/g,"").trim()).filter(Boolean).slice(0,8)})).filter(r=>r.name&&r.flies.length);
       if(rv.length)fixes.rivers=rv.slice(0,6);
@@ -1095,7 +1099,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
 
   // Report-level review runs in parallel with finalize (they're independent)
-  const reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips},loc,searchTxt,ds,aiCtx).catch(()=>null);
+  const reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips,overview:rpt.overview,recommendation:rpt.recommendation},loc,searchTxt,ds,aiCtx).catch(()=>null);
   const restrictionsPromise=labVerifyRestrictions(rpt.rivers,loc,ds,aiCtx).catch(e=>({result:null,debug:{outcome:"promise-reject",error:String((e&&e.message)||e).slice(0,120)}}));
 
   let builtReport={
@@ -1122,6 +1126,8 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
       if(fx.hatches){nb.hatches=sb2(fx.hatches);changed=true;}
       if(fx.bestTimes){nb.bestTimes=eThermal?scrubAfternoonPush(sb2(fx.bestTimes)):sb2(fx.bestTimes);changed=true;}
       if(fx.tips){nb.tips=eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(fx.tips))).trim():sb2(fx.tips);changed=true;}
+      if(fx.overview){nb.overview=sb2(fx.overview);changed=true;}
+      if(fx.recommendation){nb.recommendation=sb2(fx.recommendation);changed=true;}
       if(Array.isArray(fx.rivers)&&fx.rivers.length&&Array.isArray(nb.rivers)){
         const nrm=nrmName;
         nb.rivers=nb.rivers.map(rv=>{
