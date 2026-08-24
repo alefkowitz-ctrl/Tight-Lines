@@ -1062,6 +1062,21 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const parts=await Promise.all(tasks);
   const labGround=String(parts[2]||"").trim();
   const searchTxt=((labGround?labGround+" ":"")+String(parts[0]||"")+" "+String(parts[1]||"")).trim();
+  // TEMP DIAGNOSTIC (App Dev — South Platte/Deckers/Cheesman omission investigation,
+  // 2026-08-24): checks each of the three parallel search calls' RAW text — before any
+  // AI pick-selection or filtering touches it — for a mention of this specific known-gap
+  // water. Distinguishes "search never surfaced it" (all three log "not found") from
+  // "found it and something downstream dropped it" (a snippet logs, but it never makes
+  // the final rivers[] list). Scoped to this one known gap rather than a general check;
+  // remove once diagnosed.
+  try{
+    const southRe=/deckers|cheesman|south platte/i;
+    const snippet=t=>{const s=String(t||"");const m=s.match(southRe);if(!m)return null;const i=m.index;return s.slice(Math.max(0,i-60),i+90).replace(/\s+/g," ").trim();};
+    const report=(label,t)=>console.log("[searchDiag] Deckers/Cheesman/South Platte —",label+":",southRe.test(t)?snippet(t):"not found ("+String(t||"").length+" chars searched)");
+    report("searchPrompt1 (shop reports)",parts[0]);
+    report("searchPrompt2 (general reports)",parts[1]);
+    report("labFetchPrompt (fetched pages)",parts[2]);
+  }catch(_sd){void 0;}
   const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
 
   // Step 2: synthesize into JSON
