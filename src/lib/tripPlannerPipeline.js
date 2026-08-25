@@ -524,9 +524,9 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
 async function labVerifyRestrictions(rivers,loc,dateStr,aiCtx){
   const dbg={outcome:"not-run",checked:0,found:0};
   try{
-    if(!Array.isArray(rivers)||!rivers.length){dbg.outcome="no-rivers";console.log("[restrictions]",dbg);return{result:null,debug:dbg};}
+    if(!Array.isArray(rivers)||!rivers.length){dbg.outcome="no-rivers";return{result:null,debug:dbg};}
     const named=rivers.filter(r=>r&&r.name);
-    if(!named.length){dbg.outcome="no-named-rivers";console.log("[restrictions]",dbg);return{result:null,debug:dbg};}
+    if(!named.length){dbg.outcome="no-named-rivers";return{result:null,debug:dbg};}
     dbg.checked=named.length;
     const riverList=named.map((r,i)=>{
       const ap=Array.isArray(r.accessPoints)?r.accessPoints.join("; "):(r.accessPoints||"");
@@ -548,14 +548,13 @@ async function labVerifyRestrictions(rivers,loc,dateStr,aiCtx){
     }catch(te){
       dbg.outcome=(te&&te.message==="timeout")?"timeout":"api-error";
       dbg.error=String((te&&te.message)||te).slice(0,120);
-      console.warn("[restrictions]",dbg);
       return{result:null,debug:dbg};
     }
     const clean=String(raw||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
     const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
-    if(a===-1||b<=a){dbg.outcome="no-json-in-response";dbg.raw=clean.slice(0,150);console.warn("[restrictions]",dbg);return{result:null,debug:dbg};}
+    if(a===-1||b<=a){dbg.outcome="no-json-in-response";dbg.raw=clean.slice(0,150);return{result:null,debug:dbg};}
     let o;
-    try{o=JSON.parse(clean.slice(a,b+1));}catch(pe){dbg.outcome="parse-fail";dbg.raw=clean.slice(a,a+150);console.warn("[restrictions]",dbg);return{result:null,debug:dbg};}
+    try{o=JSON.parse(clean.slice(a,b+1));}catch(pe){dbg.outcome="parse-fail";dbg.raw=clean.slice(a,a+150);return{result:null,debug:dbg};}
     const list=Array.isArray(o.restrictions)?o.restrictions:[];
     const clip=(s,n)=>{s=String(s||"").replace(/<cite[^>]*>|<\/cite>/g,"").replace(/\s+/g," ").trim();return s.length>n?s.slice(0,n-1).trim()+"…":s;};
     const out=list.map(r=>{
@@ -566,12 +565,10 @@ async function labVerifyRestrictions(rivers,loc,dateStr,aiCtx){
     }).filter(Boolean).slice(0,8);
     dbg.found=out.length;
     dbg.outcome=out.length?"found":"clear";
-    console.log("[restrictions]",dbg,out.length?out:"");
     return{result:out.length?out:null,debug:dbg};
   }catch(_r){
     dbg.outcome="exception";
     dbg.error=String((_r&&_r.message)||_r).slice(0,120);
-    console.warn("[restrictions]",dbg);
     return{result:null,debug:dbg};
   }
 }
@@ -1076,6 +1073,12 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
     report("searchPrompt1 (shop reports)",parts[0]);
     report("searchPrompt2 (general reports)",parts[1]);
     report("labFetchPrompt (fetched pages)",parts[2]);
+    // ROUND 2 (2026-08-25): round 1 confirmed all three raw calls find it — this checks
+    // whether the synthPrompt's hard "first 5000 chars" slice of the COMBINED searchTxt
+    // (labGround+parts[0]+parts[1], in that order) is what's cutting it before the
+    // synthesis AI ever reads it. Remove alongside the round-1 block once diagnosed.
+    const cMatch=searchTxt.match(southRe);
+    console.log("[searchDiag] Deckers/Cheesman/South Platte — COMBINED searchTxt ("+searchTxt.length+" chars total; synthPrompt uses only the first 5000):",cMatch?("match at index "+cMatch.index+" — "+(cMatch.index<5000?"SURVIVES the 5000-char cutoff":"CUT OFF, past the 5000-char cutoff")):"no match found in combined text (unexpected)");
   }catch(_sd){void 0;}
   const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
 
