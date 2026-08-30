@@ -1158,11 +1158,17 @@ export async function reconcileBestBet(report,aiCtx,opts){
 // (renders nothing) unless there's enough real signal to say something honest.
 export function buildPersonalAngle(anglerHistory){
   if(!anglerHistory||!anglerHistory.catchCount||anglerHistory.catchCount<3) return null;
-  const {topFlies,topSpecies,cfsRange,catchCount,tripCount}=anglerHistory;
+  const {topFlies,topSpecies,cfsRange,weatherMode,clarityMode,crowdMode,catchCount,tripCount}=anglerHistory;
   const clauses=[];
   if(topSpecies) clauses.push(`you've mostly landed ${topSpecies}`);
   if(topFlies&&topFlies.length) clauses.push(`doing best on ${topFlies.join(", ")}`);
   if(cfsRange) clauses.push(`in flows roughly ${cfsRange.low}\u2013${cfsRange.high} CFS`);
+  // weatherMode/clarityMode/crowdMode only arrive non-null when modeWithThreshold
+  // found a genuine majority (see buildAnglerHistorySummary in App.jsx) — describing
+  // conditions you've fished in, not claiming they cause success.
+  if(weatherMode) clauses.push(`usually fishing when it's ${weatherMode.toLowerCase()}`);
+  if(clarityMode) clauses.push(`typically finding the water ${clarityMode.toLowerCase()}`);
+  if(crowdMode) clauses.push(`usually encountering ${crowdMode.toLowerCase()} crowds`);
   const base=`Based on your last ${tripCount} logged trip${tripCount===1?"":"s"} (${catchCount} catches)`;
   if(!clauses.length) return base+".";
   return base+" \u2014 "+clauses.join(", ")+".";
