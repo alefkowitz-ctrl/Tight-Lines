@@ -5658,15 +5658,28 @@ function fishIDPrompt(){
     +"Do not default to Rainbow Trout — it is only correct if you positively see the spotted tail and/or pink stripe above, with no red or orange spots present. Choose the single best-fitting species from this exact list: "+SPECIES.join(", ")+". Estimate length in inches only if a hand, net, or ruler gives real scale; otherwise use null. Weigh these cues silently — do not write out your reasoning or restate the cues. Output nothing but this JSON object, with no preamble, no explanation, and no markdown formatting: {\"species\":\"Rainbow Trout\",\"length\":14}";
 }
 
+// Why a fish ID failed, set by identifyFish on every failure so callers can show the
+// real reason instead of a generic "analysis failed." Without this, a daily-AI-limit
+// 429 (which has a clear, actionable server message) looked identical on screen to a
+// genuine vision failure, which made the difference impossible to diagnose from the
+// app. Read it immediately after identifyFish returns null — it's overwritten by the
+// next call.
+let lastFishIdError=null;
+function getLastFishIdError(){return lastFishIdError;}
+
 // Identify a fish photo via the AI proxy — canonical prompt (fishIDPrompt, above)
 // unless a caller passes an override, HTTP check, tolerant JSON extraction, one
 // automatic retry. max_tokens is deliberately generous (not just enough for the
 // JSON itself) — fishIDPrompt asks the model to weigh several visual cues before
 // answering, and a tight budget risks the response getting cut off mid-reasoning
-// before it ever emits the closing JSON, which reads as a total identification
-// failure rather than a wrong-but-present answer.
+// before it ever emits the closing JSON.
+// NOTE: every call here logs a row against the 50/day "cheap" AI limit BEFORE
+// Anthropic is even called (see api/claude.js), so a retry costs a second unit.
+// Retrying a rate-limit error would therefore burn quota to earn the same 429 —
+// those bail immediately instead.
 async function identifyFish(b64,promptText){
   const prompt=promptText||fishIDPrompt();
+  lastFishIdError=null;
   for(let attempt=0;attempt<2;attempt++){
     try{
       const ctrl=new AbortController();
@@ -5677,12 +5690,18 @@ async function identifyFish(b64,promptText){
       }finally{clearTimeout(tid);}
       const txt=(rd.content||[]).map(c=>c.text||"").join(" ");
       const m=txt.match(/\{[\s\S]*?\}/);
-      if(!m)throw new Error("no JSON in response");
+      if(!m)throw new Error("The AI replied, but not in the expected format.");
       const parsed=JSON.parse(m[0]);
       let sp=typeof parsed.species==="string"?parsed.species.trim():"";
       if(/^(unknown|unidentified|null|none|n\/a|not sure|unclear)$/i.test(sp))sp="";
+      lastFishIdError=null;
       return{species:sp,length:parsed.length!=null&&!isNaN(parsed.length)?String(Math.round(parsed.length)):""};
     }catch(err){
+      lastFishIdError=err&&err.name==="AbortError"
+        ? "The AI took too long to respond (timed out)."
+        : (err&&err.message)||"Unknown error";
+      // A daily-limit 429 will fail identically on retry — don't spend another unit.
+      if(err&&err.isLimit) return null;
       if(attempt===0){await new Promise(r=>setTimeout(r,1500));}
       else{return null;}
     }
@@ -8957,11 +8976,11 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         } else if(r){
           setForm(f=>({...f,idNote:"Could not identify fish from this photo. Please select species manually."}));
         } else {
-          setForm(f=>({...f,idNote:"Photo analysis failed. Please select species manually."}));
+          const why=getLastFishIdError();
+          setForm(f=>({...f,idNote:(why?why+" ":"Photo analysis failed. ")+"Please select species manually."}));
         }
       }catch(e3){
-        void 0;
-        setForm(f=>({...f,idNote:"Photo analysis failed. Please select species manually."}));
+        setForm(f=>({...f,idNote:((e3&&e3.message)||"Photo analysis failed.")+" Please select species manually."}));
       }
     })();
     // Fetch conditions from photo date/location
