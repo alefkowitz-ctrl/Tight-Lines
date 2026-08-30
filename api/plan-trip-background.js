@@ -29,6 +29,20 @@ function cfsLabel(cfs) {
   return { label: Math.round(cfs).toLocaleString() + " CFS", cls: "" };
 }
 
+// 2026-08-30 fix: a pick's r.cfs can be a real gauge-derived value (e.g. labGovernor sets
+// it to String(Math.round(gaugeCfs))) OR the AI's own free-text estimate when no gauge
+// snapped (e.g. "upper 60s to low 70s") — see finalizeLabRivers' comment on that fallback
+// in tripPlannerPipeline.js. The NWM fallback below used to test only `r.cfs != null`,
+// which treats that free-text case as "already has a value" and skips right past it —
+// so a fabricated, non-numeric estimate got NEITHER a real gauge NOR the NWM safety net.
+// This checks the value is an actual finite number, not just present.
+function hasUsableCfs(v) {
+  if (v == null) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  return Number.isFinite(Number(s.replace(/,/g, "")));
+}
+
 async function fetchWeatherServer(lat, lng) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,surface_pressure_mean,uv_index_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=7`;
   const r = await fetch(url);
@@ -320,12 +334,13 @@ export default async function handler(req, res) {
       // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — same
       // additive, fail-closed enrichment as the on-screen planner in App.jsx, so an
       // emailed report doesn't fall behind the on-screen one for the same location.
-      // Only touches picks with no gauge match at all; never overwrites a real
-      // reading or an AI-written condition note.
+      // Only touches picks with no USABLE gauge-derived number — see hasUsableCfs above
+      // for why that's not the same as "r.cfs != null" — never overwrites a real reading
+      // or an AI-written condition note.
       if (report?.rivers?.length) {
         try {
           await Promise.all(report.rivers.map(async (r) => {
-            if (r.cfs != null || r.lat == null || r.lng == null) return;
+            if (hasUsableCfs(r.cfs) || r.lat == null || r.lng == null) return;
             try {
               const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
               if (nwm && nwm.cfs != null) {
