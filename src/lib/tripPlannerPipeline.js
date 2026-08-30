@@ -655,6 +655,90 @@ async function verifyOmissions(omissions,loc,gaugeList,flowAvgMap,aiCtx){
   }catch(_o){return[];}
 }
 
+// Whether the current picks already have a genuine "farther" water covering the ~1hr+
+// marquee slot rule 9 asks for. 60 min matches rule 9's own "closest 2-3 trout drainages
+// within ~30-60 min" language for the close-anchor zone — anything already past that
+// already occupies the marquee-water role. Scope note: this only asks WHETHER a farther
+// pick exists, not whether it's the single best-corroborated candidate that could have
+// filled that role — a report that already has some (even weak) farther pick keeps it;
+// out-competing an already-picked water with a better-corroborated omission is a
+// different, broader change than this promotion covers (2026-08-30 chat).
+function hasFartherPick(rivers){
+  return Array.isArray(rivers)&&rivers.some(r=>r.driveMin!=null&&r.driveMin>60&&!r.outOfRange&&!r.dropIfThorough);
+}
+
+// One small, targeted AI call (thorough/background path only) to fill in the fields a
+// verified omission doesn't have — verifyOmissions confirms name/distance/gauge-CFS, but
+// has no access points, techniques, or fly recommendations, since it was never generated
+// as a full pick to begin with. Same search-grounded, fail-open posture as
+// resolveUnsurePick above. Returns null on any failure so the caller simply doesn't
+// promote rather than shipping a half-built card.
+async function fleshOutPromotedPick(omission,loc,aiCtx){
+  try{
+    const locLabel=(loc&&loc.label)||"the area";
+    const flowPart=omission.cfs!=null?(omission.cfs+" CFS"+(omission.flowLabel?" ("+omission.flowLabel+")":"")):"an unconfirmed flow";
+    const prompt=["You are a fly fishing guide filling in the remaining details for ONE water that a trip report near "+locLabel+" already confirmed is real, within realistic day-trip range, and currently running "+flowPart+".",
+      "Water: "+String(omission.name||"?")+(omission.desc?" — "+omission.desc:"")+".",
+      "Using current public sources for THIS specific water, determine: whether it is primarily a Tailwater (directly below a major dam — name the dam if so) or Freestone; a short list of its own real, named access points; conditions/techniques guidance appropriate for today; and fly recommendations.",
+      "FLY NAMES: choose ONLY from this recognized national canon, matched to the season and hatch you identify: "+FLY_CANON+". Never invent a pattern name, and never copy a one-off local shop pattern.",
+      "CREDIBILITY: never call the flow perfect, ideal, or Goldilocks — say what it suits. Frame crowd level as likelihood from access/popularity, never as fact.",
+      'Return ONLY JSON, no markdown: {"type":"Freestone|Tailwater","conditions":"","crowdLevel":"","techniques":"","bestTime":"","accessPoints":[],"flies":[],"why":""}'
+    ].join(" ");
+    const race=Promise.race([aiCtx.askAI(prompt,true,1200,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),60000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").trim();
+    const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+    if(a===-1||b<=a)return null;
+    return JSON.parse(clean.slice(a,b+1));
+  }catch{return null;}
+}
+
+// 2026-08-30: promotes a verified omission (see verifyOmissions above — already
+// geocoded, day-trip-distance-checked, and gauge-matched, despite what an older comment
+// on that function still says) into a genuine river[] entry instead of leaving it as a
+// one-line overview footnote, when the current picks have no real farther water at all
+// (hasFartherPick). This is what a report like the South Platte/Deckers/Cheesman case
+// needed: rule 9's synthesis-time corroboration tie-breaker only ever gets a vote on
+// candidates the AI already put in its OWN candidate list — it never had a chance to
+// apply here, because the water wasn't in that list to begin with; it only surfaced
+// later via labReviewReport's separate self-review "omissions" catch, which (until now)
+// could only ever become a footnote, never a real pick. Quality gate: requires a real
+// live CFS match, same bar the "promote to Best Bet Today when everything's out of
+// range" logic below already uses — a vague, gauge-less mention isn't a strong enough
+// basis for a full card. thorough-mode only; fails open (returns null, promotes nothing)
+// on any failure including the flesh-out call, never a half-built card.
+async function promoteOmissionToRiver(verifiedOmissions,rivers,loc,aiCtx,thorough){
+  if(!thorough||!Array.isArray(verifiedOmissions)||!verifiedOmissions.length)return null;
+  if(hasFartherPick(rivers))return null;
+  const candidate=verifiedOmissions.find(v=>v.cfs!=null&&v.lat!=null&&v.lng!=null);
+  if(!candidate)return null;
+  const detail=await fleshOutPromotedPick(candidate,loc,aiCtx);
+  if(!detail)return null;
+  // verifyOmissions computes drive time internally to filter to in-range candidates but
+  // doesn't return it — every other river card has driveMin/mi set by labGovernor, which
+  // already ran before this promotion happens, so a promoted card needs its own pass with
+  // the exact same function or the UI's "~X min drive" chip simply won't render for it.
+  const dm=await computeDriveMinutes([candidate],loc);
+  return {
+    name:candidate.name,
+    lat:candidate.lat,
+    lng:candidate.lng,
+    driveMin:dm[0]?dm[0].driveMin:null,
+    miFromOrigin:dm[0]?dm[0].mi:null,
+    type:detail.type||"Freestone",
+    source:"search",
+    verified:String(detail.type||"").toLowerCase()==="tailwater"?"tailwater":"",
+    cfs:String(candidate.cfs),
+    condition:candidate.flowLabel||"",
+    crowdLevel:detail.crowdLevel||"",
+    conditions:detail.conditions||"",
+    techniques:detail.techniques||"",
+    bestTime:detail.bestTime||"",
+    accessPoints:Array.isArray(detail.accessPoints)?detail.accessPoints:[],
+    flies:Array.isArray(detail.flies)?detail.flies:[],
+    why:detail.why||(candidate.desc||"A verified, in-range option surfaced during review.")
+  };
+}
+
 // Confident version of applyReviewNotes for the background/thorough path — takes an
 // already-verified list from verifyOmissions and never uses "verify" hedge language,
 // since by this point distance is confirmed and flow (when a gauge exists) is real.
@@ -1232,23 +1316,35 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
           if(verified.length){
             nb.overview=applyVerifiedReviewNotes(nb.overview,verified.map(v=>v.text));
             changed=true;
-            // Promote the strongest verified, gauge-backed omission to Best Bet Today
-            // when literally every AI-picked river is out of range (2026-08-14). A
-            // verified omission has already been geocoded, day-trip distance checked,
-            // and (usually, post the snapRiversToGauges fix above) snapped to a real
-            // live gauge — a genuinely closer, real answer beats leaving the AI's
-            // original out-of-range "Best Bet Today" text standing unchallenged just
-            // because reconcileBestBet (below) had no in-range river CARD to swap to.
+
+            // 2026-08-30: promote a strong, verified omission into a genuine river card
+            // (see promoteOmissionToRiver above for the full reasoning) BEFORE the
+            // fallback below runs — this can turn a report that had literally nothing
+            // in range into one with a real in-range pick, which naturally defuses the
+            // old fallback's own trigger condition (anyRiverInRange) without needing to
+            // special-case that interaction here.
+            const promoted=await promoteOmissionToRiver(verified,nb.rivers,loc,aiCtx,thorough).catch(()=>null);
+            if(promoted){nb.rivers=[...(nb.rivers||[]),promoted];changed=true;}
+
+            // Fallback for when promotion didn't happen (nothing verified had a real
+            // CFS, or the flesh-out call failed) and literally every AI-picked river is
+            // still out of range (2026-08-14). A verified omission has already been
+            // geocoded, day-trip distance checked, and (usually) snapped to a real live
+            // gauge — a genuinely closer, real answer beats leaving the AI's original
+            // out-of-range "Best Bet Today" text standing unchallenged just because
+            // reconcileBestBet (below) had no in-range river CARD to swap to.
             // Scope: only the recommendation line — bestFor categories keep their
             // existing flag-in-place behavior from reconcileBestBet rather than also
             // being upgraded, since each bestFor category's own reasoning (e.g. "most
             // solitude") doesn't necessarily still apply to a different river.
+            // 2026-08-30: no visible "⚠ every pick above is beyond range" warning
+            // anymore — same silent-swap posture as reconcileBestBet now uses.
             const anyRiverInRange=Array.isArray(nb.rivers)&&nb.rivers.some(r=>!r.outOfRange&&!(r.restriction&&r.restriction.status==="closure"));
             const withCfs=verified.filter(v=>v.cfs!=null);
             if(!anyRiverInRange&&withCfs.length){
               const top=withCfs[0];
               const flowPart=top.flowLabel?(top.cfs+" CFS, "+top.flowLabel):(top.cfs+" CFS");
-              nb.recommendation="⚠ Every pick above is beyond realistic day-trip range today — the closest real, live-verified option is "+top.name+(top.desc?" ("+top.desc+")":"")+", running "+flowPart+".";
+              nb.recommendation=top.name+(top.desc?" — "+top.desc:"")+", running "+flowPart+".";
             }
           }
           // else: nothing survived verification — say nothing rather than hedge.
