@@ -677,9 +677,17 @@ export function enforceStreamTypes(rivers,keepVerified=false){
 }
 
 // Snap AI-suggested river coordinates to the nearest matching USGS gauge (surveyed coords beat AI guesses)
+// DAM:"RESERVOIR" in ABBR below (2026-08-30 fix): a real name-score-0 failure — the AI
+// wrote "South Boulder Creek below Gross DAM" while the live USGS gauge is named
+// "...below Gross RESERVOIR". No existing synonym covered it, so this candidate scored 0
+// and was skipped entirely (see the score===0 continue below), leaving the entry's CFS as
+// whatever unverified number the AI itself supplied — off by roughly 8x from the real
+// gauge reading (9 CFS vs. a reported "upper 60s to low 70s"). Anglers say "below X Dam"
+// and "below X Reservoir" interchangeably for the same release point nationwide, so this
+// is a general fix, not a one-off name patch.
 export function snapRiversToGauges(rivers,gaugeList,maxDeg=Infinity){
   if(!Array.isArray(rivers)||!Array.isArray(gaugeList)||!gaugeList.length)return rivers;
-  const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT",BLW:"BELOW",BL:"BELOW",ABV:"ABOVE",AB:"ABOVE",HWY:"HIGHWAY",NR:"NEAR",MTN:"MOUNTAIN",RD:"ROAD",FT:"FORT"};
+  const ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",ST:"SAINT",BLW:"BELOW",BL:"BELOW",ABV:"ABOVE",AB:"ABOVE",HWY:"HIGHWAY",NR:"NEAR",MTN:"MOUNTAIN",RD:"ROAD",FT:"FORT",DAM:"RESERVOIR"};
   const norm=s=>{
     const raw=String(s||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean);
     return raw.flatMap((t,i)=>{
