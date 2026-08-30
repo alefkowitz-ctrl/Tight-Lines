@@ -175,7 +175,7 @@ export function buildLabSynth(a){
     "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
     "(7) Each river entry must be ONE specific fishery - one tailwater below ONE dam, or one continuous section. NEVER combine two different tailwaters, two different dams, or two far-apart access points into a single entry; if two are both worth recommending, list them as SEPARATE entries each with its own coordinates and access points.",
     "(8) DRAINAGE INTEGRITY: every access point, road, put-in, dam, town, and confluence you list for a river MUST lie on THAT river, within its own drainage. NEVER borrow a neighboring stream's feature - do not put a Bear Creek dam or confluence on Clear Creek, do not list a downstream-plains town and a far-upstream reservoir as two access points on the same canyon stream, do not attach one reservoir's road to a different tailwater. Name only the river's OWN dam and OWN confluence. If you are not certain a specific access point belongs to this exact stream, give a general nearby town or omit it rather than borrowing one from another drainage. This rule is about keeping a CHOSEN river's own features correct - it is NOT a reason to skip a close stream you are less sure of; pick the close stream and give it a general nearby town as access.",
-    "(9) PROXIMITY COVERAGE: a real guide starts a client on the CLOSEST quality trout water and only reaches farther for variety. The gauge list above is ordered nearest-first. Always include the nearest genuine trout streams (the closest 2-3 trout drainages within ~30-60 min) BEFORE adding a famous water 1.5-2 hours away. NEVER omit a close gauged trout stream in order to list a distant famous one, and NEVER give two slots to one distant river system while closer trout drainages within range go unlisted. Spread picks across DIFFERENT drainages and DIFFERENT directions from the origin, not a single corridor. One farther marquee water is fine for range, but the closest trout waters must anchor the list.",
+    "(9) PROXIMITY COVERAGE: a real guide starts a client on the CLOSEST quality trout water and only reaches farther for variety. The gauge list above is ordered nearest-first. Always include the nearest genuine trout streams (the closest 2-3 trout drainages within ~30-60 min) BEFORE adding a famous water 1.5-2 hours away. NEVER omit a close gauged trout stream in order to list a distant famous one, and NEVER give two slots to one distant river system while closer trout drainages within range go unlisted. Spread picks across DIFFERENT drainages and DIFFERENT directions from the origin, not a single corridor. One farther marquee water is fine for range, but the closest trout waters must anchor the list. TIE-BREAKER for that one farther marquee slot (added 2026-08-30): when more than one farther water genuinely qualifies, prefer whichever is independently corroborated by TWO OR MORE of the RETRIEVED REPORTS above, especially if those sources describe it in terms like 'premier', 'Gold Medal', 'blue-ribbon', 'renowned', or 'famous' - real cross-source acclaim like that found in this run's own search results is a stronger, more consistent signal than which candidate happens to be marginally closer or was simply mentioned first.",
     "(10) FINAL RANKING - recommendation AND bestFor: rule 9 controls which waters make the candidate list, but does NOT by itself decide which included water is today's single best bet or which wins each bestFor category - do not default to whichever entry is simply closest. Weigh how well each INCLUDED water fits TODAY specifically: on a hot day a stable cold tailwater is often the stronger recommendation than a closer freestone stream precisely because it will not warm past a safe range, even if it takes a little longer to reach; on an overcast, cool, or high-flow day that same tradeoff may not apply. Choose the recommendation and each bestFor category (mostFish, bestScenery, mostSolitude, beginners) based on which included water genuinely best fits today's conditions and that category's own criterion - draw from the FULL rivers list, not only the closest one or two entries, and do not let every category default to the same one or two waters when the list holds real variety. Every water name you use anywhere in overview, recommendation, or any bestFor value MUST be one you also added as its own entry in the rivers list below - never mention a different water by name in these fields, even in passing or as a runner-up, even if it's real and nearby; if it's worth mentioning, add it as its own rivers entry instead of just naming it in prose.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. FLY NAMES: name flies ONLY from the recognized national canon, matched to the hatch and season you identified - choose only from: "+FLY_CANON+". You may pick a specific modern pattern from that canon when it fits the hatch, but NEVER invent a pattern name and NEVER copy a one-off local shop or guide pattern from the reports - name only complete, widely recognized patterns a typical fly shop would stock. Every fly must be a full pattern name, never a tying style or descriptor with a generic noun (for example never 'Parachute Hatch' - write 'Parachute Adams'), and never a hatch or event named as if it were a fly. Attach a person's name to a fly only when it is a recognized pattern. In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
     "SOURCING: synthesize the reports into your own original assessment. Do NOT rely on a single source and do NOT name, quote, or attribute any specific shop, business, website, or author.",
@@ -259,17 +259,25 @@ export async function computeDriveMinutes(points,loc){
   });
 }
 
-// Deterministic distance governor: flags (or, in thorough mode, drops) picks beyond the
-// day-trip ring, and reconciles each pick's displayed CFS to the live gauge value when
-// one attached.
+// Deterministic distance governor: flags every pick beyond the day-trip ring (never
+// deletes here — see the 2026-08-30 note below) and reconciles each pick's displayed CFS
+// to the live gauge value when one attached.
 // opts.thorough (background/email path only, added 2026-08-12): once we know a real
 // in-range option exists among THIS report's own picks, an out-of-range pick adds
-// nothing but clutter — including a false "Most Fish"/best-bet candidate, since bestFor
-// is guarded separately by reconcileBestBet — so it's dropped outright instead of kept
-// with a warning. The foreground path, and the genuine "nothing nearby is in range" case
-// on EITHER path, keep the original flag-and-keep behavior: SELECTION RULE 6 in
-// buildLabSynth explicitly wants the single nearest real trout fishery included, clearly
-// flagged, rather than an empty rivers list — that's a real answer, not clutter.
+// nothing but clutter — including a false "Most Fish"/best-bet candidate.
+// 2026-08-30 fix: this used to be dropped outright right here, but reconcileBestBet
+// (which swaps a dangling recommendation/bestFor reference away from an ineligible pick)
+// runs much later and matches ineligible picks by finding them still IN the rivers array.
+// Deleting a pick here meant reconcileBestBet had nothing left to match — a report could
+// still say "Best Bet Today: Roaring Fork..." with zero corresponding river card, because
+// the only water that named check could have swapped to had already vanished. Now this
+// just flags the pick with dropIfThorough:true and leaves it in place long enough for
+// reconcileBestBet to see and swap it; runTripPlannerPipeline strips dropIfThorough picks
+// from the final rivers list AFTER reconcileBestBet runs, not here. The foreground path,
+// and the genuine "nothing nearby is in range" case on EITHER path, keep the original
+// flag-and-keep behavior unchanged and are never marked dropIfThorough: SELECTION RULE 6
+// in buildLabSynth explicitly wants the single nearest real trout fishery included,
+// clearly flagged, rather than an empty rivers list — that's a real answer, not clutter.
 async function labGovernor(rivers,loc,opts){
   if(!Array.isArray(rivers)||!rivers.length)return rivers;
   const dm=await computeDriveMinutes(rivers,loc);
@@ -296,10 +304,13 @@ async function labGovernor(rivers,loc,opts){
   return annotated.map(r=>{
     if(r.driveMin==null||r.driveMin<=DAY_TRIP_CAP_MIN)return r;
     if(!anyInRange&&closestOutOfRange&&r!==closestOutOfRange)return null; // drop every out-of-range pick except the single closest
-    if(thorough&&anyInRange)return null; // dropped — see opts.thorough note above
     const hrs=r.driveMin?Math.round(r.driveMin/6)/10:null;
     const note="⚠ Beyond day-trip range"+(hrs?" (~"+hrs+" h drive)":"")+" — plan an overnight rather than a day trip.";
-    return {...r,outOfRange:true,why:(note+" "+(r.why||"")).trim(),conditions:(note+" "+(r.conditions||"")).trim()};
+    // thorough+anyInRange: pure clutter once a real in-range anchor exists. Flagged, not
+    // deleted, here — actually removed from the list later in runTripPlannerPipeline,
+    // AFTER reconcileBestBet has had its chance to swap any recommendation/bestFor text
+    // that names it. See the 2026-08-30 note above.
+    return {...r,outOfRange:true,dropIfThorough:thorough&&anyInRange,why:(note+" "+(r.why||"")).trim(),conditions:(note+" "+(r.conditions||"")).trim()};
   }).filter(Boolean);
 }
 
@@ -1217,6 +1228,16 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   // Must run last: needs the final outOfRange (labGovernor) and restriction
   // (labVerifyRestrictions, just folded in above) flags to know what's eligible.
   builtReport=reconcileBestBet(builtReport);
+
+  // NOW it's safe to actually remove labGovernor's thorough-mode clutter picks (flagged
+  // dropIfThorough, deliberately not deleted at the source — see labGovernor's 2026-08-30
+  // note). Doing this here, after reconcileBestBet, is the fix for the 2026-08-30 bug
+  // where "Best Bet Today"/bestFor named a water (e.g. Roaring Fork) with zero
+  // corresponding river card: reconcileBestBet needed the ineligible pick still present
+  // in rivers[] to match and swap the dangling text before it disappears from the report.
+  if(Array.isArray(builtReport.rivers)&&builtReport.rivers.some(r=>r.dropIfThorough)){
+    builtReport={...builtReport,rivers:builtReport.rivers.filter(r=>!r.dropIfThorough)};
+  }
 
   // Light-touch personalization — deterministic, no AI call, computed last and
   // completely isolated from river selection/verification above it.
