@@ -485,6 +485,18 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
     const picks=report.rivers.map(r=>r&&r.name).filter(Boolean);
     if(!picks.length)return null;
     const riverFlies=report.rivers.filter(r=>r&&r.name).map(r=>r.name+": "+((Array.isArray(r.flies)?r.flies:[]).join(", ")||"(none)")).join(" | ");
+    // 2026-08-30 fix: `ground` used to be accepted as a parameter and never referenced
+    // anywhere in this function — a real, confirmed dead-parameter bug, not an AI
+    // judgment call. The caller passes it the SAME searchTxt synthesis itself uses,
+    // capped here to the same first-5000-char window buildLabSynth already limits
+    // itself to (see the [searchDiag] COMBINED-searchTxt logging in labSynth's own
+    // caller). Omission-detection was running an entirely separate, independent web
+    // search with only "near <location>" for context — rolling the dice again instead
+    // of cross-checking the SAME rich material synthesis already had. A well-known
+    // water repeatedly confirmed present in searchTxt (South Platte/Deckers/Cheesman,
+    // 2026-08-30 chat) could still go unflagged here even when synthesis's own search
+    // results named it directly, simply because this separate check never looked.
+    const groundExcerpt=String(ground||"").slice(0,5000);
     const promptCtx=[
       "You are a senior fly fishing guide fact-checking a draft trip report near "+((loc&&loc.label)||"the area")+" for "+(dateStr||"today")+".",
       "Streams: "+picks.join(", ")+".",
@@ -494,8 +506,9 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
       report.tips?("Insider Tips text: "+String(report.tips).slice(0,600)):"",
       report.overview?("Overview text: "+String(report.overview).slice(0,600)):"",
       report.recommendation?("Recommendation text: "+String(report.recommendation).slice(0,600)):"",
+      groundExcerpt?("RETRIEVED REPORTS (the same search material the Streams list above was drawn from — check this directly for a prominent water it's missing before relying on a fresh search of your own): "+groundExcerpt):"",
       "Do TWO things:",
-      "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Format each 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
+      "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Check the RETRIEVED REPORTS text above FIRST for anything prominent the Streams list is missing before relying on your own search. Format each 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
       "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, unsafe/self-contradictory timing, or the Overview/Recommendation text naming ANY water by name that is not one of the Streams listed above (even a real, well-known one) — that water was never added as its own verified pick, so mentioning it by name is not backed by this report's own data; if you find this, rewrite that field's FULL text with the outside mention removed (fall back to a general phrase like 'other waters in range' if you need to preserve the sentence, or drop the clause entirely) rather than naming it. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
       'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","overview":"","recommendation":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
     ].filter(Boolean).join(" ");
