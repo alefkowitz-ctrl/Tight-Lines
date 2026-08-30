@@ -5655,12 +5655,16 @@ function fishIDPrompt(){
     +"3) LATERAL STRIPE: a broad pink or rose stripe down the side is specific to Rainbow Trout, Steelhead, and Cutbow — Brown Trout never shows this. "
     +"4) THROAT SLASH: a red or orange slash mark under the jaw means Cutthroat Trout or Cutbow, not Rainbow or Brown. "
     +"5) ADIPOSE FIN: red/orange spotting on the small fin near the tail favors Brown Trout. "
-    +"Do not default to Rainbow Trout — it is only correct if you positively see the spotted tail and/or pink stripe above, with no red or orange spots present. Choose the single best-fitting species from this exact list: "+SPECIES.join(", ")+". Estimate length in inches only if a hand, net, or ruler gives real scale; otherwise use null. Reply with ONLY this JSON, no other text: {\"species\":\"Rainbow Trout\",\"length\":14}";
+    +"Do not default to Rainbow Trout — it is only correct if you positively see the spotted tail and/or pink stripe above, with no red or orange spots present. Choose the single best-fitting species from this exact list: "+SPECIES.join(", ")+". Estimate length in inches only if a hand, net, or ruler gives real scale; otherwise use null. Weigh these cues silently — do not write out your reasoning or restate the cues. Output nothing but this JSON object, with no preamble, no explanation, and no markdown formatting: {\"species\":\"Rainbow Trout\",\"length\":14}";
 }
 
 // Identify a fish photo via the AI proxy — canonical prompt (fishIDPrompt, above)
 // unless a caller passes an override, HTTP check, tolerant JSON extraction, one
-// automatic retry.
+// automatic retry. max_tokens is deliberately generous (not just enough for the
+// JSON itself) — fishIDPrompt asks the model to weigh several visual cues before
+// answering, and a tight budget risks the response getting cut off mid-reasoning
+// before it ever emits the closing JSON, which reads as a total identification
+// failure rather than a wrong-but-present answer.
 async function identifyFish(b64,promptText){
   const prompt=promptText||fishIDPrompt();
   for(let attempt=0;attempt<2;attempt++){
@@ -5669,7 +5673,7 @@ async function identifyFish(b64,promptText){
       const tid=setTimeout(()=>ctrl.abort(),25000);
       let rd;
       try{
-        rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:prompt}]}]},"cheap",{signal:ctrl.signal});
+        rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:400,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:prompt}]}]},"cheap",{signal:ctrl.signal});
       }finally{clearTimeout(tid);}
       const txt=(rd.content||[]).map(c=>c.text||"").join(" ");
       const m=txt.match(/\{[\s\S]*?\}/);
@@ -8135,7 +8139,6 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     for(const catch2 of toID){
       try{
         let base64=null;
-        const mediaType="image/jpeg";
         try{
           let dataUrl=null;
           if(catch2.photo?.startsWith("data:")){dataUrl=catch2.photo;}
@@ -8156,13 +8159,9 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
         }catch(fetchErr){void 0;continue;}
         if(!base64) continue;
-        const rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Look carefully at this fish photo. Identify the exact species based on coloring, spot patterns, and body shape. Rainbow trout have pink/red lateral stripe and black spots. Brown trout have brown/golden coloring with red spots. Cutthroat trout have red slash marks under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if a hand or scale is visible for reference. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown."}]}]},"cheap");
-        const txt=((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim();
-        void 0;
-        const parsed=JSON.parse(txt);
-        void 0;
-        if(parsed.species&&parsed.species!=="Unidentified"){
-          await updateCatch(catch2.id,{species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):catch2.length});
+        const r=await identifyFish(base64);
+        if(r&&r.species&&r.species!=="Unidentified"){
+          await updateCatch(catch2.id,{species:r.species,length:r.length||catch2.length});
           updated++;
         }
       }catch(idErr){void 0;}
