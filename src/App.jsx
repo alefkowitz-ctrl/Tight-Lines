@@ -738,6 +738,39 @@ const HATCHES = {
 const WX_EMOJI={0:"☀️",1:"🌤",2:"⛅",3:"☁️",45:"🌫",48:"🌫",51:"🌦",53:"🌦",55:"🌧",61:"🌧",63:"🌧",65:"🌧",71:"🌨",73:"🌨",75:"❄️",80:"🌦",81:"🌧",95:"⛈",96:"⛈",99:"⛈"};
 const WX_DESC={0:"Clear",1:"Mainly Clear",2:"Partly Cloudy",3:"Overcast",45:"Fog",48:"Freezing Fog",51:"Light Drizzle",53:"Drizzle",55:"Heavy Drizzle",61:"Light Rain",63:"Rain",65:"Heavy Rain",71:"Light Snow",73:"Snow",75:"Heavy Snow",80:"Showers",81:"Heavy Showers",95:"Thunderstorm",96:"Hail",99:"Severe Storm"};
 const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+// Water clarity and crowd level: unlike flow/weather/temp, these can never be
+// auto-fetched from any API — they're first-hand observations only the angler
+// can supply. Small fixed vocab (like WX_DESC) so they stay deterministically
+// aggregatable in buildAnglerHistorySummary/buildPersonalAngle — no AI call,
+// no hallucination risk.
+const WATER_CLARITY_OPTIONS=["Clear","Slightly Stained","Off-Color","Muddy"];
+const CROWD_LEVEL_OPTIONS=["Empty","Light","Moderate","Crowded"];
+// Single source of truth for "conditions that help identify patterns." Each
+// entry is a field on tripForm/logTripForm plus a short list of words that,
+// if already present in the free-text notes, mean the angler already covered
+// it there — so the gap-checklist below doesn't nag about something already
+// said. streamCFS is deliberately excluded: if the gauge auto-match fails
+// there's no UI for the angler to supply a precise number, so there's nothing
+// useful to ask for.
+const CONDITION_CHECKLIST=[
+  {key:"weatherConditions",label:"Weather",words:["sunny","cloudy","overcast","rain","raining","drizzle","fog","foggy","snow","snowing","bluebird","clear skies","storm"]},
+  {key:"windSpeed",label:"Wind",words:["windy","wind","calm","breeze","breezy","gusty","gusts"]},
+  {key:"waterTemp",label:"Water Temp",words:["water temp","water was","degree water","° water"]},
+  {key:"waterClarity",label:"Water Clarity",words:["clear water","muddy","stained","off-color","off color","murky","chocolate","dirty water","gin clear","blown out","blown-out","low vis","visibility"]},
+  {key:"crowdRating",label:"Crowds",words:["crowd","crowded","busy","packed","empty","alone","nobody","no one","combat fishing","to myself","other anglers","had it to"]},
+];
+// Pure/deterministic — no AI call. Returns the labels of checklist items that
+// are (a) not already filled in on the form and (b) not already mentioned in
+// the notes text, so the "few more details" nudge only ever asks about a
+// genuine gap. Recomputed on every render from current form state, so items
+// drop off the list the instant the angler fills them in.
+function missingConditionLabels(form){
+  const notesLower=(form.notes||form.guideNotes||"").toLowerCase();
+  return CONDITION_CHECKLIST
+    .filter(c=>!form[c.key])
+    .filter(c=>!c.words.some(w=>notesLower.includes(w)))
+    .map(c=>c.label);
+}
 // Free-text-with-suggestions field (SpeciesInput) draws from this list, but any
 // typed value is accepted and saved as-is — this is a starting point, not a
 // closed set, so it stays scalable to river systems anywhere in the US.
@@ -1002,7 +1035,9 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
     date:t.date, location:t.location, skunked:!!t.skunked,
     catchCount:t.catches!=null?t.catches:0, species:t.species||[], flies:(t.flies||[]).slice(0,4),
     techniquesLogged:t.techniques||t.styles||[], cfs:t.streamCFS||null, condition:t.streamCondition||null,
-    weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null, anglerNotes:t.notes||t.guideNotes||null
+    weather:t.weatherConditions||t.weatherDesc||null, airTemp:t.airTemp||null, waterTemp:t.waterTemp||null,
+    pressureTrend:t.pressureTrend||null, waterClarity:t.waterClarity||null, crowdRating:t.crowdRating||null,
+    anglerNotes:t.notes||t.guideNotes||null
   }));
   // Species/flies/time/length ARE genuinely linked per catch — pass the real per-catch
   // list instead of a flattened trip-wide dedup, so the model has actual joined facts to
@@ -1016,6 +1051,8 @@ async function generateTripIntel(subjectLabel, currentTrip, currentCatches, hist
     techniquesLogged:currentTrip.techniques||currentTrip.styles||[], flies:currentTrip.flies||[],
     cfs:currentTrip.streamCFS||null, condition:currentTrip.streamCondition||null,
     weather:currentTrip.weatherConditions||currentTrip.weatherDesc||null, airTemp:currentTrip.airTemp||null,
+    waterTemp:currentTrip.waterTemp||null, pressureTrend:currentTrip.pressureTrend||null,
+    waterClarity:currentTrip.waterClarity||null, crowdRating:currentTrip.crowdRating||null,
     anglerNotes:currentTrip.notes||currentTrip.guideNotes||null,
     catches:catchList
   };
@@ -1026,7 +1063,7 @@ STRICT GROUNDING RULES:
 - Every species, length, fly, and result you mention must come from the logged data below — never invent one.
 - "techniquesLogged" and the top-level "flies" list are recorded for the WHOLE TRIP only — they are NOT linked to specific catches or to each other. The "catches" array is the only place flies are actually tied to a specific fish. NEVER state or imply a specific fly was fished "under" a specific technique (e.g. never say "X and Y under Euro nymphing") unless that link is explicit in the data.
 - "anglerNotes" is free text the angler typed and often names flies, rigs, or a rough sequence of events in prose — it is real and you should draw on it for color and detail. But do NOT convert a fly mentioned only in anglerNotes into a specific timestamped claim (like "landed four on it between 7:55 and 9:44 AM") unless that catch's own "flies" field in the "catches" array actually contains that fly. If a catch's "flies" is empty, describe that catch by species/length/time only, and separately mention what anglerNotes says about flies/rigs as the angler's own account rather than as a verified per-fish fact.
-- "weather" fields are auto-estimated from a public weather API for a rough time/location, not measured on the water — they can be wrong. anglerNotes is the more reliable source; if the two conflict, trust anglerNotes.
+- "weather", "airTemp", and "pressureTrend" are auto-estimated from a public weather API for a rough time/location, not measured on the water — they can be wrong. "waterClarity" and "crowdRating" are the angler's own first-hand observation, entered by hand, not auto-estimated — treat them as more reliable than the weather/pressure fields, on par with anglerNotes. "waterTemp" is manually entered when the angler had a reading; treat it the same way. If any of these conflict with anglerNotes, trust anglerNotes.
 - NEVER state or imply a specific weather event (rain, drizzle, snow, storm) happened unless that word is literally present in anglerNotes or a weather field. Do not infer precipitation from a change in sky condition, temperature, or flow alone.
 - You SHOULD use real fly-fishing expertise to explain WHY results happened, tied to the actual conditions and time of day in the data — but only reasoning FROM logged facts, never adding facts that aren't there.
 - If there isn't enough trip history to see a real repeating pattern yet, say that plainly instead of guessing.
@@ -1039,15 +1076,26 @@ ${JSON.stringify(hist)}
 
 Give intel in this exact shape:
 1. WHAT WORKED TODAY: What actually happened, grounded in the real per-catch data (species, length, time, and any catch-linked flies) plus relevant color from anglerNotes, tied to time of day/conditions where the data supports it.
-2. THE PATTERN: The single clearest repeating factor across ALL logged trips (fly, flow range, time of year, technique) tied to good days. Say "not enough history yet" if under ~3 trips.
+2. THE PATTERN: The single clearest repeating factor across ALL logged trips tied to good days — weigh flow range, weather, water temp, pressure trend, water clarity, and crowd level alongside fly/technique/time of year; don't default to only fly or flow if a conditions factor is the clearer signal. Say "not enough history yet" if under ~3 trips.
 3. NEXT TIME: One concrete, actionable suggestion for the next trip, tied directly to the data above.
 
 Direct, guide-to-angler tone. Use the real detail that's actually in the data — a trip with rich notes and several catches earns a fuller writeup than a sparse one, but never pad with generic advice that isn't tied to this data, and never invent a fly-to-catch pairing that isn't in "catches".`;
   return await askClaude(prompt,false,900,"cheap");
 }
 
-// Deterministic aggregation across the angler's own logged catches — feeds the Trip
-// Planner's light-touch "Based on your trips" note (buildPersonalAngle in
+// Shared by the weather/clarity/crowd signals below — only reports a value if it's
+// a genuine majority (not just the most common of a near-even split), so a thin or
+// noisy sample stays silent instead of asserting a weak "pattern." No AI call.
+function modeWithThreshold(values, minCount=3, minShare=0.5){
+  const present=values.filter(Boolean);
+  if(present.length<minCount) return null;
+  const counts={};
+  present.forEach(v=>{counts[v]=(counts[v]||0)+1;});
+  const [top,topCount]=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+  return (topCount/present.length)>=minShare ? top : null;
+}
+// Deterministic aggregation across the angler's own logged catches/trips — feeds the
+// Trip Planner's light-touch "Based on your trips" note (buildPersonalAngle in
 // tripPlannerPipeline.js). Pure aggregation only, no AI call — nothing here can
 // hallucinate, it just tells the pipeline what's actually in the data.
 function buildAnglerHistorySummary(personalTrips, catches){
@@ -1064,7 +1112,14 @@ function buildAnglerHistorySummary(personalTrips, catches){
     const sorted=[...cfsVals].sort((a,b)=>a-b);
     cfsRange={low:Math.round(sorted[0]),high:Math.round(sorted[sorted.length-1])};
   }
-  return {topFlies,topSpecies,cfsRange,catchCount:catches.length,tripCount:(personalTrips||[]).length};
+  // Weather is per-catch (same granularity as flies/species/cfs above). Clarity and
+  // crowd level only exist at the trip level (there's no per-catch equivalent), so
+  // those two are read from personalTrips instead.
+  const weatherMode=modeWithThreshold(catches.map(c=>c.weatherDesc));
+  const trips=personalTrips||[];
+  const clarityMode=modeWithThreshold(trips.map(t=>t.waterClarity));
+  const crowdMode=modeWithThreshold(trips.map(t=>t.crowdRating));
+  return {topFlies,topSpecies,cfsRange,weatherMode,clarityMode,crowdMode,catchCount:catches.length,tripCount:trips.length};
 }
 async function geocode(q){
   // Search with extra detail for natural features and small places
@@ -3297,7 +3352,7 @@ function TripLocationWeather({tripForm, setTripForm}){
           </div>
         </div>
         <div className="lbl" style={{marginBottom:4}}>Sky / Conditions</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
           {["☀️ Sunny","🌤 Partly Cloudy","☁️ Overcast","🌧 Rainy","🌫 Foggy","❄️ Snowing","🌬 Windy"].map(c=>(
             <button key={c} onClick={()=>setTripForm(f=>({...f,weatherConditions:c}))}
               style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.weatherConditions===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.weatherConditions===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.weatherConditions===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
@@ -3305,7 +3360,40 @@ function TripLocationWeather({tripForm, setTripForm}){
             </button>
           ))}
         </div>
+        {/* Water clarity / crowd level: can't be auto-fetched from any API (unlike
+            everything else in this component) — first-hand observation only, so
+            these are plain tap-to-set chips with no auto-fill path. */}
+        <div className="lbl" style={{marginBottom:4}}>Water Clarity</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          {WATER_CLARITY_OPTIONS.map(c=>(
+            <button key={c} onClick={()=>setTripForm(f=>({...f,waterClarity:c}))}
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.waterClarity===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.waterClarity===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.waterClarity===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <div className="lbl" style={{marginBottom:4}}>Crowds</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {CROWD_LEVEL_OPTIONS.map(c=>(
+            <button key={c} onClick={()=>setTripForm(f=>({...f,crowdRating:c}))}
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid "+(tripForm.crowdRating===c?"var(--water)":"rgba(255,255,255,0.12)"),background:tripForm.crowdRating===c?"var(--water)":"rgba(0,0,0,0.3)",color:tripForm.crowdRating===c?"var(--foam)":"var(--stone)",fontSize:15,cursor:"pointer",fontFamily:"var(--font-body)"}}>
+              {c}
+            </button>
+          ))}
+        </div>
       </div>
+      {(()=>{
+        // Deterministic gap-checklist: only speaks up about what's genuinely
+        // missing (not already auto-filled, not already in the notes text).
+        // Recomputed from live form state, so it silently shrinks as fields
+        // fill in — no separate "confirm" step needed.
+        const missing=missingConditionLabels(tripForm);
+        return missing.length>0?(
+          <div style={{fontSize:13,color:"var(--stone)",fontStyle:"italic",marginBottom:12}}>
+            💡 Adding {missing.join(", ")} would help sharpen future patterns — optional.
+          </div>
+        ):null;
+      })()}
     </div>
   );
 }
@@ -4120,7 +4208,7 @@ function GuideBook({user, loc}){
       // Logged in via Supabase - load from cloud (guests + trips fetched in PARALLEL)
       const [gRes,tRes]=await Promise.all([
         sb.from("guests").select("*").eq("user_id",user.id).order("name",{ascending:true}),
-        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,catch_details").eq("user_id",user.id).order("date",{ascending:false})
+        sb.from("trips").select("id,guest_id,date,location,type,styles,catches,flies,gear,guide_notes,trip_cost,tip_amount,report_text,air_temp,water_temp,weather_conditions,wind_speed,wind_dir,pressure,pressure_trend,stream_cfs,stream_condition,stream_gauge_name,water_clarity,crowd_level,catch_details,ai_intel,ai_intel_generated_at").eq("user_id",user.id).order("date",{ascending:false})
       ]);
       const {data:gData, error:gErr}=gRes;
       if(gErr){
@@ -4148,6 +4236,7 @@ function GuideBook({user, loc}){
           airTemp:t.air_temp,waterTemp:t.water_temp,weatherConditions:t.weather_conditions,
           windSpeed:t.wind_speed,windDir:t.wind_dir,pressure:t.pressure,pressureTrend:t.pressure_trend,
           streamCFS:t.stream_cfs,streamCondition:t.stream_condition,streamGaugeName:t.stream_gauge_name,
+          waterClarity:t.water_clarity||"",crowdRating:t.crowd_level||"",
           catchDetails:t.catch_details||[],
           aiIntel:t.ai_intel||"",aiIntelGeneratedAt:t.ai_intel_generated_at||null
         }))
@@ -4360,6 +4449,7 @@ function GuideBook({user, loc}){
       weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
       wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
       stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+      water_clarity:tripData.waterClarity, crowd_level:tripData.crowdRating,
       catch_details:(tripData.catchDetails||[]).map(d=>{const{_id,...rest}=d;return{...rest,analyzing:false};})
     }).select().single();
       if(!error && data){
@@ -4391,6 +4481,7 @@ function GuideBook({user, loc}){
         weather_conditions:tripData.weatherConditions, wind_speed:tripData.windSpeed,
         wind_dir:tripData.windDir, pressure:tripData.pressure, pressure_trend:tripData.pressureTrend,
         stream_cfs:tripData.streamCFS, stream_condition:tripData.streamCondition, stream_gauge_name:tripData.streamGaugeName,
+        water_clarity:tripData.waterClarity, crowd_level:tripData.crowdRating,
         catch_details:(tripData.catchDetails||[]).map(d=>{const{_id,...rest}=d;return{...rest,analyzing:false};})
       }).eq("id",id);
       return;
@@ -4404,7 +4495,7 @@ function GuideBook({user, loc}){
   async function deleteTripFromDb(id){
     if(sb && !String(id).startsWith("local")) await sb.from("trips").delete().eq("id",id);
   }
-  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],catchDetails:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  const tripForm0 = {date:new Date().toISOString().split("T")[0],location:"",type:"Wade",styles:[],catches:0,flies:[],flyInput:"",gear:"",guideNotes:"",photos:[],catchDetails:[],tripCost:"",tipAmount:"",reportText:"",airTemp:"",waterTemp:"",weatherConditions:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",streamCFS:"",streamCondition:"",streamGaugeName:"",waterClarity:"",crowdRating:""};
   const [guestForm, setGuestForm] = useState(guestForm0);
   const [tripForm, setTripForm] = useState(tripForm0);
   const [generating, setGenerating] = useState(false);
@@ -5036,7 +5127,7 @@ function GuideBook({user, loc}){
         <div className="hr"><span className="hn">Catches</span><span className="ha">~{selectedTrip.catches} fish</span></div>
         {selectedTrip.styles.length>0&&<div className="hr"><span className="hn">Styles</span><span className="ha">{selectedTrip.styles.join(", ")}</span></div>}
         {selectedTrip.gear&&<div className="hr"><span className="hn">Gear</span><span className="ha">{selectedTrip.gear}</span></div>}
-        {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions||selectedTrip.streamCFS)&&(
+        {(selectedTrip.airTemp||selectedTrip.waterTemp||selectedTrip.weatherConditions||selectedTrip.streamCFS||selectedTrip.waterClarity||selectedTrip.crowdRating)&&(
           <div style={{marginTop:10,marginBottom:4}}>
             <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
             {selectedTrip.streamGaugeName&&<div style={{fontSize:15,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {selectedTrip.streamGaugeName}</div>}
@@ -5047,6 +5138,8 @@ function GuideBook({user, loc}){
               {selectedTrip.airTemp&&<span>🌡 Air: {selectedTrip.airTemp}°F</span>}
               {selectedTrip.windSpeed&&<span>💨 {selectedTrip.windSpeed} mph {selectedTrip.windDir}</span>}
               {selectedTrip.pressure&&<span>📊 {selectedTrip.pressure}" {selectedTrip.pressureTrend}</span>}
+              {selectedTrip.waterClarity&&<span>🔍 {selectedTrip.waterClarity}</span>}
+              {selectedTrip.crowdRating&&<span>👥 {selectedTrip.crowdRating}</span>}
             </div>
           </div>
         )}
@@ -5445,6 +5538,8 @@ function GuideBook({user, loc}){
     streamCFS:selectedTrip.streamCFS||selectedTrip.stream_cfs||"",
     streamCondition:selectedTrip.streamCondition||selectedTrip.stream_condition||"",
     streamGaugeName:selectedTrip.streamGaugeName||selectedTrip.stream_gauge_name||"",
+    waterClarity:selectedTrip.waterClarity||selectedTrip.water_clarity||"",
+    crowdRating:selectedTrip.crowdRating||selectedTrip.crowd_level||"",
     tripCost:selectedTrip.tripCost||selectedTrip.trip_cost||"",
     tipAmount:selectedTrip.tipAmount||selectedTrip.tip_amount||"",
   });
@@ -7127,7 +7222,7 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
         <div className="card">
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div className="ctitle" style={{marginBottom:0}}>📋 Trip Summary</div>
-            {!tripEditOpen&&<button onClick={()=>{setEditForm({location:trip.location||"",techniques:trip.techniques||[],notes:trip.notes||"",airTemp:trip.airTemp||"",waterTemp:trip.waterTemp||"",weatherConditions:trip.weatherDesc||"",windSpeed:trip.windSpeed||"",windDir:trip.windDir||"",pressure:trip.pressure||"",pressureTrend:trip.pressureTrend||"",streamCFS:trip.streamCFS||"",streamCondition:trip.streamCondition||"",streamGaugeName:trip.streamGaugeName||"",date:trip.date});setTripEditOpen(true);}}
+            {!tripEditOpen&&<button onClick={()=>{setEditForm({location:trip.location||"",techniques:trip.techniques||[],notes:trip.notes||"",airTemp:trip.airTemp||"",waterTemp:trip.waterTemp||"",weatherConditions:trip.weatherDesc||"",windSpeed:trip.windSpeed||"",windDir:trip.windDir||"",pressure:trip.pressure||"",pressureTrend:trip.pressureTrend||"",streamCFS:trip.streamCFS||"",streamCondition:trip.streamCondition||"",streamGaugeName:trip.streamGaugeName||"",waterClarity:trip.waterClarity||"",crowdRating:trip.crowdRating||"",date:trip.date});setTripEditOpen(true);}}
               style={{background:"none",border:"1px solid rgba(209,154,74,0.4)",borderRadius:20,padding:"4px 12px",color:"var(--gold)",fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>✏️ Edit</button>}
           </div>
           {tripEditOpen?(
@@ -7172,7 +7267,7 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
             </div>
           </div>
           {trip.techniques?.length>0&&<div className="hr"><span className="hn">Techniques</span><span className="ha">{trip.techniques.join(", ")}</span></div>}
-          {(trip.airTemp||trip.waterTemp||trip.weatherDesc||trip.streamCFS)&&(
+          {(trip.airTemp||trip.waterTemp||trip.weatherDesc||trip.streamCFS||trip.waterClarity||trip.crowdRating)&&(
             <div style={{marginTop:10,marginBottom:4}}>
               <div className="lbl" style={{marginBottom:6}}>Conditions on the Water</div>
               {trip.streamGaugeName&&<div style={{fontSize:15,color:"var(--gold)",marginBottom:6,fontStyle:"italic"}}>🏞 {trip.streamGaugeName}</div>}
@@ -7182,6 +7277,8 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
                 {trip.weatherDesc&&<span>{trip.weatherDesc}</span>}
                 {trip.airTemp&&<span>🌡 Air: {trip.airTemp}°F</span>}
                 {trip.windSpeed&&<span>💨 {trip.windSpeed} mph {trip.windDir}</span>}
+                {trip.waterClarity&&<span>🔍 {trip.waterClarity}</span>}
+                {trip.crowdRating&&<span>👥 {trip.crowdRating}</span>}
               </div>
             </div>
           )}
@@ -7552,7 +7649,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [personalTrips,setPersonalTrips]=useState([]);
   const [personalTripsLoading,setPersonalTripsLoading]=useState(true);
   const [showLogTripForm,setShowLogTripForm]=useState(false);
-  const logTripForm0={date:new Date().toISOString().split("T")[0],location:"",techniques:[],notes:"",photos:[],catchDetails:[],linkedCatchIds:[],airTemp:"",waterTemp:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",weatherConditions:"",streamCFS:"",streamCondition:"",streamGaugeName:""};
+  const logTripForm0={date:new Date().toISOString().split("T")[0],location:"",techniques:[],notes:"",photos:[],catchDetails:[],linkedCatchIds:[],airTemp:"",waterTemp:"",windSpeed:"",windDir:"",pressure:"",pressureTrend:"",weatherConditions:"",streamCFS:"",streamCondition:"",streamGaugeName:"",waterClarity:"",crowdRating:""};
   const [logTripForm,setLogTripForm]=useState(logTripForm0);
   const [showCatchPicker,setShowCatchPicker]=useState(false);
   const [personalTripDetail,setPersonalTripDetail]=useState(null);
@@ -7730,6 +7827,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
       weatherDesc:r.weather_desc||"",windSpeed:r.wind_speed!=null?String(r.wind_speed):"",windDir:r.wind_dir||"",
       streamCFS:r.stream_cfs!=null?String(r.stream_cfs):"",streamCondition:r.stream_condition||"",
       streamGaugeName:r.stream_gauge_name||"",notes:r.notes||"",
+      waterClarity:r.water_clarity||"",crowdRating:r.crowd_level||"",
       aiIntel:r.ai_intel||"",aiIntelGeneratedAt:r.ai_intel_generated_at||null,
       extraCatches:r.extra_catches!=null?r.extra_catches:0
     };
@@ -7955,7 +8053,9 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         wind_dir:logTripForm.windDir||null,
         stream_cfs:logTripForm.streamCFS||null,
         stream_condition:logTripForm.streamCondition||null,
-        stream_gauge_name:logTripForm.streamGaugeName||null
+        stream_gauge_name:logTripForm.streamGaugeName||null,
+        water_clarity:logTripForm.waterClarity||null,
+        crowd_level:logTripForm.crowdRating||null
       };
       const{data,error}=await sb.from("personal_trips").insert({user_id:user.id,...row}).select().single();
       if(error||!data){
@@ -8065,7 +8165,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         location:form.location||null, techniques:form.techniques||[], notes:form.notes||null,
         air_temp:form.airTemp||null, water_temp:form.waterTemp||null, weather_desc:form.weatherConditions||null,
         wind_speed:form.windSpeed||null, wind_dir:form.windDir||null,
-        stream_cfs:form.streamCFS||null, stream_condition:form.streamCondition||null, stream_gauge_name:form.streamGaugeName||null
+        stream_cfs:form.streamCFS||null, stream_condition:form.streamCondition||null, stream_gauge_name:form.streamGaugeName||null,
+        water_clarity:form.waterClarity||null, crowd_level:form.crowdRating||null
       };
       if(sb){
         const{error}=await sb.from("personal_trips").update(patch).eq("id",tripId);
@@ -8075,7 +8176,8 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         location:patch.location||"", techniques:patch.techniques, notes:patch.notes||"",
         airTemp:patch.air_temp!=null?String(patch.air_temp):"", waterTemp:patch.water_temp!=null?String(patch.water_temp):"",
         weatherDesc:patch.weather_desc||"", windSpeed:patch.wind_speed!=null?String(patch.wind_speed):"", windDir:patch.wind_dir||"",
-        streamCFS:patch.stream_cfs!=null?String(patch.stream_cfs):"", streamCondition:patch.stream_condition||"", streamGaugeName:patch.stream_gauge_name||""
+        streamCFS:patch.stream_cfs!=null?String(patch.stream_cfs):"", streamCondition:patch.stream_condition||"", streamGaugeName:patch.stream_gauge_name||"",
+        waterClarity:patch.water_clarity||"", crowdRating:patch.crowd_level||""
       }:t));
       setPersonalTripSaving(false);
       return true;
