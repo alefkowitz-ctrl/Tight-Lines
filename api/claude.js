@@ -129,11 +129,24 @@ export default async function handler(req, res) {
       ? "You've reached today's limit of " + PLANNER_DAILY_LIMIT + " trip reports. Reports you already ran today are saved in the planner — tap one to reopen it. The limit resets daily."
       : "You've reached today's AI usage limit. It resets daily." } });
   }
-  if (kind !== "planner") await logUsage(jwt, kind);
+  // NOTE: the usage row is written AFTER the call below, not here. Logging first meant
+  // any failure that never produced a result — empty API credit balance, expired key,
+  // Anthropic 5xx — still spent a unit of the user's 50/day allowance. During an outage
+  // that silently drained a full day's quota on calls that returned nothing, on top of
+  // the outage itself. Anthropic doesn't bill failed requests; neither should this.
+  // Trade-off accepted: a burst of simultaneous calls can now slip a few over the limit,
+  // since none of them have logged yet when the next one checks the count. That's a
+  // rounding error on a 50/day cap, and far cheaper than charging users for downtime.
 
   // Anthropic API — handles both plain and web-search tool calls
   try {
     const data = await callAnthropicRaw(body);
+    // callAnthropicRaw returns Anthropic's body as-is and does not throw on an API-level
+    // error, so a failure arrives here as data.error rather than an exception — check for
+    // it explicitly instead of assuming arrival means success. Awaited before responding:
+    // a serverless function can be frozen the moment it replies, which would cut off a
+    // fire-and-forget write. logUsage already swallows its own errors.
+    if (kind !== "planner" && !(data && data.error)) await logUsage(jwt, kind);
     res.status(200).json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
