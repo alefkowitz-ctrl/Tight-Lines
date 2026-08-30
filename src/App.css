@@ -123,7 +123,7 @@ body{font-family:var(--font-body);background:var(--deep);color:var(--foam);}
   border:none;color:var(--foam);font-size:26px;cursor:pointer;
   box-shadow:0 6px 20px rgba(0,0,0,0.45);
   display:flex;align-items:center;justify-content:center;
-  z-index:10;transition:transform .15s;
+  z-index:16;transition:transform .15s;
 }
 .fab:active{transform:translateX(calc(min(50vw,300px) - 82px)) scale(0.93);}
 .lbl{display:block;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--stone);margin-bottom:5px;}

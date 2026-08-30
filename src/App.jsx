@@ -4490,7 +4490,7 @@ function GuideBook({user, loc}){
       const idPromise=(async()=>{
         try{
           const b64=await resizeForID(it.dataUrl,800,0.7);
-          const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+          const r=await identifyFish(b64);
           if(r&&r.species&&r.species!=="Unidentified")return r;
           return{species:"Unidentified",length:""};
         }catch(ie){return{species:"Unidentified",length:""};}
@@ -5123,7 +5123,7 @@ function GuideBook({user, loc}){
               const idP=(async()=>{
                 try{
                   const b64=await resizeForID(dataUrl,800,0.7);
-                  const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+                  const r=await identifyFish(b64);
                   if(r&&r.species&&r.species!=="Unidentified")return r;
                   return{species:"Unidentified",length:""};
                 }catch(fishErr){return{species:"Unidentified",length:""};}
@@ -5172,7 +5172,6 @@ function GuideBook({user, loc}){
               <button onClick={async(e)=>{
                 const btn=e.currentTarget;
                 btn.textContent="⏳ Analyzing…";btn.disabled=true;
-                const SPECIES_LIST=SPECIES;
                 const details=[...(selectedTrip.catchDetails||[])];
                 while(details.length<selectedTrip.photos.length) details.push({});
                 const reset=()=>{try{btn.textContent="✦ Identify Fish";btn.disabled=false;}catch{}};
@@ -5208,12 +5207,8 @@ function GuideBook({user, loc}){
                         }catch(fe){void 0;continue;}
                       }
                       if(!imageSource){continue;}
-                      const rd=await Promise.race([
-                        aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:imageSource},{type:"text",text:`Identify fish, estimate length. Species from: ${SPECIES_LIST.join(", ")}. JSON only: {"species":"Rainbow Trout","length":14}`}]}]},"cheap"),
-                        new Promise((_,r)=>setTimeout(()=>r(new Error("claude timeout")),20000))
-                      ]);
-                      const parsed=JSON.parse(((rd.content||[])[0]?.text||"{}").replace(/```json|```/g,"").trim());
-                      if(parsed.species){details[i]={...details[i],species:parsed.species,length:parsed.length!=null?String(Math.round(parsed.length)):""};}
+                      const r=await identifyFish(imageSource.data);
+                      if(r&&r.species){details[i]={...details[i],species:r.species,length:r.length||""};}
                       setSelectedTrip(st=>({...st,catchDetails:[...details]}));
                     }catch(e2){void 0;}
                   }
@@ -5270,7 +5265,7 @@ function GuideBook({user, loc}){
                             base64=canvas.toDataURL("image/jpeg",0.7).split(",")[1];
                           }
                           if(!base64){btn.textContent="🔍 Identify";btn.disabled=false;return;}
-                          const r=await identifyFish(base64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Cutthroat have red slash under jaw. Choose from: "+SPECIES.join(", ")+". Estimate length in inches if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+                          const r=await identifyFish(base64);
                           if(r&&r.species){
                             const d=[...(selectedTrip.catchDetails||[])];while(d.length<=i)d.push({});
                             d[i]={...d[i],species:r.species,length:r.length||d[i].length};
@@ -5645,15 +5640,36 @@ const FLY_FACTS=[
   "The hatch timing depends on water temperature, not calendar date.",
   "Cutthroat trout are named for the red slash marks under their jaw.",
 ];
-// Identify a fish photo via the AI proxy — HTTP check, tolerant JSON extraction, one automatic retry
+// Single source of truth for the fish-species-ID vision prompt. Body COLOR alone is
+// unreliable (lighting, wetness, and lake-run vs. stream-form all change how a fish
+// looks), so this leads with spot pattern / tail spotting / red-orange spot presence,
+// which hold up far better across conditions — and explicitly tells the model not to
+// default to Rainbow Trout, which was the most common real-world misidentification
+// (a brown trout with washed-out color and no visible red spots getting called a
+// rainbow). Every fish-ID call site below routes through this one function so the
+// guidance can never drift out of sync between screens again.
+function fishIDPrompt(){
+  return "You are identifying a trout/salmonid species from a photo. Body COLOR alone is unreliable — the same fish can look silvery, golden, or washed out depending on light, water clarity, and whether it's a lake-run or stream fish. Weigh these cues instead, roughly in order of reliability: "
+    +"1) TAIL SPOTS: a caudal fin (tail) densely covered in small black spots points to Rainbow Trout or Steelhead; a mostly clean or sparsely-spotted tail points away from those. "
+    +"2) RED/ORANGE SPOTS: any red, orange, or rust-colored spots on the body or gill cover — especially with pale halos — mean it is NOT a Rainbow Trout. That pattern points to Brown Trout (red/orange spots with pale halos on a brown, olive, or silver body), Brook Trout (red spots with blue halos plus pale worm-like markings on the back), or a hybrid like Tiger Trout (bold wavy/marbled pattern) or Cutbow. "
+    +"3) LATERAL STRIPE: a broad pink or rose stripe down the side is specific to Rainbow Trout, Steelhead, and Cutbow — Brown Trout never shows this. "
+    +"4) THROAT SLASH: a red or orange slash mark under the jaw means Cutthroat Trout or Cutbow, not Rainbow or Brown. "
+    +"5) ADIPOSE FIN: red/orange spotting on the small fin near the tail favors Brown Trout. "
+    +"Do not default to Rainbow Trout — it is only correct if you positively see the spotted tail and/or pink stripe above, with no red or orange spots present. Choose the single best-fitting species from this exact list: "+SPECIES.join(", ")+". Estimate length in inches only if a hand, net, or ruler gives real scale; otherwise use null. Reply with ONLY this JSON, no other text: {\"species\":\"Rainbow Trout\",\"length\":14}";
+}
+
+// Identify a fish photo via the AI proxy — canonical prompt (fishIDPrompt, above)
+// unless a caller passes an override, HTTP check, tolerant JSON extraction, one
+// automatic retry.
 async function identifyFish(b64,promptText){
+  const prompt=promptText||fishIDPrompt();
   for(let attempt=0;attempt<2;attempt++){
     try{
       const ctrl=new AbortController();
       const tid=setTimeout(()=>ctrl.abort(),25000);
       let rd;
       try{
-        rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:promptText}]}]},"cheap",{signal:ctrl.signal});
+        rd=await aiFetch({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:prompt}]}]},"cheap",{signal:ctrl.signal});
       }finally{clearTimeout(tid);}
       const txt=(rd.content||[]).map(c=>c.text||"").join(" ");
       const m=txt.match(/\{[\s\S]*?\}/);
@@ -7067,7 +7083,7 @@ function CatchCard({c,editingCatchId,setEditingCatchId,sharingCatchId,setSharing
 // to see photos. Portaled to document.body like PhotoCropModal below, at a z-index that
 // sits below the planner takeover (5000) and photo lightbox (9999) since a photo tapped
 // in here opens on top of this via the existing window._setLightbox lightbox.
-function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps,onSaveTrip,tripSaving,tripSaveError,onAdjustExtraCatches}){
+function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,intelLoading,intelError,catchCardProps,onSaveTrip,tripSaving,tripSaveError,onAdjustExtraCatches,onAddPhotos,addingPhotos}){
   const tripCatches=catches.filter(c=>c.tripId===trip.id);
   const extraCatches=trip.extraCatches||0;
   const totalCatches=tripCatches.length+extraCatches;
@@ -7075,6 +7091,7 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
   const [expandedCatchId,setExpandedCatchId]=useState(null);
   const [tripEditOpen,setTripEditOpen]=useState(false);
   const [editForm,setEditForm]=useState(null);
+  const addPhotoRef=useRef(null);
   return createPortal(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(8,20,25,0.97)",zIndex:4200,overflowY:"auto",padding:"20px 16px 48px"}}>
       <div style={{maxWidth:520,margin:"0 auto"}}>
@@ -7178,20 +7195,30 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
             </div>
           )}
         </div>
-        {tripCatches.length>0&&(
-          <div style={{marginTop:14}}>
-            {expandedCatchId?(()=>{
-              const ec=tripCatches.find(c=>c.id===expandedCatchId);
-              if(!ec){ setExpandedCatchId(null); return null; }
-              return (
-                <>
-                  <button onClick={()=>setExpandedCatchId(null)} style={{background:"none",border:"none",color:"var(--gold)",fontSize:15,cursor:"pointer",padding:0,marginBottom:8,fontFamily:"var(--font-body)"}}>← All catches</button>
-                  <CatchCard c={ec} {...catchCardProps}/>
-                </>
-              );
-            })():(
+        <div style={{marginTop:14}}>
+          {expandedCatchId?(()=>{
+            const ec=tripCatches.find(c=>c.id===expandedCatchId);
+            if(!ec){ setExpandedCatchId(null); return null; }
+            return (
               <>
-                <div className="lbl" style={{marginBottom:8}}>Catches from this trip</div>
+                <button onClick={()=>setExpandedCatchId(null)} style={{background:"none",border:"none",color:"var(--gold)",fontSize:15,cursor:"pointer",padding:0,marginBottom:8,fontFamily:"var(--font-body)"}}>← All catches</button>
+                <CatchCard c={ec} {...catchCardProps}/>
+              </>
+            );
+          })():(
+            <>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div className="lbl" style={{marginBottom:0}}>Catches from this trip</div>
+                <button onClick={()=>addPhotoRef.current.click()} disabled={addingPhotos}
+                  style={{fontSize:13,padding:"5px 12px",borderRadius:20,border:"1px solid rgba(209,154,74,0.4)",background:"rgba(209,154,74,0.15)",color:"var(--gold)",cursor:addingPhotos?"default":"pointer",opacity:addingPhotos?0.6:1,fontFamily:"var(--font-body)",whiteSpace:"nowrap"}}>
+                  {addingPhotos?"⏳ Adding…":"📷 Add Photos"}
+                </button>
+              </div>
+              <input ref={addPhotoRef} type="file" accept="image/*" multiple style={{display:"none"}}
+                onChange={e=>{const files=Array.from(e.target.files);e.target.value="";if(files.length&&onAddPhotos)onAddPhotos(trip.id,files);}}/>
+              {tripCatches.length===0?(
+                <div style={{fontSize:14,color:"var(--stone)",fontStyle:"italic"}}>No photographed catches yet.</div>
+              ):(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                   {tripCatches.map(c=>(
                     <div key={c.id} style={{cursor:"pointer"}} onClick={()=>setExpandedCatchId(c.id)}>
@@ -7206,10 +7233,10 @@ function PersonalTripDetailModal({trip,catches,tier,onClose,onGenerateIntel,inte
                     </div>
                   ))}
                 </div>
-              </>
-            )}
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>,
     document.body
@@ -7511,6 +7538,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
   const [personalTripSaving,setPersonalTripSaving]=useState(false);
   const [personalTripSaveError,setPersonalTripSaveError]=useState(null);
   const [savingPersonalTrip,setSavingPersonalTrip]=useState(false);
+  const [addingTripPhotos,setAddingTripPhotos]=useState(false);
   const logTripPhotoRef=useRef(null);
   const [sharingCatchId,setSharingCatchId]=useState(null);
   const [sharingBusy,setSharingBusy]=useState(false);
@@ -7746,7 +7774,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         const idPromise=(async()=>{
           try{
             const b64=await resizeForID(it.dataUrl,800,0.7);
-            const r=await identifyFish(b64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+            const r=await identifyFish(b64);
             if(r&&r.species&&r.species!=="Unidentified")return r;
             return{species:"Unidentified",length:""};
           }catch(ie){return{species:"Unidentified",length:""};}
@@ -7780,6 +7808,93 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         updDetail(it._id,patch);
       }catch(err){void 0;}
     });
+  }
+
+  // Add photos to a trip that's ALREADY saved (as opposed to handleLogTripPhoto above,
+  // which stages photos in logTripForm until the new trip is created). Same per-photo
+  // pipeline — EXIF parse, resize, canonical fish-ID via identifyFish(), conditions
+  // lookup — but each photo becomes a real catches-table row (tripId attached) right
+  // away via addCatch, since there's no "Save Trip" step left to wait for. Also clears
+  // a trip's "skunked" flag once a real catch lands on it, so a trip that used to have
+  // zero catches doesn't keep showing "Skunked" after photos are added.
+  async function handleAddPhotosToTrip(tripId,files){
+    if(!files||!files.length) return;
+    setAddingTripPhotos(true);
+    let devLocPromise=null;
+    const getDeviceLoc=()=>{
+      if(!devLocPromise){
+        devLocPromise=(async()=>{
+          const currentLoc=locRef.current;
+          if(currentLoc?.lat&&currentLoc?.lng)return{lat:currentLoc.lat,lng:currentLoc.lng};
+          try{
+            const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,maximumAge:60000,enableHighAccuracy:false}));
+            return{lat:pos.coords.latitude,lng:pos.coords.longitude};
+          }catch(ge){return null;}
+        })();
+      }
+      return devLocPromise;
+    };
+    try{
+      const items=[];
+      for(const file of files){
+        const rawUrl=await new Promise(res=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.readAsDataURL(file);});
+        const dataUrl=await new Promise(res=>{const img=new Image();img.onload=()=>{const MAX=1200;let w=img.naturalWidth,h=img.naturalHeight;if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);res(cv.toDataURL("image/jpeg",0.82));};img.onerror=()=>res(rawUrl);img.src=rawUrl;});
+        let photoTime=null,photoGps="",photoLat=null,photoLng=null;
+        try{
+          const abuf=await file.arrayBuffer();
+          const exif=parseExif(abuf);
+          photoTime=exif.time;photoGps=exif.gps||"";photoLat=exif.lat??null;photoLng=exif.lng??null;
+        }catch(xe){void 0;}
+        const t=photoTime||new Date().toLocaleString("en-US",{month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+        items.push({dataUrl,t,photoGps,photoLat,photoLng});
+      }
+      await mapLimit(items,3,async(it)=>{
+        try{
+          const idPromise=(async()=>{
+            try{
+              const b64=await resizeForID(it.dataUrl,800,0.7);
+              const r=await identifyFish(b64);
+              if(r&&r.species&&r.species!=="Unidentified")return r;
+              return{species:"Unidentified",length:""};
+            }catch(ie){return{species:"Unidentified",length:""};}
+          })();
+          const condPromise=(async()=>{
+            try{
+              let fetchLat=it.photoLat,fetchLng=it.photoLng,fetchGps=it.photoGps;
+              if(!fetchLat||!fetchLng){
+                const dl=await getDeviceLoc();
+                if(dl){fetchLat=dl.lat;fetchLng=dl.lng;fetchGps=fetchLat.toFixed(4)+"\u00b0N, "+Math.abs(fetchLng).toFixed(4)+"\u00b0W";}
+              }
+              if(!fetchLat||!fetchLng)return null;
+              let dateStr=null,hourStr="12";
+              const d2=new Date(it.t.replace(" at "," "));
+              if(!isNaN(d2)){dateStr=d2.toISOString().split("T")[0];hourStr=String(d2.getHours()).padStart(2,"0");}
+              const today=new Date().toISOString().split("T")[0];
+              const conds=dateStr&&dateStr<today?await fetchHistoricalConditions(fetchLat,fetchLng,dateStr,hourStr):await fetchLiveNearestConditions(fetchLat,fetchLng);
+              return{gps:fetchGps||"",conds};
+            }catch(ce){return null;}
+          })();
+          const[idRes,condRes]=await Promise.all([idPromise,condPromise]);
+          const c=condRes?.conds;
+          const catchData={
+            species:idRes?.species||"Unidentified",length:idRes?.length||"",flies:[],photo:it.dataUrl,
+            gps:(condRes&&condRes.gps)||it.photoGps||"Location not recorded",time:it.t,notes:"",
+            airTemp:c?.airTemp||null,weatherDesc:c?.weatherDesc||null,windSpeed:c?.windSpeed||null,
+            windDir:c?.windDir||null,pressure:c?.pressure||null,streamCFS:c?.streamCFS||null,
+            streamCondition:c?.streamCondition||null,streamGaugeName:c?.streamGaugeName||null,
+            waterTemp:null,tripId
+          };
+          await addCatch(catchData);
+        }catch(err){void 0;}
+      });
+      const trip=personalTrips.find(t=>t.id===tripId);
+      if(trip?.skunked){
+        setPersonalTrips(ts=>ts.map(t=>t.id===tripId?{...t,skunked:false}:t));
+        if(sb) await sb.from("personal_trips").update({skunked:false}).eq("id",tripId);
+      }
+    } finally {
+      setAddingTripPhotos(false);
+    }
   }
 
   // Save the whole trip at once — insert the trip row, then attach every photo
@@ -8771,7 +8886,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           const idPromise=(async()=>{
             try{
               const base64=await resizeForID(it.dataUrl,800,0.7);
-              const r=await identifyFish(base64,"Look carefully at this fish. Identify species based on coloring and spot patterns. Rainbow trout have pink lateral stripe. Brown trout have red spots on golden body. Choose from: "+SPECIES.join(", ")+". Estimate length if visible. Reply ONLY with JSON: {\"species\":\"Rainbow Trout\",\"length\":14}. Use null for length if unknown.");
+              const r=await identifyFish(base64);
               if(r&&r.species&&r.species!=="Unidentified")return r;
               return{species:"Unidentified",length:""};
             }catch(fishErr){return{species:"Unidentified",length:""};}
@@ -8837,7 +8952,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
     const idPromise=(async()=>{
       try{
         const base64=await resizeForID(dataUrl,800,0.7);
-        const r=await identifyFish(base64,`Identify this fish and estimate its length. Choose species from: ${SPECIES.join(", ")}. Reply ONLY with JSON: {"species":"Rainbow Trout","length":14}. Use null for length if unknown.`);
+        const r=await identifyFish(base64);
         if(r&&(r.species||r.length)){
           setForm(f=>({...f,species:r.species||f.species,length:r.length||f.length,sizeEstimated:!!r.length}));
         } else if(r){
@@ -9444,8 +9559,7 @@ ${shopPins}
           <button className="fab" onClick={()=>{
             if(!user){onRequestAuth&&onRequestAuth("Create a free account to start your own catch log.");return;}
             setForm(blank);setAddOpen(true);
-          }}
-            style={{position:"fixed",bottom:28,right:"max(20px, calc(50% - 195px))"}}>＋</button>
+          }}>＋</button>
         )}
       </div>
 
@@ -9465,6 +9579,7 @@ ${shopPins}
           intelLoading={personalIntelLoading} intelError={personalIntelError}
           onSaveTrip={handleSavePersonalTrip} tripSaving={personalTripSaving} tripSaveError={personalTripSaveError}
           onAdjustExtraCatches={adjustExtraCatches}
+          onAddPhotos={handleAddPhotosToTrip} addingPhotos={addingTripPhotos}
           catchCardProps={{
             editingCatchId,setEditingCatchId,sharingCatchId,setSharingCatchId,sharingBusy,shareCatch,
             deleteCatch,updateCatch,editCatchFlyInput,setEditCatchFlyInput,
