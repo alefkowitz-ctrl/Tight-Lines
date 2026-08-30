@@ -169,7 +169,7 @@ export function buildLabSynth(a){
     "TASK: Like a real guide, name the BEST trout fisheries within about a 2-hour drive of "+loc.label+", ranked best to worst (maximum 6; return fewer if fewer truly deserve it - never pad).",
     "SELECTION RULES: (1) Build the candidate list from TWO sources combined: (a) the trout fisheries the RETRIEVED REPORTS establish near here - this catches tailwaters and famous water that may have no nearby gauge or a gauge named for a dam or lake; and (b) the gauged streams above that are genuine trout water. Do NOT silently drop a close gauged trout stream just because the reports did not mention it, and do NOT include a gauged stream that is warmwater or bass water. Corroborate report-only picks across more than one source where possible.",
     "(2) TAILWATERS: cold water below a dam is often the premier trout fishery in a region; include the relevant tailwater even when no gauge is named like a trout stream. When the reports clearly establish a water is a below-dam tailwater, set its \"verified\" field to \"tailwater\".",
-    "(3) DISTANCE DISCIPLINE: only recommend water realistically within ~2 hours. Do NOT reach for famous names farther than that. Do NOT let a famous distant fishery crowd out quality water within about an hour. If a gauged stream within range is genuine trout water, keep a place for it.",
+    "(3) DISTANCE DISCIPLINE: only recommend water realistically within ~2 hours. Do NOT reach for famous names farther than that. Do NOT let a famous distant fishery crowd out quality water within about an hour. If a gauged stream within range is genuine trout water, keep a place for it. A water being prominently or enthusiastically covered in the RETRIEVED REPORTS is NOT evidence it is close - fly shops and guide reports routinely cover water hours away from any single origin, so judge THIS pick's actual distance from THIS origin on its own, independent of how much attention the sources give it.",
     "(4) For every pick give your best lat and lng so distance can be verified. Set \"source\" to \"gauge\" if the pick matches one of the listed gauges, otherwise \"search\".",
     "(5) Do NOT invent water that appears in neither the reports nor the gauge list. Exclude urban drainage, irrigation, and warmwater bass streams presented as trout water. If the RETRIEVED REPORTS identify a nearby water as warmwater, smallmouth, or bass water - or list it under 'AVOID AS TROUT WATER' - do NOT include it as a trout fishery even when it is gauged or close; trust the reports' species designation over a bare gauge.",
     "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
@@ -945,34 +945,60 @@ export function nrmName(s){return String(s||"").toLowerCase().replace(/[^a-z0-9]
 
 // Strips a trailing parenthetical reach descriptor for loose name matching, e.g.
 // "Colorado River (Kremmling to Dotsero tailwater)" -> "Colorado River". Used by
-// reconcileBestBet to match the free-text "recommendation" field back to the river
-// entry it's actually describing.
+// findIneligibleMatch (below) to match a free-text field back to the river entry it's
+// actually describing.
 export function coreRiverName(name){
   return String(name||"").replace(/\s*\([^)]*\)\s*/g,"").trim();
 }
 
-// Shared by reconcileBestBet below for BOTH the "recommendation" field and, as of
-// 2026-08-12, every bestFor category. Deterministic, no AI: matches free text back to a
-// river by name (core name, parenthetical reach stripped), and if that river is
-// ineligible — beyond day-trip range (labGovernor) or closed to fishing today
-// (labVerifyRestrictions) — replaces the text with the next eligible river's own
-// already-vetted "why" text plus a note explaining the swap. Fail-open: if no match is
-// found, or every river is ineligible, the original text is left untouched rather than
-// guessing. `label` only changes the wording of the swap note (e.g. "today's best bet"
-// vs "this pick") — the eligibility logic itself is identical either way.
-function swapIfIneligible(text,rivers,label){
+// 2026-08-30: no more visible "⚠ X is beyond range — swapping to Y" note. Used to
+// explain the swap right in the text; now it just reads as if the eligible pick was the
+// answer all along. Also no longer picks the replacement itself — see
+// resolveSwapsWithAI/reconcileBestBet below for why "just take the first eligible entry"
+// wasn't good enough (a Best Scenery swap has no reason to land on whichever water
+// happens to sit first in the array). This just finds whether `text` names an ineligible
+// river and, if so, hands back every currently-eligible alternative to choose from.
+function findIneligibleMatch(text,rivers){
   const norm=nrmName(text);
   const ineligible=r=>r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");
   const matched=rivers.find(r=>{
     const core=nrmName(coreRiverName(r.name));
     return core&&norm.includes(core);
   });
-  if(!matched||!ineligible(matched))return{text,swapped:false}; // no match, or the pick is fine
-  const alt=rivers.find(r=>r!==matched&&!ineligible(r));
-  if(!alt)return{text,swapped:false}; // nothing eligible to swap to — leave the original, flagged pick as-is
-  const reason=matched.restriction&&matched.restriction.status==="closure"?"closed to fishing today":"beyond realistic day-trip range today";
-  const note="⚠ "+matched.name+" is "+reason+" — swapping "+(label||"this pick")+" to "+alt.name+" instead. ";
-  return{text:(note+(alt.why||alt.conditions||"See its river card below for details.")).trim(),swapped:true};
+  if(!matched||!ineligible(matched))return null; // no match, or the pick is fine
+  return{matched,eligible:rivers.filter(r=>r!==matched&&!ineligible(r))};
+}
+
+function swapText(alt){
+  return String(alt.why||alt.conditions||"See its river card below for details.").trim();
+}
+
+// Small, targeted AI call (thorough/background path only — same posture as
+// resolveUnsurePick/verifyOmissions above) to pick the best-fit replacement when a swap
+// has a genuine CHOICE to make: 2+ eligible candidates left after an ineligible pick is
+// swapped out. "Best Scenery" landing on whichever water happened to be array-first isn't
+// actually judging scenery. Batches every field that needs resolving into ONE call per
+// report (not one per field) since several fields can legitimately point at the same
+// ineligible pick. Fields with 0 or 1 eligible candidates need no judgment call and never
+// reach here. Fail-open: any error, timeout, or a returned name that doesn't match a real
+// candidate falls back to the first eligible candidate in the caller, same as pre-2026-08-30.
+async function resolveSwapsWithAI(needs,aiCtx){
+  try{
+    const items=needs.map((n,i)=>{
+      const cands=n.eligible.map(r=>r.name+(r.why?" — "+r.why:r.conditions?" — "+r.conditions:"")).join("  |  ");
+      return (i+1)+") Category: \""+n.label+"\". What the original (now-ineligible) pick was praised for: \""+n.originalText+"\". Eligible candidates for THIS category only: "+cands;
+    }).join("\n");
+    const prompt=["You are picking the single best-fit replacement river for each numbered category below, choosing ONLY from that item's own listed candidates — never a water from a different item's list.",
+      "Judge fit the way the category itself implies: a scenery category should be judged on scenery, a solitude category on solitude, a beginners category on approachability, an overall best-bet category on general fit for today. Use each candidate's own description to make that judgment — do not invent facts not present in it.",
+      "Return ONLY a JSON array, one object per numbered item, SAME ORDER, no markdown: [{\"n\":1,\"name\":\"\"}] — \"name\" must be copied EXACTLY (character-for-character) from that item's own candidate list.",
+      items].join("\n");
+    const race=Promise.race([aiCtx.askAI(prompt,false,600,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),45000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").trim();
+    const a=clean.indexOf("["),b=clean.lastIndexOf("]");
+    if(a===-1||b<=a)return null;
+    const parsed=JSON.parse(clean.slice(a,b+1));
+    return Array.isArray(parsed)?parsed:null;
+  }catch{return null;}
 }
 
 // Auto-swaps "Best Bet Today" AND every bestFor category (mostFish/bestScenery/
@@ -981,23 +1007,49 @@ function swapIfIneligible(text,rivers,label){
 // the AI in buildLabSynth BEFORE labGovernor/labVerifyRestrictions run, so a category
 // could point at a pick that gets flagged out-of-range or closed moments later, with
 // nothing to catch it. Same fail-open posture as before either way.
-export function reconcileBestBet(report){
+// 2026-08-30: now async — when a swap has more than one eligible candidate to choose
+// between, it asks resolveSwapsWithAI which one actually fits that category (thorough
+// mode + a real aiCtx only; otherwise/on failure, falls back to the first eligible
+// candidate, same behavior as before this date).
+export async function reconcileBestBet(report,aiCtx,opts){
   if(!report||!Array.isArray(report.rivers)||!report.rivers.length)return report;
-  let out=report;
+  const thorough=!!(opts&&opts.thorough);
+  const fields=[]; // {kind, key, label, originalText, matched, eligible}
   if(report.recommendation){
-    const{text,swapped}=swapIfIneligible(report.recommendation,report.rivers,"today's best bet");
-    if(swapped)out={...out,recommendation:text};
+    const m=findIneligibleMatch(report.recommendation,report.rivers);
+    if(m)fields.push({kind:"recommendation",key:null,label:"today's overall best bet",originalText:report.recommendation,...m});
   }
   if(report.bestFor){
-    const bf={...report.bestFor};
-    let bfChanged=false;
-    ["mostFish","bestScenery","mostSolitude","beginners"].forEach(k=>{
-      if(!bf[k])return;
-      const{text,swapped}=swapIfIneligible(bf[k],report.rivers,"this pick");
-      if(swapped){bf[k]=text;bfChanged=true;}
+    const LABELS={mostFish:"most fish",bestScenery:"best scenery",mostSolitude:"most solitude",beginners:"best for beginners"};
+    Object.keys(LABELS).forEach(k=>{
+      const val=report.bestFor[k];
+      if(!val)return;
+      const m=findIneligibleMatch(val,report.rivers);
+      if(m)fields.push({kind:"bestFor",key:k,label:LABELS[k],originalText:val,...m});
     });
-    if(bfChanged)out={...out,bestFor:bf};
   }
+  if(!fields.length)return report;
+
+  const needAI=fields.filter(f=>f.eligible.length>1);
+  const aiPicks=(needAI.length&&thorough&&aiCtx&&typeof aiCtx.askAI==="function")?await resolveSwapsWithAI(needAI,aiCtx):null;
+
+  let out=report;
+  let bfChanged=false;
+  const bf=report.bestFor?{...report.bestFor}:null;
+  fields.forEach(f=>{
+    if(!f.eligible.length)return; // nothing to swap to — leave the original text untouched
+    let alt=f.eligible[0]; // default: first eligible — used as-is when there's only one, or as the fail-open fallback
+    if(f.eligible.length>1&&aiPicks){
+      const idx=needAI.indexOf(f);
+      const pick=aiPicks.find(p=>Number(p&&p.n)===idx+1);
+      const byName=pick&&f.eligible.find(r=>nrmName(r.name)===nrmName(String(pick.name||"")));
+      if(byName)alt=byName;
+    }
+    const text=swapText(alt);
+    if(f.kind==="recommendation")out={...out,recommendation:text};
+    else if(bf){bf[f.key]=text;bfChanged=true;}
+  });
+  if(bfChanged)out={...out,bestFor:bf};
   return out;
 }
 
@@ -1234,8 +1286,10 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   }catch(_rx){void 0;}
 
   // Must run last: needs the final outOfRange (labGovernor) and restriction
-  // (labVerifyRestrictions, just folded in above) flags to know what's eligible.
-  builtReport=reconcileBestBet(builtReport);
+  // (labVerifyRestrictions, just folded in above) flags to know what's eligible. Now
+  // async (2026-08-30) — may make one small targeted AI call of its own when a swap has
+  // a genuine choice to make between eligible replacements.
+  builtReport=await reconcileBestBet(builtReport,aiCtx,{thorough});
 
   // NOW it's safe to actually remove labGovernor's thorough-mode clutter picks (flagged
   // dropIfThorough, deliberately not deleted at the source — see labGovernor's 2026-08-30
