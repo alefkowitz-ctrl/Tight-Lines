@@ -87,6 +87,27 @@ export function scrubBannedFlowWords(text){
   return String(text).replace(/\bgoldilocks\b/gi,"well-suited").replace(/\b(ideal|perfect)(ly)?\b/gi,(m,w,ly)=>ly?"well":"well-suited");
 }
 
+// Deterministic backstop for the DISTANCE LANGUAGE RULE in buildLabSynth, which tells the
+// model it has no real per-pick drive-time data and must never state a specific number of
+// hours/minutes anywhere in the report. Confirmed against a real Churchville, PA report that
+// the model violates this anyway ("lie 1.5 to 2 hours north" for water that actually computes
+// to 2.55-2.73 hrs via computeDriveMinutes) -- the rule alone isn't reliable, same class of
+// gap as scrubBannedFlowWords above. Deliberately does TARGETED SUBSTRING replacement, not
+// scrubDamClaims-style clause deletion: this field is routinely one long comma-joined sentence
+// covering several waters at once (confirmed against the real overview text), and a clause
+// boundary defined only by [.!?;] would delete valid, unrelated content earlier or later in the
+// same sentence along with the bad claim. Replaces with vague relative language matching what
+// the prompt actually asked for, rather than deleting the phrase outright.
+export function scrubDistanceClaims(text){
+  if(!text)return text;
+  let t=String(text);
+  t=t.replace(/\b\d+(?:\.\d+)?\s*(?:to|-|\u2013|\u2014)\s*\d+(?:\.\d+)?\s*hours?\b/gi,"a longer drive");
+  t=t.replace(/\bwithin\s+(?:an?|\d+(?:\.\d+)?)\s*hours?\b/gi,"nearby");
+  t=t.replace(/\b\d+(?:\.\d+)?\s*hours?\s*(?:away|north|south|east|west|drive)?\b/gi,"a drive");
+  t=t.replace(/\b\d+\s*(?:minutes?|mins?)\s*(?:away|north|south|east|west|drive)?\b/gi,"a short drive");
+  return t.replace(/\s{2,}/g," ").trim();
+}
+
 // When a river's Tailwater badge is demoted, dam claims in its prose must go too.
 // This only ever runs once a pick has already been determined NOT to be a tailwater, so
 // ANY sentence naming a specific controlling dam/reservoir or describing regulated releases
@@ -1062,8 +1083,17 @@ function findIneligibleMatch(text,rivers){
     const core=nrmName(coreRiverName(r.name));
     return core&&norm.includes(core);
   });
-  if(!matched||!ineligible(matched))return null; // no match, or the pick is fine
-  return{matched,eligible:rivers.filter(r=>r!==matched&&!ineligible(r))};
+  if(matched){
+    if(!ineligible(matched))return null; // matched a real, in-range pick -- nothing to fix
+    return{matched,eligible:rivers.filter(r=>r!==matched&&!ineligible(r))};
+  }
+  // No match at all: this field names a river that isn't in rivers[] AT ALL, most commonly
+  // because it failed to snap to a gauge AND failed Places geocoding earlier in
+  // finalizeLabRivers and was dropped before labGovernor ever got a chance to flag it
+  // outOfRange. By rule 10 in buildLabSynth every bestFor/recommendation value is REQUIRED
+  // to name a rivers[] entry, so "no match" is never a benign case -- it's exactly as
+  // dangling a reference as an outOfRange match, and needs the same swap.
+  return{matched:null,eligible:rivers.filter(r=>!ineligible(r))};
 }
 
 function swapText(alt){
@@ -1148,6 +1178,54 @@ export async function reconcileBestBet(report,aiCtx,opts){
   });
   if(bfChanged)out={...out,bestFor:bf};
   return out;
+}
+
+// Rewrites overview/recommendation/bestTimes with ONE small, targeted AI call when they
+// still mention a river that didn't survive into the final rivers[] list -- e.g. a pick that
+// failed gauge-snap AND Places geocoding in finalizeLabRivers and was silently dropped before
+// labGovernor ever got a chance to flag it outOfRange (the same underlying failure the
+// findIneligibleMatch fix above addresses for single-river fields like a bestFor category).
+// These three fields are free-form prose that can mention a dropped water in passing
+// alongside other, still-valid content in the SAME sentence -- confirmed against a real report
+// that scrubDamClaims-style clause deletion would also delete an adjacent, correct mention,
+// since there's no clean sentence boundary between them in a long comma-joined overview. A
+// rewrite call, given the actual final river list and told exactly which names are no longer
+// valid, can produce grammatically correct prose without needing to find a clause boundary
+// itself. Thorough/background path only (same posture as resolveSwapsWithAI) -- and skips the
+// AI call entirely unless a field actually still mentions a dropped name, so the common case
+// (nothing dropped, or the dropped water was never mentioned in free text) costs nothing.
+async function rewriteStaleFreeText(fields,droppedNames,finalRivers,loc,aiCtx,thorough){
+  if(!thorough||!aiCtx||typeof aiCtx.askAI!=="function")return fields;
+  const dropped=(droppedNames||[]).map(coreRiverName).filter(Boolean);
+  if(!dropped.length)return fields;
+  const flagged=Object.keys(fields).filter(k=>{
+    const val=fields[k];
+    if(!val)return false;
+    const norm=nrmName(val);
+    return dropped.some(n=>{const core=nrmName(n);return core&&norm.includes(core);});
+  });
+  if(!flagged.length)return fields;
+  try{
+    const keepList=(finalRivers||[]).map(r=>r.name).filter(Boolean).join(", ")||"none";
+    const items=flagged.map((k,i)=>(i+1)+") "+k+": \""+fields[k]+"\"").join("\n");
+    const prompt=["You are correcting "+flagged.length+" field(s) of a trout-fishing report near "+(loc&&loc.label||"the trip location")+" so they no longer discuss water that isn't actually in this report.",
+      "The ONLY waters actually covered in this report are: "+keepList+".",
+      "Each numbered field below currently mentions one or more OTHER waters that did not make the final cut ("+dropped.join(", ")+"). Remove any specific claim about those other waters entirely (do not just soften the wording -- remove it, and don't invent a reason it was excluded such as being too far or out of range, just write as if it was never brought up), while keeping everything else in the field intact, same voice, similar length.",
+      "FIELDS:\n"+items,
+      "Return ONLY a JSON object no markdown, one key per field name exactly as given, value = the corrected text: {"+flagged.map(k=>"\""+k+"\":\"\"").join(",")+"}"
+    ].join(" ");
+    const race=Promise.race([aiCtx.askAI(prompt,false,700,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),30000))]);
+    const clean=String(await race||"").replace(/```json|```/g,"").trim();
+    const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+    if(a===-1||b<=a)return fields;
+    const parsed=JSON.parse(clean.slice(a,b+1));
+    const out={...fields};
+    flagged.forEach(k=>{ if(parsed&&typeof parsed[k]==="string"&&parsed[k].trim())out[k]=parsed[k].trim(); });
+    return out;
+  }catch{
+    return fields; // fail-open: never block report delivery on this -- worst case the stale
+    // mention survives, same as before this fix existed.
+  }
 }
 
 // Light-touch personalization (App Dev, added after the AI Intel feature): a short,
@@ -1288,7 +1366,15 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const toStr=v=>Array.isArray(v)?v.join(", "):typeof v==="object"&&v?JSON.stringify(v):v||"";
   const clean2=s=>(toStr(s)).replace(/<cite[^>]*>|<\/cite>/g,"");
   const sb2=t=>scrubBannedFlowWords(clean2(t));
-  const bf2=rpt.bestFor?{mostFish:sb2(rpt.bestFor.mostFish),bestScenery:sb2(rpt.bestFor.bestScenery),mostSolitude:sb2(rpt.bestFor.mostSolitude),beginners:sb2(rpt.bestFor.beginners)}:null;
+  // Distance-language backstop applies to overview/recommendation/bestFor/per-river fields
+  // alike, matching the stated scope of the DISTANCE LANGUAGE RULE itself in buildLabSynth.
+  const sbd=t=>scrubDistanceClaims(sb2(t));
+  const bf2=rpt.bestFor?{mostFish:sbd(rpt.bestFor.mostFish),bestScenery:sbd(rpt.bestFor.bestScenery),mostSolitude:sbd(rpt.bestFor.mostSolitude),beginners:sbd(rpt.bestFor.beginners)}:null;
+
+  // Captured BEFORE finalizeRivers can drop any pick (failed gauge-snap + geocoding) so the
+  // stale-reference rewrite near the end of this function knows what the AI originally
+  // proposed, even for names that never make it into the final rivers[] list at all.
+  const originalRiverNames=(rpt.rivers||[]).map(r=>r&&r.name).filter(Boolean);
 
   // Report-level review runs in parallel with finalize (they're independent)
   const reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips,overview:rpt.overview,recommendation:rpt.recommendation},loc,searchTxt,ds,aiCtx).catch(()=>null);
@@ -1297,12 +1383,12 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   let builtReport={
     searchNote,
     dataSource:searchTxt.length>200?"current":(fishableGauges.length||(pgScaled||[]).length)?"flows-live":"estimated",
-    overview:sb2(rpt.overview),
-    recommendation:sb2(rpt.recommendation),
+    overview:sbd(rpt.overview),
+    recommendation:sbd(rpt.recommendation),
     bestFor:bf2,
-    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sb2(r.conditions),techniques:sb2(r.techniques),why:sb2(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:(pgScaled||[]),loc,searchTxt,aiCtx,{thorough}),
+    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sbd(r.conditions),techniques:sbd(r.techniques),why:sbd(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:(pgScaled||[]),loc,searchTxt,aiCtx,{thorough}),
     hatches:sb2(rpt.hatches),
-    bestTimes:eThermal?scrubAfternoonPush(sb2(rpt.bestTimes)):sb2(rpt.bestTimes),
+    bestTimes:eThermal?scrubAfternoonPush(sbd(rpt.bestTimes)):sbd(rpt.bestTimes),
     tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),
     flyBoxEssentials:cleanFlyList(Array.isArray(rpt.flyBoxEssentials)?rpt.flyBoxEssentials:[])
   };
@@ -1316,10 +1402,10 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
       let changed=false;
       let nb={...builtReport};
       if(fx.hatches){nb.hatches=sb2(fx.hatches);changed=true;}
-      if(fx.bestTimes){nb.bestTimes=eThermal?scrubAfternoonPush(sb2(fx.bestTimes)):sb2(fx.bestTimes);changed=true;}
+      if(fx.bestTimes){nb.bestTimes=eThermal?scrubAfternoonPush(sbd(fx.bestTimes)):sbd(fx.bestTimes);changed=true;}
       if(fx.tips){nb.tips=eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(fx.tips))).trim():sb2(fx.tips);changed=true;}
-      if(fx.overview){nb.overview=sb2(fx.overview);changed=true;}
-      if(fx.recommendation){nb.recommendation=sb2(fx.recommendation);changed=true;}
+      if(fx.overview){nb.overview=sbd(fx.overview);changed=true;}
+      if(fx.recommendation){nb.recommendation=sbd(fx.recommendation);changed=true;}
       if(Array.isArray(fx.rivers)&&fx.rivers.length&&Array.isArray(nb.rivers)){
         const nrm=nrmName;
         nb.rivers=nb.rivers.map(rv=>{
@@ -1414,6 +1500,25 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   // in rivers[] to match and swap the dangling text before it disappears from the report.
   if(Array.isArray(builtReport.rivers)&&builtReport.rivers.some(r=>r.dropIfThorough)){
     builtReport={...builtReport,rivers:builtReport.rivers.filter(r=>!r.dropIfThorough)};
+  }
+
+  // Must run AFTER the dropIfThorough strip just above — needs the truly final rivers[]
+  // list to know which of the AI's originally-proposed names actually got dropped along the
+  // way (failed gauge-snap + geocoding, flagged outOfRange, or closed). Catches exactly the
+  // gap reconcileBestBet's single-field swap can't: free-form prose (overview/recommendation/
+  // bestTimes) that names a dropped water in passing alongside other, still-valid content in
+  // the same sentence. See rewriteStaleFreeText above for why this is a rewrite call rather
+  // than a regex clause-strip.
+  {
+    const finalCoreNames=new Set((builtReport.rivers||[]).map(r=>nrmName(coreRiverName(r.name))));
+    const droppedNames=originalRiverNames.filter(n=>!finalCoreNames.has(nrmName(coreRiverName(n))));
+    if(droppedNames.length){
+      const rewritten=await rewriteStaleFreeText(
+        {overview:builtReport.overview,recommendation:builtReport.recommendation,bestTimes:builtReport.bestTimes},
+        droppedNames,builtReport.rivers,loc,aiCtx,thorough
+      );
+      builtReport={...builtReport,...rewritten};
+    }
   }
 
   // Light-touch personalization — deterministic, no AI call, computed last and
