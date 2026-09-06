@@ -941,7 +941,15 @@ async function labSplitFused(rivers,aiCtx,regionHint){
     const farPlaces=[...new Set(far.map(x=>accessPointPlace(x.str)).filter(Boolean))];
     let name=String(r.name||"");
     farPlaces.forEach(p=>{const esc=p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");name=name.replace(new RegExp("\\s*[/,]\\s*"+esc,"gi"),"");});
-    const note="⚠ This entry's access points spanned more than one stretch of water ("+(keptPlaces.join("/")||"the mapped section")+" vs. "+(farPlaces.join("/")||"another reach")+") — narrowed to the "+(keptPlaces.join("/")||"mapped")+" section that matches its Tailwater label; the other point(s) are a different stretch and not shown here.";
+    // 2026-09-06: simplified from a dense engineering-diagnostic sentence (kept for the
+    // record: "⚠ This entry's access points spanned more than one stretch of water (X vs Y)
+    // — narrowed to the X section that matches its Tailwater label; the other point(s) are
+    // a different stretch and not shown here.") to plain wording anglers can actually read.
+    // Same substance - which access points this entry covers and which it doesn't - none
+    // of the "entry"/"Tailwater label" internal framing.
+    const keptLabel=keptPlaces.join("/")||"this";
+    const farLabel=farPlaces.join("/")||"another area";
+    const note="Note: access points here cover the "+keptLabel+" stretch only — "+farLabel+" is a different section of river and isn't included.";
     const base={...r,name,accessPoints:kept.length?kept.map(x=>x.str):r.accessPoints,why:(note+" "+(r.why||"")).trim()};
     // If the pick's own attached live gauge is itself one of the far points (the gauge
     // snapped to the OTHER stretch, not the one this entry now describes after narrowing),
@@ -1076,16 +1084,20 @@ export function coreRiverName(name){
 // wasn't good enough (a Best Scenery swap has no reason to land on whichever water
 // happens to sit first in the array). This just finds whether `text` names an ineligible
 // river and, if so, hands back every currently-eligible alternative to choose from.
+// Shared eligibility predicate - pulled out of findIneligibleMatch's local closure
+// (2026-09-06) so reconcileBestBet can also ask "how many eligible rivers exist at all,"
+// not just "is this one river eligible."
+function isIneligibleRiver(r){return r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");}
+
 function findIneligibleMatch(text,rivers){
   const norm=nrmName(text);
-  const ineligible=r=>r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");
   const matched=rivers.find(r=>{
     const core=nrmName(coreRiverName(r.name));
     return core&&norm.includes(core);
   });
   if(matched){
-    if(!ineligible(matched))return null; // matched a real, in-range pick -- nothing to fix
-    return{matched,eligible:rivers.filter(r=>r!==matched&&!ineligible(r))};
+    if(!isIneligibleRiver(matched))return null; // matched a real, in-range pick -- nothing to fix
+    return{matched,eligible:rivers.filter(r=>r!==matched&&!isIneligibleRiver(r))};
   }
   // No match at all: this field names a river that isn't in rivers[] AT ALL, most commonly
   // because it failed to snap to a gauge AND failed Places geocoding earlier in
@@ -1093,7 +1105,7 @@ function findIneligibleMatch(text,rivers){
   // outOfRange. By rule 10 in buildLabSynth every bestFor/recommendation value is REQUIRED
   // to name a rivers[] entry, so "no match" is never a benign case -- it's exactly as
   // dangling a reference as an outOfRange match, and needs the same swap.
-  return{matched:null,eligible:rivers.filter(r=>!ineligible(r))};
+  return{matched:null,eligible:rivers.filter(r=>!isIneligibleRiver(r))};
 }
 
 function swapText(alt){
@@ -1155,6 +1167,20 @@ export async function reconcileBestBet(report,aiCtx,opts){
       if(m)fields.push({kind:"bestFor",key:k,label:LABELS[k],originalText:val,...m});
     });
   }
+  // 2026-09-06 fix: with only one genuinely eligible water left today, mostFish/
+  // bestScenery/mostSolitude/beginners have no real distinction left to make - the swap
+  // below would otherwise paste the SAME river's `why` text into all four AND Best Bet
+  // Today, verbatim (confirmed against a real report: Pohopoco Creek repeated word-for-
+  // word across all five slots). Product call: drop the bestFor grid entirely and keep
+  // only Best Bet Today rather than manufacture a fake four-way breakdown.
+  const totalEligible=report.rivers.filter(r=>!isIneligibleRiver(r)).length;
+  if(totalEligible<=1){
+    let out=report.bestFor?{...report,bestFor:null}:report;
+    const recField=fields.find(f=>f.kind==="recommendation");
+    if(recField&&recField.eligible.length)out={...out,recommendation:swapText(recField.eligible[0])};
+    return out;
+  }
+
   if(!fields.length)return report;
 
   const needAI=fields.filter(f=>f.eligible.length>1);
