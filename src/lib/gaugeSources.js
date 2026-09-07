@@ -780,3 +780,355 @@ export async function fetchNWMForecastOutlook(sb, reachId) {
     return null;
   }
 }
+
+// ===========================================================================
+// LAYERED MULTI-DAY OUTLOOK — SPEC_streamflow_forecast.md §11
+//
+// Why this exists alongside fetchNWMForecastOutlook above: that function reads
+// the Supabase cache api/sync-nwm-forecast.js fills, and that cache only ever
+// contains reaches someone seeded by hand into nwm_tracked_reaches. It works,
+// it's fast, and it covers a handful of rivers. The requirement is every
+// stream in the country.
+//
+// NOAA's own REST API answers that directly — one reach, 10 days, ~1s, no file
+// parsing and no table seeding. It was written off on 2026-08-18 after failing
+// 7/7 in one sitting; re-tested 2026-09-06 it succeeded 10/10 across CO/MT/MI/
+// PA/TN/OR/NY/UT and then 24/24 on a concurrent burst (0.2s min, 0.8s median,
+// 3.1s max). Two candidate explanations for the difference — a NOAA outage
+// window, or the un-scoped call's 267KB/6.8s payload timing out where a
+// ?series=-scoped 0.84s call would not. Not distinguishable from here, and it
+// doesn't need to be: the design below assumes this API is fast when it works
+// and entirely absent when it isn't, which is true either way.
+//
+// Hence layered, in strict order, first hit wins:
+//   1. live REST  — any reach, 10 days
+//   2. Supabase cache — tracked reaches only, 5 days, never fails
+//   3. null — show nothing rather than something wrong
+//
+// That demotes the sync job from a dependency to a cache, which is what it's
+// good at, and means it never needs to grow to cover the country.
+// ===========================================================================
+
+const NWPS_REST_BASE = "https://api.water.noaa.gov/nwps/v1";
+const NLDI_BASE = "https://api.water.usgs.gov/nldi/linked-data";
+
+// ALWAYS scope the series. The bare /streamflow call returns all five series at
+// once — measured at 267KB and 6.8s, versus 0.84s for one series. Under load or
+// on a degraded NOAA day the fat payload is what times out. See the header note
+// above: this may well be the whole story behind the 7/7 failure.
+const NWM_SERIES = "medium_range_blend"; // single blended 10-day series, no ensemble to reduce
+
+// Below this relative spread across the whole series, NWM is emitting a
+// persistence line rather than a prediction — see isFlatOutlook.
+const FLAT_SPREAD_THRESHOLD = 0.005;
+
+async function fetchJSONWithRetry(url, ms, tries) {
+  // Retry before failing, deliberately: a first-attempt timeout against NOAA is
+  // common and usually transient, and treating one failure as proof the data
+  // doesn't exist is exactly the mistake that cost this feature three weeks.
+  let lastErr = null;
+  for (let i = 0; i < (tries || 2); i++) {
+    try {
+      const r = await fetchWithTimeout(url, ms);
+      if (r.ok) return await r.json();
+      // A 404 is a real answer ("no such reach"), not a transient failure —
+      // retrying it just burns time.
+      if (r.status === 404) return null;
+      lastErr = new Error("HTTP " + r.status);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  void lastErr;
+  return null;
+}
+
+// --- COMID resolution ------------------------------------------------------
+// A wrong reach does not throw. It returns a perfectly well-formed forecast for
+// a different creek, which is the worst failure mode this feature has, and one
+// this codebase has already shipped once (the Kinikinik/Roaring Creek bug that
+// gave fetchNWMStreamflow its targetName argument).
+//
+// Measured 2026-09-06: resolving from the USGS site number got 6/6 correct,
+// while snapping from the map pin got 8/10 — a South Platte pin landed on an
+// unnamed 0 cfs gulch and a Madison pin on a dry tributary called Corral Creek.
+// So: gauge-anchored first, point-snap only when there's no gauge to anchor to.
+//
+// The second payoff is that a gauge-anchored reach is the SAME WATER as the
+// observed gauge, which is what would make Tier 3 bias correction valid rather
+// than an analogy. Not built yet; this is the prerequisite for it.
+const _comidMem = new Map();
+const COMID_LS_KEY = "tl_comid_v1";
+
+function comidCacheGet(key) {
+  if (_comidMem.has(key)) return _comidMem.get(key);
+  try {
+    if (typeof localStorage === "undefined") return undefined;
+    const raw = localStorage.getItem(COMID_LS_KEY);
+    if (!raw) return undefined;
+    const all = JSON.parse(raw);
+    if (Object.prototype.hasOwnProperty.call(all, key)) {
+      _comidMem.set(key, all[key]);
+      return all[key];
+    }
+  } catch (e) { void e; }
+  return undefined;
+}
+
+function comidCacheSet(key, val) {
+  _comidMem.set(key, val);
+  // A reach id for a fixed point never changes, so this cache never needs
+  // invalidating — only bounding, so it can't grow without limit.
+  try {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(COMID_LS_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    all[key] = val;
+    const keys = Object.keys(all);
+    if (keys.length > 400) delete all[keys[0]];
+    localStorage.setItem(COMID_LS_KEY, JSON.stringify(all));
+  } catch (e) { void e; }
+}
+
+// Is this a plain USGS site number? DWR uses alphanumeric abbrevs, NWPS uses
+// 5-char LIDs, and fetchNWMStreamflow mints synthetic "NWM<id>" ids — none of
+// which NLDI's nwissite endpoint can resolve.
+function isUSGSSiteNo(siteNo) {
+  return typeof siteNo === "string" && /^\d{8,15}$/.test(siteNo);
+}
+
+async function reachFromUSGSSite(siteNo) {
+  const j = await fetchJSONWithRetry(NLDI_BASE + "/nwissite/USGS-" + encodeURIComponent(siteNo), 8000, 2);
+  const p = j && j.features && j.features[0] && j.features[0].properties;
+  const comid = p && (p.comid || p.COMID);
+  return comid != null ? Number(comid) : null;
+}
+
+async function reachFromPoint(lat, lng) {
+  const j = await fetchJSONWithRetry(
+    NLDI_BASE + "/comid/position?coords=" + encodeURIComponent("POINT(" + lng + " " + lat + ")"),
+    8000,
+    2
+  );
+  const p = j && j.features && j.features[0] && j.features[0].properties;
+  const comid = p && (p.comid || p.COMID);
+  return comid != null ? Number(comid) : null;
+}
+
+// Cheap reach probe: short_range is the smallest series NOAA serves and the
+// response carries the reach's name, routing, and a current flow all at once,
+// so one call answers "is this reach real, named, and wet?".
+async function probeReach(reachId) {
+  const j = await fetchJSONWithRetry(
+    NWPS_REST_BASE + "/reaches/" + reachId + "/streamflow?series=short_range",
+    12000,
+    2
+  );
+  if (!j || !j.reach) return null;
+  const pts = (j.shortRange && j.shortRange.series && j.shortRange.series.data) || [];
+  const flow = pts.length ? pts[pts.length - 1].flow : null;
+  return {
+    reachId: Number(j.reach.reachId),
+    name: j.reach.name || "",
+    flow,
+    downstream: (j.reach.route && j.reach.route.downstream) || [],
+  };
+}
+
+// A point-snapped reach that is unnamed or bone dry is a snapping miss, not a
+// dry river. Walking downstream recovers some of them — confirmed: the Deckers
+// miss walked unnamed/0 -> Sugar Creek/0 -> South Platte River/565 cfs. It does
+// NOT always work (the Madison miss stayed inside Corral Creek for six hops),
+// so this is a repair, not a guarantee. When it fails we return null and show
+// no forecast, which is the whole point.
+async function walkDownstreamToRealWater(reachId, maxHops) {
+  let cur = reachId;
+  for (let i = 0; i < (maxHops || 5); i++) {
+    const p = await probeReach(cur);
+    if (!p) return null;
+    if (p.name && p.flow != null && p.flow > 1) return p;
+    if (!p.downstream.length) return null;
+    cur = p.downstream[0].reachId;
+  }
+  return null;
+}
+
+// gauge: { siteNo, name, lat, lng, reachId? }
+// Returns a reach id, or null when nothing trustworthy could be resolved.
+export async function resolveReachId(gauge) {
+  if (!gauge) return null;
+  // fetchNWMStreamflow already hands back a real reach id when it's the source.
+  if (gauge.reachId != null) return Number(gauge.reachId);
+
+  const key = isUSGSSiteNo(gauge.siteNo)
+    ? "s:" + gauge.siteNo
+    : gauge.lat != null && gauge.lng != null
+      ? "p:" + Number(gauge.lat).toFixed(4) + "," + Number(gauge.lng).toFixed(4)
+      : null;
+  if (!key) return null;
+  const cached = comidCacheGet(key);
+  if (cached !== undefined) return cached;
+
+  let resolved = null;
+  try {
+    if (isUSGSSiteNo(gauge.siteNo)) {
+      resolved = await reachFromUSGSSite(gauge.siteNo);
+      // Name sanity check, same family as fetchNWMStreamflow's targetName fix.
+      // NLDI is not infallible here — gauge 09081600 (Fryingpan) resolves to a
+      // reach NOAA names "Crystal River", which is either a flowline attribution
+      // error or a genuinely different reach. Either way, don't trust it silently.
+      if (resolved != null && gauge.name) {
+        const p = await probeReach(resolved);
+        if (p && p.name && normalizeStreamName(p.name) !== normalizeStreamName(gauge.name)) {
+          resolved = null; // fall through to the point snap below
+        }
+      }
+    }
+    if (resolved == null && gauge.lat != null && gauge.lng != null) {
+      const snapped = await reachFromPoint(gauge.lat, gauge.lng);
+      if (snapped != null) {
+        const p = await probeReach(snapped);
+        if (p && p.name && p.flow != null && p.flow > 1) {
+          resolved = p.reachId;
+        } else {
+          const walked = await walkDownstreamToRealWater(snapped, 5);
+          resolved = walked ? walked.reachId : null;
+        }
+      }
+    }
+  } catch (e) {
+    resolved = null; // fail closed, same as every other source in this file
+  }
+  comidCacheSet(key, resolved);
+  return resolved;
+}
+
+// --- Forecast fetch + shaping ---------------------------------------------
+
+// NWM emits a persistence line on reaches it can't model — most importantly
+// anything below a dam, since it has no idea what the operator will release.
+// Confirmed 2026-09-06: South Boulder Creek returned 27.19 cfs unchanged across
+// all 240 ten-day points; the Watauga below the TVA dam, 108.8 flat.
+//
+// For an angler a flat 10-day line reads as "conditions are locked in," when it
+// actually means "the model has nothing to say." That's worse than showing
+// nothing, so callers must downgrade the confidence label on a flat series and
+// suppress any trend language built from it.
+export function isFlatOutlook(values) {
+  const v = (values || []).filter((x) => x != null && !isNaN(x));
+  if (v.length < 3) return false;
+  const hi = Math.max(...v), lo = Math.min(...v);
+  if (hi <= 0) return true;
+  return (hi - lo) / hi < FLAT_SPREAD_THRESHOLD;
+}
+
+// Collapses NOAA's hourly points into one value per day, which is the
+// resolution a fishing decision is actually made at. Mean rather than a spot
+// reading so a single spiky hour can't define the day, with that day's own
+// range kept alongside it.
+function toDailyOutlook(points, maxDays) {
+  const byDay = new Map();
+  const now = Date.now();
+  for (const p of points || []) {
+    const t = Date.parse(p.validTime);
+    if (isNaN(t) || p.flow == null) continue;
+    const day = Math.ceil((t - now) / 86400000);
+    if (day < 1 || day > (maxDays || 10)) continue;
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push({ flow: p.flow, validTime: p.validTime });
+  }
+  return [...byDay.keys()].sort((a, b) => a - b).map((day) => {
+    const rows = byDay.get(day);
+    const flows = rows.map((r) => r.flow);
+    return {
+      day,
+      cfs: flows.reduce((s, x) => s + x, 0) / flows.length,
+      lo: Math.min(...flows),
+      hi: Math.max(...flows),
+      validDate: rows[0].validTime.slice(0, 10),
+    };
+  });
+}
+
+// Live per-reach forecast — layer 1. Any reach in the country, 10 days.
+export async function fetchNWMReachForecast(reachId, maxDays) {
+  if (reachId == null) return null;
+  const j = await fetchJSONWithRetry(
+    NWPS_REST_BASE + "/reaches/" + reachId + "/streamflow?series=" + NWM_SERIES,
+    12000,
+    2
+  );
+  const series = j && j.mediumRangeBlend && j.mediumRangeBlend.series;
+  if (!series || !series.data || !series.data.length) return null;
+  const days = toDailyOutlook(series.data, maxDays || 10);
+  if (!days.length) return null;
+  // Flatness is judged on the RAW hourly series, never on the daily means.
+  // Caught in testing 2026-09-06: the Fryingpan swings 68.2-70.3 cfs hourly (a
+  // real ~3% movement) but its daily means agree to under 0.5%, so averaging
+  // first mislabeled live water as a dead persistence line. Averaging is the
+  // right call for DISPLAY and the wrong one for this check.
+  const flat = isFlatOutlook(series.data.map((p) => p.flow));
+  return { days, flat, referenceTime: series.referenceTime, reachName: (j.reach && j.reach.name) || "" };
+}
+
+// --- The layered resolver --------------------------------------------------
+// Returns null, or:
+//   { days:[{day,cfs,lo,hi,validDate}], source:"live"|"cache",
+//     confidenceTier:"modeled"|"limited", flat:bool, horizonDays, reachId }
+//
+// confidenceTier maps to the labels in SPEC §3:
+//   "modeled" -> "NOAA modeled"          (dashed pill, "estimated")
+//   "limited" -> "NOAA modeled — limited confidence"  (flat line / regulated)
+// Neither is ever "Official NWS forecast" — that label belongs only to the
+// NWPS gauge forecast (g.forecastCfs), which this never touches or overrides.
+export async function fetchStreamflowOutlook(sb, gauge, opts) {
+  const maxDays = (opts && opts.maxDays) || 10;
+  try {
+    const reachId = await resolveReachId(gauge);
+    if (reachId == null) return null;
+
+    // Layer 1 — live, any reach.
+    const live = await fetchNWMReachForecast(reachId, maxDays);
+    if (live && live.days.length) {
+      const flat = live.flat;
+      return {
+        days: live.days,
+        source: "live",
+        confidenceTier: flat ? "limited" : "modeled",
+        flat,
+        horizonDays: live.days[live.days.length - 1].day,
+        reachId,
+        reachName: live.reachName,
+      };
+    }
+
+    // Layer 2 — the sync-job cache. Tracked reaches only, but it never fails.
+    if (sb) {
+      const cached = await fetchNWMForecastOutlook(sb, reachId);
+      if (cached && cached.length) {
+        const flat = isFlatOutlook(cached.map((d) => d.cfs));
+        return {
+          days: cached.map((d) => ({ day: d.day, cfs: d.cfs, lo: d.cfs, hi: d.cfs, validDate: d.validDate })),
+          source: "cache",
+          confidenceTier: flat ? "limited" : "modeled",
+          flat,
+          horizonDays: cached[cached.length - 1].day,
+          reachId,
+        };
+      }
+    }
+    // Layer 3 — nothing. Deliberately not falling back to current conditions
+    // here: fetchNWMStreamflow already covers that case separately, and
+    // presenting a current reading where a forecast is expected is the exact
+    // silent-substitution failure this spec's guardrails exist to prevent.
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// NOTE: callers that need bounded concurrency for the above should use the
+// mapLimit already defined in App.jsx rather than a second copy here — an
+// identical one was written for this feature and removed once esbuild caught
+// the collision. One implementation, same reasoning as normalizeStreamName's
+// move into this file.
