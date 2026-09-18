@@ -98,13 +98,32 @@ export function scrubBannedFlowWords(text){
 // boundary defined only by [.!?;] would delete valid, unrelated content earlier or later in the
 // same sentence along with the bad claim. Replaces with vague relative language matching what
 // the prompt actually asked for, rather than deleting the phrase outright.
+// 2026-09-20 fix: three confirmed gaps, found by executing this function against a real
+// generated report ("...within about 1.5 hours' drive..." -> "...within about a drive'
+// drive...", i.e. Adam's reported "summary doesn't make sense" bug). (1) A possessive
+// apostrophe after the unit ("hours'", "hour's", "minutes'") wasn't part of any pattern,
+// so it survived as a dangling "'" stuck onto the replacement text. (2) The "within N
+// hours" pattern ran before the bare "N hours (drive)" pattern and didn't itself account
+// for a trailing "drive", so "within 2 hours drive" collapsed to "nearby drive" -- a
+// leftover word the later pattern never got a chance to see. (3) The optional trailing
+// directional/drive word had its OWN leading \s* matched unconditionally even when that
+// word was absent, eating the separator space and jamming the replacement into the next
+// word ("a driveof town"). TRAIL now consumes the possessive and the trailing word as one
+// atomic optional unit (\s+ only fires together with the word it separates), and every
+// pattern also accepts a hyphenated unit ("20-minute drive") that previously passed
+// through untouched with a specific number still visible. NUM also covers spelled-out
+// numbers ("one hour", "fifteen minutes") -- confirmed present verbatim in a real report
+// (see the omissions field below, which is now scrubbed through this same function and
+// used exactly that phrasing) -- the digit-only \d+ never matched those at all.
+const DIST_NUM="(?:\\d+(?:\\.\\d+)?|a\\s+couple(?:\\s+of)?|a\\s+few|half\\s+an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty(?:-five)?|thirty|forty(?:-five)?|fifty|sixty|ninety)";
+const DIST_TRAIL="(?:'s?)?(?:\\s+(?:away|north|south|east|west|drive))?";
 export function scrubDistanceClaims(text){
   if(!text)return text;
   let t=String(text);
-  t=t.replace(/\b\d+(?:\.\d+)?\s*(?:to|-|\u2013|\u2014)\s*\d+(?:\.\d+)?\s*hours?\b/gi,"a longer drive");
-  t=t.replace(/\bwithin\s+(?:an?|\d+(?:\.\d+)?)\s*hours?\b/gi,"nearby");
-  t=t.replace(/\b\d+(?:\.\d+)?\s*hours?\s*(?:away|north|south|east|west|drive)?\b/gi,"a drive");
-  t=t.replace(/\b\d+\s*(?:minutes?|mins?)\s*(?:away|north|south|east|west|drive)?\b/gi,"a short drive");
+  t=t.replace(new RegExp("\\b"+DIST_NUM+"\\s*(?:to|-|\\u2013|\\u2014)\\s*"+DIST_NUM+"\\s*hours?"+DIST_TRAIL+"\\b","gi"),"a longer drive");
+  t=t.replace(new RegExp("\\bwithin\\s+(?:an?|"+DIST_NUM+")\\s*hours?"+DIST_TRAIL+"\\b","gi"),"nearby");
+  t=t.replace(new RegExp("\\b"+DIST_NUM+"[\\s-]*hours?"+DIST_TRAIL+"\\b","gi"),"a drive");
+  t=t.replace(new RegExp("\\b"+DIST_NUM+"[\\s-]*(?:minutes?|mins?)"+DIST_TRAIL+"\\b","gi"),"a short drive");
   return t.replace(/\s{2,}/g," ").trim();
 }
 
@@ -529,7 +548,7 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
       report.recommendation?("Recommendation text: "+String(report.recommendation).slice(0,600)):"",
       groundExcerpt?("RETRIEVED REPORTS (the same search material the Streams list above was drawn from — check this directly for a prominent water it's missing before relying on a fresh search of your own): "+groundExcerpt):"",
       "Do TWO things:",
-      "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Check the RETRIEVED REPORTS text above FIRST for anything prominent the Streams list is missing before relying on your own search. Format each 'Name (where it is and why an angler would fish it — 6 words max)'. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
+      "A) OMISSIONS: up to 3 well-known public trout waters in similar drive range not listed — distinct fisheries, not two sections of one stream. Check the RETRIEVED REPORTS text above FIRST for anything prominent the Streams list is missing before relying on your own search. Format each EXACTLY as 'Name — where it is and why an angler would fish it, 6 words max', with an em dash between the name and the reason (matching the JSON example below — not parentheses). Never state a specific number of minutes or hours to reach it; describe it only in general terms (e.g. 'a Front Range freestone canyon', 'an accessible urban stream') — the app computes and shows the real drive time separately, so a guessed one can only end up contradicting it. Describe the WATER for the reader; never critique the report or use words like ignored, skipped, missing, left out. Real recognized fisheries only; no invented or marginal water. Empty if none.",
       "B) CORRECTIONS: fix only CLEAR factual errors in the report's OWN content for this date and region — a hatch out of season, wrong fly SIZES for a hatch, a stream wrongly framed as tailwater/freestone in the narrative, unsafe/self-contradictory timing, or the Overview/Recommendation text naming ANY water by name that is not one of the Streams listed above (even a real, well-known one) — that water was never added as its own verified pick, so mentioning it by name is not backed by this report's own data; if you find this, rewrite that field's FULL text with the outside mention removed (fall back to a general phrase like 'other waters in range' if you need to preserve the sentence, or drop the clause entirely) rather than naming it. For each narrative field you change, return its corrected FULL text (same length and tone, only the facts fixed). For each stream whose flies are wrong, return its corrected fly list (recognized canon patterns only, never invented names). Change ONLY clear errors; OMIT anything already correct; never restyle or pad.",
       'Return ONLY JSON, no markdown: {"omissions":["Name — reason"],"fixes":{"hatches":"","bestTimes":"","tips":"","overview":"","recommendation":"","rivers":[{"name":"","flies":["",""]}]}}. Omit every key you are not changing; "fixes" can be empty.'
     ].filter(Boolean).join(" ");
@@ -639,8 +658,12 @@ async function verifyOmissions(omissions,loc,gaugeList,flowAvgMap,aiCtx){
   try{
     const regionHint=loc&&loc.label?loc.label.split(",").slice(-1)[0].trim():"";
     const parsed=omissions.map(s=>{
-      const m=String(s||"").match(/^(.*?)\s*\(([^)]*)\)\s*$/);
-      return m?{name:m[1].trim(),desc:m[2].trim()}:{name:String(s||"").trim(),desc:""};
+      const str=String(s||"").trim();
+      let m=str.match(/^(.*?)\s*[\u2013\u2014]\s*(.+)$/); // "Name — reason" / "Name – reason" (schema format)
+      if(!m)m=str.match(/^(.*?)\s+-\s+(.+)$/); // plain " - " fallback in case a model normalizes the dash
+      if(m)return{name:m[1].trim(),desc:scrubDistanceClaims(m[2].trim())};
+      const p=str.match(/^(.*?)\s*\(([^)]*)\)\s*$/); // legacy parenthetical fallback
+      return p?{name:p[1].trim(),desc:scrubDistanceClaims(p[2].trim())}:{name:str,desc:""};
     }).filter(p=>p.name);
     const geocoded=(await Promise.all(parsed.map(async p=>{
       const g=await geocodeRiver(p.name,regionHint,aiCtx);
