@@ -62,6 +62,31 @@ async function fetchUSGSLiveServer(lat, lng, radiusDeg) {
   return { value: { timeSeries: [] } };
 }
 
+// Turns a USGS instantaneous-values response into the gauge objects the pipeline uses.
+// Shared by the main area fetch below AND fetchGaugesNearServer (2026-09-22) so both
+// produce identical shapes — previously this mapping was inline in the handler only.
+function mapUSGSSeries(liveTS, lat, lng) {
+  return (liveTS || []).map(t => {
+    const raw = t.values && t.values[0] && t.values[0].value && t.values[0].value[0] && t.values[0].value[0].value;
+    const cfs = raw != null ? parseFloat(raw) : null;
+    const { label: cfsLbl, cls } = cfsLabel(cfs);
+    const siteNo = (t.sourceInfo && t.sourceInfo.siteCode && t.sourceInfo.siteCode[0] && t.sourceInfo.siteCode[0].value) || "";
+    const siteLat = parseFloat((t.sourceInfo && t.sourceInfo.geoLocation && t.sourceInfo.geoLocation.geogLocation && t.sourceInfo.geoLocation.geogLocation.latitude) || 0);
+    const siteLng = parseFloat((t.sourceInfo && t.sourceInfo.geoLocation && t.sourceInfo.geoLocation.geogLocation && t.sourceInfo.geoLocation.geogLocation.longitude) || 0);
+    const dist = Math.sqrt(Math.pow(siteLat - lat, 2) + Math.pow(siteLng - lng, 2));
+    return { name: (t.sourceInfo && t.sourceInfo.siteName) || "Unknown", cfs, label: cfsLbl, cls, siteNo, dist, lat: siteLat, lng: siteLng };
+  }).filter(s => s.cfs != null && s.cfs >= 0 && s.cfs < 500000).sort((a, b) => a.dist - b.dist);
+}
+
+// Small-area live gauge lookup around ONE point (~13 mi box). Used by the final report
+// audit when it adds a water whose gauge got crowded out of the capped area-wide list —
+// confirmed case: the South Platte at Deckers gauge never made the 40-slot list from
+// Lafayette. Nationwide by construction (USGS), no per-state logic.
+async function fetchGaugesNearServer(lat, lng) {
+  const j = await fetchUSGSLiveServer(lat, lng, 0.2);
+  return mapUSGSSeries((j && j.value && j.value.timeSeries) || [], lat, lng);
+}
+
 // Flow-average baseline — duplicated from src/App.jsx's fetchFlowAvgBatch, same
 // "intentionally duplicated small utility" pattern as the rest of this block (2026-08-12).
 // Unlocks the "well below average"/"about average" flow language in background reports:
@@ -168,11 +193,17 @@ function firstSentence(text, maxLen = 220) {
 async function sendReportEmail(resend, toEmail, label, dateStr, report, rowId) {
   const link = APP_URL + "/?report=" + encodeURIComponent(rowId) + "&tab=plan";
   const teaser = firstSentence(report.recommendation || report.overview || "Your report is ready.");
+  // Never silent: if the final accuracy check didn't run, the angler hears about it here.
+  const a = report && report.audit;
+  const auditNote = (a && (a.status === "skipped" || a.status === "failed"))
+    ? `<p style="color:#8c4936;font-size:13px;line-height:1.4;">Heads up: our final accuracy check didn't finish on this report (${String(a.reason || a.status).replace(/[<>&]/g, "")}). Please double-check access points and conditions before you head out.</p>`
+    : "";
   const html = `
     <div style="font-family:Georgia,serif;max-width:520px;margin:0 auto;color:#2a2a24;">
       <h2 style="color:#4A5A3F;margin-bottom:4px;">Your fishing report is ready</h2>
       <p style="color:#6b6b60;margin-top:0;">${label} — ${dateStr}</p>
       <p style="line-height:1.5;">${teaser}</p>
+      ${auditNote}
       <a href="${link}" style="display:inline-block;background:#d09a4a;color:#0c1e25;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;margin:16px 0;">View Full Report</a>
       <p style="color:#8a8a80;font-size:13px;">This link opens the report in Guide's Choice — sign in if you're not already.</p>
     </div>`;
@@ -199,6 +230,7 @@ async function sendFailureEmail(resend, toEmail, label) {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now(); // the function's clock starts here, not when waitUntil begins
   if (req.method !== "POST") return res.status(405).json({ error: { message: "Method not allowed" } });
 
   const jwt = (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
@@ -268,16 +300,7 @@ export default async function handler(req, res) {
         fetchUSGSLiveServer(lat, lng, 2)
       ]);
       const liveTS0 = (usgs0 && usgs0.value && usgs0.value.timeSeries) || [];
-      let pgScaled = liveTS0.map(t => {
-        const raw = t.values && t.values[0] && t.values[0].value && t.values[0].value[0] && t.values[0].value[0].value;
-        const cfs = raw != null ? parseFloat(raw) : null;
-        const { label: cfsLbl, cls } = cfsLabel(cfs);
-        const siteNo = (t.sourceInfo && t.sourceInfo.siteCode && t.sourceInfo.siteCode[0] && t.sourceInfo.siteCode[0].value) || "";
-        const siteLat = parseFloat((t.sourceInfo && t.sourceInfo.geoLocation && t.sourceInfo.geoLocation.geogLocation && t.sourceInfo.geoLocation.geogLocation.latitude) || 0);
-        const siteLng = parseFloat((t.sourceInfo && t.sourceInfo.geoLocation && t.sourceInfo.geoLocation.geogLocation && t.sourceInfo.geoLocation.geogLocation.longitude) || 0);
-        const dist = Math.sqrt(Math.pow(siteLat - lat, 2) + Math.pow(siteLng - lng, 2));
-        return { name: (t.sourceInfo && t.sourceInfo.siteName) || "Unknown", cfs, label: cfsLbl, cls, siteNo, dist, lat: siteLat, lng: siteLng };
-      }).filter(s => s.cfs != null && s.cfs >= 0 && s.cfs < 500000).sort((a, b) => a.dist - b.dist);
+      let pgScaled = mapUSGSSeries(liveTS0, lat, lng);
       pgScaled = directionalSpread([...pgScaled.filter(s => s.cfs >= 15), ...pgScaled.filter(s => s.cfs < 15)], 40, lat, lng);
       // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
       // more states/agencies later. Added AFTER the cap above, not before it: DWR only
@@ -323,13 +346,16 @@ export default async function handler(req, res) {
       // pTempMap (water-temp batch) is still NOT computed server-side — separate from this
       // round's fix, affects thermal-risk wording specifically, not the flow-average work.
       // Flagged as its own open item rather than folded in silently.
-      const aiCtx = { askAI: askAIServer, geocodePlaces: geocodePlacesServer };
+      const aiCtx = { askAI: askAIServer, geocodePlaces: geocodePlacesServer, fetchGaugesNear: fetchGaugesNearServer };
 
       const report = await runTripPlannerPipeline(
-        { loc: { label, lat, lng }, ds, driveMinutes: driveMinutes || 120, wx, pgScaled, savedGauges, pTempMap: {}, flowAvgMap, thorough: true },
+        // deadlineAt: the final report audit uses this to decide whether it has time to run.
+        // 15 s kept back for the NWM fallback, save, and email below.
+        { loc: { label, lat, lng }, ds, driveMinutes: driveMinutes || 120, wx, pgScaled, savedGauges, pTempMap: {}, flowAvgMap, thorough: true, deadlineAt: startedAt + (maxDuration - 15) * 1000 },
         aiCtx,
         null // no onStep — nobody's watching a background job's progress
       );
+      console.log("[plan-trip-background] pipeline finished in " + Math.round((Date.now() - startedAt) / 1000) + " s; audit: " + ((report && report.audit && report.audit.status) || "none"));
 
       // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — same
       // additive, fail-closed enrichment as the on-screen planner in App.jsx, so an
