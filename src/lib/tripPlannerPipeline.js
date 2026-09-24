@@ -120,10 +120,35 @@ const DIST_TRAIL="(?:'s?)?(?:\\s+(?:away|north|south|east|west|drive))?";
 export function scrubDistanceClaims(text){
   if(!text)return text;
   let t=String(text);
-  t=t.replace(new RegExp("\\b"+DIST_NUM+"\\s*(?:to|-|\\u2013|\\u2014)\\s*"+DIST_NUM+"\\s*hours?"+DIST_TRAIL+"\\b","gi"),"a longer drive");
-  t=t.replace(new RegExp("\\bwithin\\s+(?:an?|"+DIST_NUM+")\\s*hours?"+DIST_TRAIL+"\\b","gi"),"nearby");
-  t=t.replace(new RegExp("\\b"+DIST_NUM+"[\\s-]*hours?"+DIST_TRAIL+"\\b","gi"),"a drive");
-  t=t.replace(new RegExp("\\b"+DIST_NUM+"[\\s-]*(?:minutes?|mins?)"+DIST_TRAIL+"\\b","gi"),"a short drive");
+  // 2026-09-22 rewrite: a real emailed report read "Within roughly a drive of Lafayette",
+  // "the immediate a drive radius", and (older) "about a a short drive". Root cause: each
+  // pattern replaced only the number+unit, leaving the words AROUND it ("roughly a", "about
+  // a", "of") behind to collide with the replacement. Every pattern now consumes an optional
+  // leading qualifier + article as part of the same match, and replacement keeps the
+  // original capitalization so a sentence-initial "Within" stays capitalized.
+  const Q="(?:(?:roughly|about|around|approximately|under|less\\s+than|some|just)\\s+)?";
+  const ART="(?:(?:an?|the)\\s+)?";
+  const NUMU="(?:"+ART+DIST_NUM+"[\\s-]*|an?\\s+)";
+  const UNIT="(?:hours?|minutes?|mins?)(?:'s?)?";
+  const keepCase=(rep)=>(m)=>/^[A-Z]/.test(m)?rep.charAt(0).toUpperCase()+rep.slice(1):rep;
+  const rx=(src)=>new RegExp(src,"gi");
+  // "within (roughly) (a) 2-hour (drive) (radius) of X" -> "within reach of X"
+  t=t.replace(rx("\\bwithin\\s+"+Q+NUMU+UNIT+"(?:\\s+(?:of\\s+)?drive)?(?:\\s+radius)?\\s+(?:of|from)\\b"),keepCase("within reach of"));
+  // "(the) (immediate) (a) 2-hour (drive) radius/range" -> "the area"
+  t=t.replace(rx("\\b"+ART+"(?:immediate\\s+)?"+NUMU+UNIT+"\\s+(?:drive\\s+)?(?:radius|range)\\b"),keepCase("the area"));
+  // "(about) 1 to 2 hours (away)" -> "a longer drive"
+  t=t.replace(rx("\\b"+Q+ART+DIST_NUM+"\\s*(?:to|-|\\u2013|\\u2014)\\s*"+DIST_NUM+"\\s*hours?"+DIST_TRAIL+"\\b"),keepCase("a longer drive"));
+  // "within (about) an hour / 2 hours (drive)" -> "nearby"
+  t=t.replace(rx("\\bwithin\\s+"+Q+NUMU+"hours?"+DIST_TRAIL+"\\b"),keepCase("nearby"));
+  // Bare "2 hours"/"45 minutes" only when it's clearly a DRIVE distance (followed by
+  // away/drive, or a direction/from) -- "fish two hours after sunrise" and "the hatch lasts
+  // 30 minutes" are time-of-day advice and must survive untouched (the pre-2026-09-22
+  // version rewrote those to "a drive after sunrise").
+  const TRAIL_REQ="(?:'s?)?(?:\\s+(?:away|drive)\\b|(?=\\s+(?:north|south|east|west|from|out|up|down)\\b))";
+  // "(about) (a) 2-hour drive" -> "a drive"
+  t=t.replace(rx("\\b"+Q+ART+DIST_NUM+"[\\s-]*hours?"+TRAIL_REQ),keepCase("a drive"));
+  // "(about) (a) 45-minute drive" -> "a short drive"
+  t=t.replace(rx("\\b"+Q+ART+DIST_NUM+"[\\s-]*(?:minutes?|mins?)"+TRAIL_REQ),keepCase("a short drive"));
   return t.replace(/\s{2,}/g," ").trim();
 }
 
@@ -215,7 +240,7 @@ export function buildLabSynth(a){
     "(6) If NO genuine trout water is within about 2 hours, say so plainly in the overview, and STILL include the single nearest real trout fishery as one river entry with an honest note that reaching it is a road-trip beyond day-trip range - NEVER return an empty rivers list.",
     "(7) Each river entry must be ONE specific fishery - one tailwater below ONE dam, or one continuous section. NEVER combine two different tailwaters, two different dams, or two far-apart access points into a single entry; if two are both worth recommending, list them as SEPARATE entries each with its own coordinates and access points.",
     "(8) DRAINAGE INTEGRITY: every access point, road, put-in, dam, town, and confluence you list for a river MUST lie on THAT river, within its own drainage. NEVER borrow a neighboring stream's feature - do not put a Bear Creek dam or confluence on Clear Creek, do not list a downstream-plains town and a far-upstream reservoir as two access points on the same canyon stream, do not attach one reservoir's road to a different tailwater. Name only the river's OWN dam and OWN confluence. If you are not certain a specific access point belongs to this exact stream, give a general nearby town or omit it rather than borrowing one from another drainage. This rule is about keeping a CHOSEN river's own features correct - it is NOT a reason to skip a close stream you are less sure of; pick the close stream and give it a general nearby town as access.",
-    "(9) PROXIMITY COVERAGE: a real guide starts a client on the CLOSEST quality trout water and only reaches farther for variety. The gauge list above is ordered nearest-first. Always include the nearest genuine trout streams (the closest 2-3 trout drainages within ~30-60 min) BEFORE adding a famous water 1.5-2 hours away. NEVER omit a close gauged trout stream in order to list a distant famous one, and NEVER give two slots to one distant river system while closer trout drainages within range go unlisted. Spread picks across DIFFERENT drainages and DIFFERENT directions from the origin, not a single corridor. One farther marquee water is fine for range, but the closest trout waters must anchor the list. TIE-BREAKER for that one farther marquee slot (added 2026-08-30): when more than one farther water genuinely qualifies, prefer whichever is independently corroborated by TWO OR MORE of the RETRIEVED REPORTS above, especially if those sources describe it in terms like 'premier', 'Gold Medal', 'blue-ribbon', 'renowned', or 'famous' - real cross-source acclaim like that found in this run's own search results is a stronger, more consistent signal than which candidate happens to be marginally closer or was simply mentioned first.",
+    "(9) PROXIMITY + QUALITY COVERAGE (revised 2026-09-22): a real guide anchors a client on the CLOSEST quality trout water and ALSO makes sure the region's best water in range is on the table. The gauge list above is ordered nearest-first. Include the closest 2 genuine trout drainages as anchors - NEVER omit a close gauged trout stream in favor of a distant one. Then fill the remaining slots with the BEST remaining trout water within range regardless of whether it is 30 minutes or 2 hours away: a premier, Gold Medal, blue-ribbon, or nationally known tailwater or canyon within range must NOT be left out in favor of a marginal close stream (very low flow, warming water, heavy pressure). Up to TWO farther waters are fine when both are genuinely top-tier, and two distinct sections of one famous river (e.g. a canyon below a dam and a separate reach downstream) may be two separate entries per rule 7 when both are premier. Spread picks across DIFFERENT drainages and directions from the origin rather than a single corridor. TIE-BREAKER among farther candidates: prefer whichever is independently corroborated by TWO OR MORE of the RETRIEVED REPORTS, especially described as 'premier', 'Gold Medal', 'blue-ribbon', 'renowned', or 'famous'.",
     "(10) FINAL RANKING - recommendation AND bestFor: rule 9 controls which waters make the candidate list, but does NOT by itself decide which included water is today's single best bet or which wins each bestFor category - do not default to whichever entry is simply closest. Weigh how well each INCLUDED water fits TODAY specifically: on a hot day a stable cold tailwater is often the stronger recommendation than a closer freestone stream precisely because it will not warm past a safe range, even if it takes a little longer to reach; on an overcast, cool, or high-flow day that same tradeoff may not apply. Choose the recommendation and each bestFor category (mostFish, bestScenery, mostSolitude, beginners) based on which included water genuinely best fits today's conditions and that category's own criterion - draw from the FULL rivers list, not only the closest one or two entries, and do not let every category default to the same one or two waters when the list holds real variety. Every water name you use anywhere in overview, recommendation, or any bestFor value MUST be one you also added as its own entry in the rivers list below - never mention a different water by name in these fields, even in passing or as a runner-up, even if it's real and nearby; if it's worth mentioning, add it as its own rivers entry instead of just naming it in prose.",
     "CREDIBILITY RULES: label type 'Tailwater' only for water directly below a major dam, otherwise 'Freestone'. NEVER call a flow perfect, ideal, or Goldilocks - say what the number suits (wading, nymphing, dries) and note fish are caught across a wide range. Frame crowd levels as likelihood from access and popularity, never as fact. Base time-of-day advice on the given season and temperatures; with cold spring/early-summer water midday often fishes well, so do not give generic avoid-midday advice unless temps warrant it. Hatch guidance must match the date's month and region. FLY NAMES: name flies ONLY from the recognized national canon, matched to the hatch and season you identified - choose only from: "+FLY_CANON+". You may pick a specific modern pattern from that canon when it fits the hatch, but NEVER invent a pattern name and NEVER copy a one-off local shop or guide pattern from the reports - name only complete, widely recognized patterns a typical fly shop would stock. Every fly must be a full pattern name, never a tying style or descriptor with a generic noun (for example never 'Parachute Hatch' - write 'Parachute Adams'), and never a hatch or event named as if it were a fly. Attach a person's name to a fly only when it is a recognized pattern. In high water fish hold in soft edges and banks - never claim high flow concentrates fish in main-channel runs.",
     "SOURCING: synthesize the reports into your own original assessment. Do NOT rely on a single source and do NOT name, quote, or attribute any specific shop, business, website, or author.",
@@ -1078,12 +1103,19 @@ function repairJSON(text){
 // Fishable-water filter applied to the raw USGS gauge list before it becomes AI-candidate
 // material (same rule the on-screen flow has always used).
 const NON_FISHABLE_WORDS=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
+const TAILWATER_GAUGE_RE=/\b(?:BELOW|BLW|BL)\b[\s\S]*\b(?:LAKE|RESERVOIR|RES|DAM)\b/i;
+const TAILWATER_EXEMPT_WORDS=new Set(["reservoir","lake","outlet","tailrace"]);
 export function filterFishableGauges(pgScaled,lat,lng){
   return directionalSpread(pgScaled.filter(g=>{
     const n=g.name.toLowerCase();
     const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
     const hasWater=waterWords.some(w=>n.includes(w));
-    const hasNonFish=NON_FISHABLE_WORDS.some(w=>n.includes(w));
+    // 2026-09-22: "<river> BELOW <name> LAKE/RESERVOIR/DAM" is standard tailwater naming
+    // nationwide (e.g. "SOUTH PLATTE RIVER BELOW CHEESMAN LAKE") -- the most valuable trout
+    // gauges in a region. Same root cause as the DWR "BELOW GROSS RESERVOIR" fix above: the
+    // lake/reservoir words mean a lake-type site ONLY when "below" isn't in front of them.
+    const tailGauge=TAILWATER_GAUGE_RE.test(g.name);
+    const hasNonFish=NON_FISHABLE_WORDS.some(w=>n.includes(w)&&!(tailGauge&&TAILWATER_EXEMPT_WORDS.has(w)));
     return hasWater&&!hasNonFish&&!isWarmUrbanGauge(g.name);
   }),25,lat,lng);
 }
@@ -1313,6 +1345,304 @@ export function buildPersonalAngle(anglerHistory){
 //          vs.-average comparison) }
 // aiCtx: { askAI(prompt,useSearch,maxTokens,kind,useFetch), geocodePlaces(name,regionHint) }
 // onStep: optional (text, state) => void progress callback
+// ── Whole-report final audit (2026-09-22) ────────────────────────────────────
+// WHY THIS EXISTS: every earlier check in this file looks at ONE piece of the report
+// (a field, a pick, a name) and most of them run BEFORE later steps change things again.
+// Nothing ever read the FINISHED report the way an angler does - top to bottom, every
+// card, every access point, checked against each other. A real emailed report
+// (Lafayette, 2026-09-23) shipped with: access points on the wrong river or wrong section
+// (St. Vrain State Park "at Lyons", Golden Gate State Park "on Clear Creek"), upstream/
+// downstream backwards, "closest stream" next to drive times contradicting it, "Early
+// September" on a Sept 23 report, a 2 CFS reading called fishable, and the South Platte
+// (clearly the best water in range that day) left out entirely.
+//
+// HOW IT WORKS: runs LAST, on the complete final report, background/email path only
+// (it spends time the on-screen path doesn't have). One Sonnet+search call reviews the
+// whole thing as a senior local guide and returns corrections, not a critique. Every
+// correction is then re-checked deterministically before it is kept:
+//   - text goes back through the same scrubs as the original report (sanitize),
+//   - access points are geocoded and dropped if they land far from their own river,
+//   - a new or replacement water must geocode, be within day-trip range, not already be
+//     listed, and gets a REAL live gauge when one exists (local USGS lookup via
+//     aiCtx.fetchGaugesNear, so the capped gauge list can't hide it),
+//   - fly names go through cleanFlyList, crowd level through normalizeCrowdLevel.
+// A second audit round runs only if the first changed something and time allows.
+// Result is recorded on report.audit (status passed/fixed/skipped/failed) and the
+// background endpoint surfaces a skipped/failed audit in the email - never silent.
+const AUDIT_MIN_MS=45000, AUDIT_MAX_MS=120000, AUDIT_RESERVE_MS=20000;
+const AP_MAX_MI=15, AP_CHAIN_MI=8;
+
+// Crowd level is shown as a colored chip ("Moderate crowds") - it must be one word, not
+// the sentence the AI sometimes writes ("Moderate; ... fewer anglers. crowds").
+export function normalizeCrowdLevel(v){
+  const s=String(v||"").toLowerCase();
+  if(!s.trim())return "";
+  if(/\b(moderate|medium|average)\b/.test(s))return "Moderate";
+  if(/\b(heavy|high|crowded|busy|packed)\b/.test(s))return "Heavy";
+  if(/\b(light|low|few|quiet|solitude|minimal)\b/.test(s))return "Light";
+  return "";
+}
+
+function auditView(report){
+  const rv=(report.rivers||[]).map((r,i)=>({
+    index:i,name:r.name,type:r.type,cfs:r.cfs,flowNote:r.condition,crowdLevel:r.crowdLevel,
+    driveMinEstimate:r.driveMin!=null?r.driveMin:null,liveGauge:r.gaugeSnap||null,
+    conditions:r.conditions,techniques:r.techniques,bestTime:r.bestTime,
+    accessPoints:r.accessPoints||[],flies:r.flies||[],why:r.why,
+    restriction:r.restriction?{status:r.restriction.status,hours:r.restriction.hours,reach:r.restriction.reach}:null
+  }));
+  return {overview:report.overview,recommendation:report.recommendation,bestFor:report.bestFor,
+    hatches:report.hatches,bestTimes:report.bestTimes,tips:report.tips,
+    flyBoxEssentials:report.flyBoxEssentials,rivers:rv};
+}
+
+function buildAuditPrompt(report,ctx,round){
+  const loc=ctx.loc||{};
+  return [
+    "You are a senior fly fishing guide who knows "+(loc.label||"this region")+" and its waters personally, doing the FINAL accuracy check on a trout trip report before it is emailed to a paying angler. Report date: "+(ctx.ds||"today")+". Origin: "+(loc.label||"?")+". Air temp: "+(ctx.airF!=null?ctx.airF+"F":"unknown")+".",
+    round>1?"This report has ALREADY been corrected once. Only fix what is still clearly wrong; if it is now correct, return empty issues.":"",
+    "Read the ENTIRE report below as one document, the way the angler will. Check every field and every river card, and check them AGAINST EACH OTHER.",
+    "REPORT JSON: "+JSON.stringify(auditView(report)),
+    "RETRIEVED REPORTS (the search material the report was built from): "+(String(ctx.searchTxt||"").slice(0,12000)||"none"),
+    "CHECK FOR, in order of importance:",
+    "1) GEOGRAPHY: every access point must be a real public access on THAT river, inside THAT card's section (a card titled for a canyon must not list a town access miles away; a state park, town, or trail on a different stream or drainage is wrong). Upstream/downstream and which-side-of-the-dam statements must be correct. Remove a wrong access point; replace it ONLY with one you are highly confident is real and on that exact reach; fewer correct access points beat more wrong ones. Any sentence starting 'Note: access points here cover...' must be correct or be rewritten/removed.",
+    "2) CONSISTENCY: no field may contradict another. driveMinEstimate values are the app's own drive estimates - no text may claim a water is closest/nearest/farthest unless those numbers agree; prefer removing distance superlatives entirely. The recommendation and bestFor must agree with what the cards say (e.g. do not call one water both 'worth a full day' and 'too far for a full day'). Every water named in overview/recommendation/bestFor must have its own card - if a water is only mentioned in passing, either remove the mention or add it as a card (step 6).",
+    "3) DATE AND SEASON: every seasonal phrase must fit "+(ctx.ds||"the date")+" in this region (no 'early September' on a late-September report); hatches and flies must be in season.",
+    "4) FLOW SENSE: descriptions must make sense for the CFS number and that river's size. A reading that is implausible for the named water (e.g. a couple CFS on a mainstem canyon river) must not be described as normal or 'fishable' - say plainly that the gauge reading may not reflect this section. Never change a CFS number itself.",
+    "5) LANGUAGE: fix broken or garbled sentences, leftover template text, stray words, and internal/technical wording. Plain, confident guide voice.",
+    "6) MISSING BETTER WATER: is there a well-known PUBLIC trout fishery within the same drive range as the report's farthest card that a knowledgeable local guide would clearly rank ABOVE the weakest card for TODAY's conditions? If yes, add it (max 2) as a full card and give replaceIndex = the weakest card it should replace (or null to add without replacing when there are fewer than 6 cards). Only real, recognized water; never beyond day-trip range. Use separate cards for separate sections of one river (e.g. a canyon below a dam vs. a town reach downstream). If you add or remove a card, update recommendation and bestFor so they reflect the best water in the final set.",
+    "RULES FOR EVERYTHING YOU WRITE: never state a specific number of minutes or hours to reach any water; never invent a CFS number; never name, quote, or attribute a shop, guide service, website, or person; flies ONLY from this canon: "+FLY_CANON+". crowdLevel must be exactly Light, Moderate, or Heavy. Keep each field about the same length as the original. Change ONLY what is actually wrong; omit everything that is already correct.",
+    'Return ONLY JSON, no markdown: {"issues":[{"where":"e.g. rivers[2].accessPoints","problem":"short description"}],"fixes":{"overview":"","recommendation":"","bestFor":{"mostFish":"","bestScenery":"","mostSolitude":"","beginners":""},"hatches":"","bestTimes":"","tips":"","flyBoxEssentials":[]},"rivers":[{"index":0,"accessPoints":[],"why":"","conditions":"","techniques":"","bestTime":"","flowNote":"","flies":[],"crowdLevel":"","type":""}],"remove":[],"add":[{"replaceIndex":null,"name":"","lat":0,"lng":0,"type":"Tailwater|Freestone","conditions":"","techniques":"","bestTime":"","crowdLevel":"","accessPoints":[],"flies":[],"why":"","restriction":null}]}. Omit every key you are not changing. For rivers[], include only cards you are changing and only the fields you are changing.'
+  ].filter(Boolean).join(" ");
+}
+
+function parseAuditJSON(raw){
+  const clean=String(raw||"").replace(/```json|```/g,"").replace(/<cite[^>]*>|<\/cite>/g,"").trim();
+  const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+  if(a===-1||b<=a)return null;
+  try{return JSON.parse(clean.slice(a,b+1));}catch{return repairJSON(clean.slice(a,b+1));}
+}
+
+const apGeoCache=new Map();
+async function geocodeAPCached(str,riverName,regionHint,aiCtx){
+  const key=str+"|"+riverName;
+  if(apGeoCache.has(key))return apGeoCache.get(key);
+  const p=(async()=>{
+    const m=coordRe.exec(String(str));
+    if(m)return{lat:parseFloat(m[1]),lng:parseFloat(m[2])};
+    try{
+      const q=String(str).split(/[(—]/)[0].trim()+", "+coreRiverName(riverName)+(regionHint?", "+regionHint:"");
+      const g=await aiCtx.geocodePlaces(q);
+      return g&&g.lat!=null?{lat:g.lat,lng:g.lng}:null;
+    }catch{return null;}
+  })();
+  apGeoCache.set(key,p);
+  return p;
+}
+
+// Deterministic access-point check (reuses Google Places, same as geocodeRiver/labSplitFused).
+// Drops a point only on POSITIVE evidence it's elsewhere: it geocoded, and it's more than
+// AP_MAX_MI from the river's own pin AND not within AP_CHAIN_MI of another point that is
+// (long canyons have access spread well beyond one gauge). Unresolved points are kept -
+// the AI audit already reviewed them. Never throws.
+export async function validateAccessPoints(rivers,regionHint,aiCtx,dropped){
+  if(!Array.isArray(rivers)||!aiCtx||typeof aiCtx.geocodePlaces!=="function")return rivers;
+  const mi=(a,b)=>Math.hypot(a.lat-b.lat,a.lng-b.lng)*69;
+  return Promise.all(rivers.map(async r=>{
+    const aps=Array.isArray(r.accessPoints)?r.accessPoints.slice(0,5):[];
+    if(!aps.length||r.lat==null||r.lng==null)return r;
+    const pts=await Promise.all(aps.map(s=>geocodeAPCached(s,r.name,regionHint,aiCtx)));
+    const anchor={lat:r.lat,lng:r.lng};
+    const near=pts.map(p=>p?mi(p,anchor)<=AP_MAX_MI:null);
+    const keep=aps.filter((s,i)=>{
+      if(!pts[i])return true;
+      if(near[i])return true;
+      const chained=pts.some((q,j)=>j!==i&&q&&near[j]&&mi(pts[i],q)<=AP_CHAIN_MI);
+      if(!chained&&Array.isArray(dropped))dropped.push(r.name+": "+s+" (~"+Math.round(mi(pts[i],anchor))+" mi from this water)");
+      return chained;
+    });
+    return {...r,accessPoints:keep};
+  }));
+}
+
+// Gauge match for an audit-added water. Two confirmed failure modes with the general
+// snapRiversToGauges for this case (tested 2026-09-22 against live USGS data): (1) a reach
+// qualifier in the name ("South Platte River at Deckers") must appear in the gauge name,
+// so it matches nothing; (2) without it, the bare river name ties every gauge on that
+// river and the ambiguity guard (correctly) refuses to guess. Here the pin is a geocoded
+// point on the named reach, so: match on the stream name only, among gauges within ~8 mi
+// of the pin, and break a tie only when one gauge is clearly the closest (under half the
+// distance of the next). Otherwise attach nothing - the NWM fallback covers it downstream.
+function snapAuditCardToGauge(card,gauges){
+  if(!Array.isArray(gauges)||!gauges.length||card.lat==null||card.lng==null)return card;
+  const streamOnly=String(card.name||"").split(/\s+(?:at|near|below|above|in|through|from|downstream|upstream)\s+|\s*[(,—-]\s*/i)[0].trim();
+  const nearby=gauges.filter(g=>g&&g.lat&&g.lng&&Math.hypot(g.lat-card.lat,g.lng-card.lng)<=0.12);
+  if(!nearby.length)return card;
+  const direct=snapRiversToGauges([{...card,name:streamOnly}],nearby,0.12)[0];
+  if(direct.gaugeSnap)return {...direct,name:card.name};
+  // Tie case: rank same-stream gauges by distance.
+  const tokens=streamOnly.toUpperCase().replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(t=>t&&!["RIVER","CREEK","THE","FORK"].includes(t));
+  const same=nearby.filter(g=>tokens.length&&tokens.every(t=>String(g.name||"").toUpperCase().includes(t))).map(g=>({g,d:Math.hypot(g.lat-card.lat,g.lng-card.lng)})).sort((a,b)=>a.d-b.d);
+  if(!same.length)return card;
+  if(same.length>1&&!(same[0].d<=same[1].d*0.5))return card;
+  const best=same[0].g;
+  return {...card,lat:best.lat,lng:best.lng,gaugeSnap:best.name,siteNo:best.siteNo||null,gaugeCfs:best.cfs!=null?best.cfs:null,_snapDistMi:Math.round(same[0].d*69*10)/10,_snapScore:"audit-nearest"};
+}
+
+async function buildAddedCard(a,ctx){
+  const {loc,aiCtx,gaugeList,flowAvgMap,regionHint,sanitize,eThermal}=ctx;
+  const name=String((a&&a.name)||"").trim();
+  if(!name)return null;
+  let pos=null;
+  try{pos=await geocodeRiver(name,regionHint,aiCtx);}catch{pos=null;}
+  if(!pos&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lng))&&(a.lat||a.lng))pos={lat:Number(a.lat),lng:Number(a.lng)};
+  if(!pos)return {rejected:name+": couldn't locate it"};
+  const dm=await computeDriveMinutes([pos],loc);
+  const driveMin=dm[0]?dm[0].driveMin:null;
+  if(driveMin!=null&&driveMin>DAY_TRIP_CAP_MIN)return {rejected:name+": beyond day-trip range"};
+  let card={name,lat:pos.lat,lng:pos.lng};
+  let snapped=snapAuditCardToGauge(card,gaugeList||[]);
+  if(!snapped.gaugeSnap&&typeof aiCtx.fetchGaugesNear==="function"){
+    try{const local=await aiCtx.fetchGaugesNear(pos.lat,pos.lng);if(Array.isArray(local)&&local.length)snapped=snapAuditCardToGauge(card,local);}catch{/* no local gauge - fine */}
+  }
+  const tw=/tailwater/i.test(String(a.type||""));
+  const fva=snapped.gaugeCfs!=null?flowVsAverageLocal(snapped.gaugeCfs,(flowAvgMap||{})[snapped.siteNo]):null;
+  const out={
+    ...snapped,
+    type:tw?"Tailwater":"Freestone",verified:tw?"tailwater":"",
+    source:snapped.gaugeSnap?"gauge":"search",
+    cfs:snapped.gaugeCfs!=null?String(Math.round(snapped.gaugeCfs)):"",
+    condition:fva?fva.label:"",
+    crowdLevel:normalizeCrowdLevel(a.crowdLevel),
+    conditions:sanitize(a.conditions),techniques:sanitize(a.techniques),
+    bestTime:eThermal?scrubAfternoonPush(sanitize(a.bestTime)):sanitize(a.bestTime),
+    accessPoints:Array.isArray(a.accessPoints)?a.accessPoints.map(String).filter(Boolean).slice(0,5):[],
+    flies:cleanFlyList(Array.isArray(a.flies)?a.flies:[]),
+    why:sanitize(a.why),
+    driveMin,miFromOrigin:dm[0]?dm[0].mi:null,
+    auditAdded:true
+  };
+  if(a.restriction&&typeof a.restriction==="object"&&a.restriction.status){
+    out.restriction={name,status:a.restriction.status==="closure"?"closure":"hootowl",hours:String(a.restriction.hours||""),reach:String(a.restriction.reach||"")};
+  }
+  if(isWarmUrbanGauge(out.name)||isWarmUrbanGauge(out.gaugeSnap))return {rejected:name+": warm urban reach"};
+  return out;
+}
+
+async function applyAudit(report,o,ctx){
+  const {sanitize,eThermal}=ctx;
+  const nb={...report};
+  const changed=[];
+  const fx=(o&&o.fixes)||{};
+  const txt=v=>{const s=String(v||"").trim();return s.length>=20?s:"";};
+  ["overview","recommendation","hatches","bestTimes"].forEach(k=>{if(txt(fx[k])){nb[k]=sanitize(fx[k]);if(k==="bestTimes"&&eThermal)nb[k]=scrubAfternoonPush(nb[k]);changed.push(k);}});
+  if(txt(fx.tips)){let t=sanitize(fx.tips);if(eThermal){t=scrubAfternoonPush(t);if(!t.includes(THERMAL_TIP_SOFT))t=(THERMAL_TIP_SOFT+" "+t).trim();}nb.tips=t;changed.push("tips");}
+  if(fx.bestFor&&typeof fx.bestFor==="object"){
+    const bf={...(nb.bestFor||{})};
+    ["mostFish","bestScenery","mostSolitude","beginners"].forEach(k=>{if(txt(fx.bestFor[k])){bf[k]=sanitize(fx.bestFor[k]);changed.push("bestFor."+k);}});
+    nb.bestFor=bf;
+  }
+  if(Array.isArray(fx.flyBoxEssentials)&&fx.flyBoxEssentials.length){const c=cleanFlyList(fx.flyBoxEssentials);if(c.length){nb.flyBoxEssentials=c;changed.push("flyBoxEssentials");}}
+  let rivers=[...(nb.rivers||[])];
+  (Array.isArray(o.rivers)?o.rivers:[]).forEach(e=>{
+    const i=Number(e&&e.index);
+    if(!Number.isInteger(i)||!rivers[i])return;
+    const r={...rivers[i]};
+    ["why","conditions","techniques"].forEach(k=>{if(txt(e[k])){r[k]=sanitize(e[k]);changed.push("rivers["+i+"]."+k);}});
+    if(String(e.bestTime||"").trim().length>=4){r.bestTime=eThermal?scrubAfternoonPush(sanitize(e.bestTime)):sanitize(e.bestTime);changed.push("rivers["+i+"].bestTime");}
+    if(String(e.flowNote||"").trim()){r.condition=sanitize(e.flowNote);changed.push("rivers["+i+"].flowNote");}
+    if(Array.isArray(e.accessPoints)){r.accessPoints=e.accessPoints.map(String).filter(Boolean).slice(0,5);changed.push("rivers["+i+"].accessPoints");}
+    if(Array.isArray(e.flies)&&e.flies.length){const c=cleanFlyList(e.flies);if(c.length){r.flies=c;changed.push("rivers["+i+"].flies");}}
+    if(e.crowdLevel){const c=normalizeCrowdLevel(e.crowdLevel);if(c){r.crowdLevel=c;changed.push("rivers["+i+"].crowdLevel");}}
+    // Type: demotion only. A Tailwater label has its own verification chain upstream
+    // (enforceStreamTypes/labVerifyPicks); the audit may take it away, never grant it.
+    if(/^freestone$/i.test(String(e.type||"").trim())&&/tailwater/i.test(String(r.type||""))){r.type="Freestone";r.verified="";changed.push("rivers["+i+"].type");}
+    rivers[i]=r;
+  });
+  const removeIdx=new Set((Array.isArray(o.remove)?o.remove:[]).map(Number).filter(n=>Number.isInteger(n)&&rivers[n]));
+  const existing=new Set(rivers.map(r=>nrmName(coreRiverName(r.name))));
+  const adds=[];const rejected=[];
+  for(const a of (Array.isArray(o.add)?o.add:[]).slice(0,2)){
+    const core=nrmName(coreRiverName(a&&a.name));
+    if(!core)continue;
+    // Same river name is allowed when it's clearly a different section (name differs),
+    // but an exact duplicate of an existing card is not.
+    if(rivers.some(r=>nrmName(r.name)===nrmName(a.name))){rejected.push(a.name+": already listed");continue;}
+    const card=await buildAddedCard(a,ctx).catch(()=>null);
+    if(!card){rejected.push(String(a.name)+": couldn't be verified");continue;}
+    if(card.rejected){rejected.push(card.rejected);continue;}
+    const ri=Number(a.replaceIndex);
+    if(Number.isInteger(ri)&&rivers[ri])removeIdx.add(ri);
+    adds.push(card);existing.add(core);
+  }
+  const removedNames=[];
+  let kept=rivers.filter((r,i)=>{if(removeIdx.has(i)){removedNames.push(r.name);return false;}return true;});
+  kept=[...kept,...adds];
+  if(kept.length<Math.min(2,rivers.length)){kept=rivers;removedNames.length=0;} // never gut the report
+  while(kept.length>6){const r=kept.find(x=>!x.auditAdded);removedNames.push(r.name);kept=kept.filter(x=>x!==r);}
+  if(adds.length)changed.push("added: "+adds.map(a=>a.name).join(", "));
+  if(removedNames.length)changed.push("removed: "+removedNames.join(", "));
+  nb.rivers=kept;
+  return {report:nb,changed,removedNames,rejected};
+}
+
+export async function auditFinalReport(report,ctx){
+  const t0=Date.now();
+  const audit={status:"skipped",rounds:0,issues:[],changed:[],rejected:[],droppedAccessPoints:[],reason:""};
+  const aiCtx=ctx&&ctx.aiCtx;
+  if(!report||!Array.isArray(report.rivers)||!report.rivers.length){audit.reason="no river cards to check";return {report,audit};}
+  if(!aiCtx||typeof aiCtx.askAI!=="function"){audit.reason="no AI context";return {report,audit};}
+  const deadlineAt=Number.isFinite(ctx.deadlineAt)?ctx.deadlineAt:(t0+180000);
+  const regionHint=ctx.loc&&ctx.loc.label?ctx.loc.label.split(",").slice(-1)[0].trim():"";
+  const fullCtx={...ctx,regionHint};
+  let cur=report;
+  // Start geocoding the CURRENT access points in parallel with the AI call - most will
+  // survive the audit unchanged, so their cached lookups make the final check nearly free.
+  (cur.rivers||[]).forEach(r=>(r.accessPoints||[]).slice(0,5).forEach(s=>{if(typeof aiCtx.geocodePlaces==="function")geocodeAPCached(s,r.name,regionHint,aiCtx);}));
+  for(let round=1;round<=2;round++){
+    const remaining=deadlineAt-Date.now()-AUDIT_RESERVE_MS;
+    if(remaining<AUDIT_MIN_MS){
+      if(round===1){audit.status="skipped";audit.reason="not enough time left in the background job";}
+      break;
+    }
+    let raw;
+    try{
+      raw=await Promise.race([aiCtx.askAI(buildAuditPrompt(cur,fullCtx,round),true,6000,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),Math.min(AUDIT_MAX_MS,remaining)))]);
+    }catch(e){
+      if(round===1){audit.status="failed";audit.reason=(e&&e.message==="timeout")?"accuracy check timed out":"accuracy check hit an error: "+String((e&&e.message)||e).slice(0,100);}
+      break;
+    }
+    const o=parseAuditJSON(raw);
+    audit.rounds=round;
+    if(!o){if(round===1){audit.status="failed";audit.reason="accuracy check returned unreadable output";}break;}
+    const issues=(Array.isArray(o.issues)?o.issues:[]).map(x=>String((x&&x.where)||"")+": "+String((x&&x.problem)||"")).slice(0,20);
+    audit.issues.push(...issues.map(s=>"round "+round+" - "+s));
+    const res=await applyAudit(cur,o,fullCtx);
+    audit.changed.push(...res.changed);
+    audit.rejected.push(...res.rejected);
+    // Reuse the stale-reference rewrite for any water the audit removed, in case a field
+    // the audit didn't itself rewrite still mentions it by name.
+    if(res.removedNames.length){
+      try{
+        const fields=await rewriteStaleFreeText({overview:res.report.overview,recommendation:res.report.recommendation,bestTimes:res.report.bestTimes},res.removedNames,res.report.rivers,ctx.loc,aiCtx,true);
+        res.report={...res.report,...fields};
+      }catch{/* fail-open */}
+    }
+    cur=res.report;
+    if(round===1)audit.status=res.changed.length?"fixed":"passed";
+    if(!res.changed.length)break;
+  }
+  try{
+    const validated=await validateAccessPoints(cur.rivers,regionHint,aiCtx,audit.droppedAccessPoints);
+    cur={...cur,rivers:validated};
+    if(audit.droppedAccessPoints.length&&audit.status==="passed")audit.status="fixed";
+  }catch{/* fail-open */}
+  cur={...cur,rivers:(cur.rivers||[]).map(r=>({...r,crowdLevel:normalizeCrowdLevel(r.crowdLevel)}))};
+  audit.ms=Date.now()-t0;
+  console.log("[audit]",JSON.stringify({status:audit.status,reason:audit.reason,rounds:audit.rounds,ms:audit.ms,issues:audit.issues,changed:audit.changed,rejected:audit.rejected,droppedAccessPoints:audit.droppedAccessPoints}));
+  return {report:cur,audit};
+}
+
 export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const step=(text,state)=>{ if(onStep) onStep(text,state); };
   const { loc, ds, pgScaled, wx } = input;
@@ -1568,6 +1898,16 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
       );
       builtReport={...builtReport,...rewritten};
     }
+  }
+
+  // Whole-report final audit — background/email path only, runs on the FINISHED report
+  // after every other step (see auditFinalReport above). The on-screen path gets the
+  // crowd-level cleanup only, so its chips render the same way.
+  if(thorough){
+    const ar=await auditFinalReport(builtReport,{loc,ds,airF,searchTxt,aiCtx,gaugeList:pgScaled||[],flowAvgMap,sanitize:t=>scrubDistanceClaims(scrubBannedFlowWords(String(t||"").replace(/<cite[^>]*>|<\/cite>/g,"").trim())),eThermal,deadlineAt:input.deadlineAt,thorough});
+    builtReport={...ar.report,audit:ar.audit};
+  }else if(Array.isArray(builtReport.rivers)){
+    builtReport={...builtReport,rivers:builtReport.rivers.map(r=>({...r,crowdLevel:normalizeCrowdLevel(r.crowdLevel)}))};
   }
 
   // Light-touch personalization — deterministic, no AI call, computed last and
