@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -6311,12 +6311,10 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
             (text,state)=>addStep(text,state)
           );
           // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — fills in a
-          // flow number for picks that came back with NO gauge match at all (r.cfs null).
-          // Purely additive: only touches picks that would otherwise show no flow, never
-          // overwrites a real USGS/DWR/NWPS-matched reading. Independent try/catch per
-          // pick AND around the whole block — a slow or down NWM must never block or
-          // blank a report that's otherwise ready. r.condition is only filled in when
-          // empty, so a real AI-written condition note is never overwritten.
+          // flow number for picks that came back with NO USABLE gauge-derived number
+          // (see applyNWMFallback's own comment in gaugeSources.js for what that means
+          // and the real-report bug it fixes). Purely additive; independent try/catch —
+          // a slow or down NWM must never block or blank a report that's otherwise ready.
           //
           // Multi-day outlook (added 2026-08-19/20): only has data for reaches the daily
           // sync job tracks (see nwm_tracked_reaches, currently 2 seeded reaches — this
@@ -6325,24 +6323,7 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           // undefined for everyone else, and the render side must treat it as fully
           // optional — most reports will never have it.
           if(builtReport?.rivers?.length){
-            try{
-              await Promise.all(builtReport.rivers.map(async(r)=>{
-                if(r.cfs!=null||r.lat==null||r.lng==null) return;
-                try{
-                  const nwm=await fetchNWMStreamflow(r.lat,r.lng,r.name);
-                  if(nwm&&nwm.cfs!=null){
-                    r.cfs=Math.round(nwm.cfs);
-                    if(!r.condition) r.condition="estimated, no gauge nearby";
-                    if(nwm.reachId!=null){
-                      try{
-                        const outlook=await fetchNWMForecastOutlook(sb,nwm.reachId);
-                        if(outlook&&outlook.length) r.nwmOutlook=outlook;
-                      }catch{}
-                    }
-                  }
-                }catch{}
-              }));
-            }catch{}
+            try{ await applyNWMFallback(builtReport.rivers,{sb}); }catch{}
           }
           setReport(builtReport);
         }catch(e2){
