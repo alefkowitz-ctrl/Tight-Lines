@@ -704,6 +704,58 @@ export async function fetchNWMStreamflow(lat, lng, targetName) {
   }
 }
 
+// 2026-08-30 fix (api/plan-trip-background.js only, until now): a trip-planner river
+// pick's r.cfs can be a real gauge-derived value OR the AI's own free-text estimate
+// when nothing snapped (e.g. "upper 60s to low 70s" — see finalizeLabRivers' comment
+// on that fallback in tripPlannerPipeline.js). A bare `r.cfs != null` check treats that
+// free-text case as "already has a value" and skips right past it, so a fabricated,
+// non-numeric estimate got neither a real gauge NOR this NWM safety net. This checks
+// the value is an actual finite number, not just present.
+export function hasUsableCfs(v) {
+  if (v == null) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  return Number.isFinite(Number(s.replace(/,/g, "")));
+}
+
+// Trip-planner river-CARD fallback — single source of truth (2026-09-25) for what used
+// to be two hand-written copies (App.jsx's on-screen planner and api/plan-trip-
+// background.js's emailed one) that had already drifted apart: only the background copy
+// had the hasUsableCfs fix above, and BOTH only tagged r.condition with the "estimated"
+// disclaimer when it was empty — which it almost never is, since buildLabSynth's schema
+// always asks the AI for its own condition text, so the one disclaimer meant to flag an
+// estimated number to the reader almost never actually showed (confirmed against a real
+// report: South Boulder Creek below Gross Reservoir displayed a plain, undisclaimed "28
+// CFS" — the uncalibrated NWM model's own number for that reach, ~4x the live DWR
+// reading of ~6.7 CFS — with no hint it wasn't a real gauge reading). This is distinct
+// from the several gauge-LIST enrichment call sites elsewhere in App.jsx (Stream Gauges,
+// My Gauges, Guide tab) — those tag a short `label` unconditionally already and don't
+// have either bug; this function is only for the report's own river cards.
+export async function applyNWMFallback(rivers, opts) {
+  if (!Array.isArray(rivers) || !rivers.length) return;
+  const sb = opts && opts.sb;
+  await Promise.all(rivers.map(async (r) => {
+    if (hasUsableCfs(r.cfs) || r.lat == null || r.lng == null) return;
+    try {
+      const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
+      if (nwm && nwm.cfs != null) {
+        r.cfs = Math.round(nwm.cfs);
+        // Always surface this, even when the AI already wrote its own condition text —
+        // that text describes conditions for whatever number the AI guessed, not the
+        // modeled one now actually shown, and a modeled number must never look like a
+        // live reading (SPEC_streamflow_forecast.md's confidence-labeling guardrail).
+        r.condition = "Estimated (no live gauge nearby)" + (r.condition ? " — " + r.condition : "");
+        if (nwm.reachId != null && sb) {
+          try {
+            const outlook = await fetchNWMForecastOutlook(sb, nwm.reachId);
+            if (outlook && outlook.length) r.nwmOutlook = outlook;
+          } catch {}
+        }
+      }
+    } catch {}
+  }));
+}
+
 // Single-gauge fetch, for callers that already know the exact NWPS gaugelid (the
 // saved-gauges "My Gauges" feature) — mirrors fetchCODWRSingleValue's role for DWR.
 // Returns { cfs, forecastCfs } rather than a bare number, since both are useful here
