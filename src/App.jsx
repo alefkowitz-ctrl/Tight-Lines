@@ -2692,6 +2692,23 @@ function OutlookBadge({outlook,meta,style}){
     📅 {days}-day: {lo===hi?`${lo}`:`${lo}–${hi}`} cfs (estimated)</span>;
 }
 
+// Shared expand/collapse indicator for saved-gauge rows — used by both places a
+// saved gauge can be deleted: the Guide CRM's My Gauges tab (GuideSavedGauges) and
+// the personal Intel tab's My Gauges panel (SavedGaugesList). Both used to put the
+// row's "▲ hide"/"▼ chart" text right next to the "✕ Remove"/delete button, a few
+// px apart — an easy mis-tap on a phone. This sits at the FAR LEFT of the row next
+// to the gauge name instead, well clear of delete/reorder, and rotates a fixed
+// triangle rather than swapping text, so it reads as a control, not a label.
+function ExpandChevron({expanded}){
+  return (
+    <span aria-hidden="true" style={{
+      display:"inline-flex",alignItems:"center",justifyContent:"center",
+      width:20,height:20,flexShrink:0,marginTop:2,color:"var(--stone)",fontSize:13,
+      transition:"transform .15s ease",transform:expanded?"rotate(90deg)":"rotate(0deg)"
+    }}>▶</span>
+  );
+}
+
 function GaugeList({gauges,isStarred,toggleStar,showStarredOnly}){
   const [expanded, setExpanded] = useState(null);
   return(
@@ -4105,7 +4122,10 @@ function GuideSavedGauges({user}){
       {sgData.map((g,i)=>(
         <div key={g.id||i} className="card" style={{marginBottom:10,padding:"14px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
-            <div><div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+              <ExpandChevron expanded={expanded===i}/>
+              <div><div style={{fontFamily:"var(--font-head)",fontSize:14,color:"var(--foam)",fontStyle:"italic"}}>{g.name}</div><div style={{fontSize:14,color:"var(--stone)",marginTop:3}}>Site {g.site_no}</div></div>
+            </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               {g.cfs!=null&&<span className={"gbadge "+(g.cls||"")}>{g.label}</span>}
               <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs}/>
@@ -4115,7 +4135,6 @@ function GuideSavedGauges({user}){
           <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
             <a href={g.url||"https://waterdata.usgs.gov/monitoring-location/"+g.site_no+"/"} target="_blank" rel="noreferrer" style={{fontSize:15,color:"var(--sky)",textDecoration:"none"}}>📊 View Chart</a>
             <button onClick={async(e)=>{e.stopPropagation();await sb.from("saved_gauges").delete().eq("id",g.id);setSavedGauges(x=>x.filter(s=>s.id!==g.id));}} style={{background:"none",border:"none",color:"var(--stone)",fontSize:15,cursor:"pointer",padding:0,fontFamily:"var(--font-body)"}}>✕ Remove</button>
-            <span style={{fontSize:14,color:"var(--stone)",marginLeft:8}}>{expanded===i?"▲ hide":"▼ chart"}</span>
             <span style={{display:"flex",alignItems:"center",marginLeft:"auto",gap:2}}>
               <button onClick={e=>{e.stopPropagation();moveGauge(g.id,-1);}} disabled={i===0}
                 style={{background:"none",border:"none",color:i===0?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===0?"default":"pointer",fontSize:16,padding:4,lineHeight:1}}>↑</button>
@@ -6914,16 +6933,19 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
       {sgData.map((g,i)=>(
         <div key={i} style={{borderBottom:i<sgData.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}} onClick={()=>setExpanded(expanded===i?null:i)}>
-          <div>
-            <div style={{fontSize:15,color:"var(--foam)"}}>
-              {g.lat&&g.lng
-                ?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name||g.site_no}</a>
-                :(g.name||g.site_no)}
-            </div>
-            <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>
-              {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS"+(g.nwmModeled?" (estimated)":""):(g.label||"Loading…")}
-              <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
-              <OutlookBadge outlook={g.nwmOutlook} meta={g.nwmOutlookMeta} style={{marginLeft:8}}/>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+            <ExpandChevron expanded={expanded===i}/>
+            <div>
+              <div style={{fontSize:15,color:"var(--foam)"}}>
+                {g.lat&&g.lng
+                  ?<a href={`https://maps.google.com/?q=${g.lat},${g.lng}`} target="_blank" rel="noopener noreferrer" style={{color:"var(--sky)",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{g.name||g.site_no}</a>
+                  :(g.name||g.site_no)}
+              </div>
+              <div style={{fontSize:15,color:"var(--stone)",marginTop:2}}>
+                {g.cfs!=null?Math.round(g.cfs).toLocaleString()+" CFS"+(g.nwmModeled?" (estimated)":""):(g.label||"Loading…")}
+                <ForecastBadge cfs={g.cfs} forecastCfs={g.forecastCfs} style={{marginLeft:8}}/>
+                <OutlookBadge outlook={g.nwmOutlook} meta={g.nwmOutlookMeta} style={{marginLeft:8}}/>
+              </div>
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:2}}>
@@ -6934,7 +6956,6 @@ function SavedGaugesList({savedGauges,showAddGauge,setShowAddGauge,gaugeInput,se
                 style={{background:"none",border:"none",color:i===sgData.length-1?"rgba(255,255,255,0.15)":"var(--stone)",cursor:i===sgData.length-1?"default":"pointer",fontSize:16,padding:4,lineHeight:1,marginRight:4}}>↓</button>
             </>}
             <button onClick={e=>{e.stopPropagation();removeSavedGauge(g.id);}} style={{background:"none",border:"none",color:"var(--stone)",cursor:"pointer",fontSize:14,padding:4}}>✕</button>
-            <span style={{fontSize:14,color:"var(--stone)",marginLeft:4}}>{expanded===i?"▲":"▼"}</span>
           </div>
         </div>
         {expanded===i&&g.site_no&&<GaugeChart siteNo={g.site_no} siteName={g.name} initialCFS={g.cfs}/>}
