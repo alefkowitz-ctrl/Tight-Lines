@@ -263,6 +263,76 @@ function flowVsAverageLocal(cfs,avgCfs){
   return{label,pct:Math.round(pct*100),avgCfs:Math.round(avgCfs)};
 }
 
+// 2026-09-25: "heavily scrutinize an anomalous flow by cross-referencing shop reports"
+// (Adam's own framing). Two things can make a pick's flow untrustworthy enough to need
+// this: (1) r.nwmEstimated — the number came from the uncalibrated NWM model fallback
+// with no live gauge to check it against at all (see applyNWMFallback in
+// gaugeSources.js — this is the more common trigger, since flowAvgMap only has data for
+// USGS-gauged picks, and a DWR-only tailwater like South Boulder Creek below Gross
+// Reservoir never gets one); (2) a live gauge reading that IS available but sits well
+// outside its own seasonal average (reuses flowVsAverageLocal's existing "well below/
+// above average" buckets rather than inventing a new threshold). Either way, the fix is
+// NOT a flat CFS cutoff (scrapped once already for temperature — see learnings-and-
+// dead-ends.md — for the same reason: a number that's fine on one river is a trickle on
+// another) and NOT silence (a genuinely-still-fishing tailwater in a drought is real,
+// useful information) — it's a real check against current reality, same posture as
+// every other verification pass in this pipeline (labVerifyPicks, auditFinalReport):
+// search for it, believe what's found, say so plainly when nothing is found rather than
+// assume either way.
+//
+// Deliberately does NOT drop the pick or touch rivers[] — Adam still wants it shown,
+// just not trusted as a top pick until something confirms it. Sets r.flowUnconfirmed,
+// which isIneligibleRiver (below) now treats exactly like outOfRange/closure: reconcile-
+// BestBet (call this again after this function — see both callers) will swap it out of
+// "Best Bet Today" and any "Best For" category it was winning, same swap/dedup machinery
+// already built for those, no new code path needed there.
+const FLOW_SCRUTINY_NOTE="⚠ This water's flow is unconfirmed — ";
+export async function scrutinizeAnomalousFlows(rivers,loc,flowAvgMap,aiCtx){
+  if(!Array.isArray(rivers)||!rivers.length||!aiCtx||typeof aiCtx.askAI!=="function")return rivers;
+  const fam=flowAvgMap||{};
+  const flagged=rivers.map((r,i)=>{
+    if(r.cfs==null)return null;
+    let reason=null;
+    if(r.nwmEstimated===true)reason="an estimated model value — no live gauge nearby to confirm it";
+    else{
+      const fva=flowVsAverageLocal(Number(r.cfs),fam[r.siteNo]);
+      if(fva&&(fva.label==="well below average"||fva.label==="well above average"))
+        reason=fva.label+" ("+fva.pct+"% vs. typical for this time of year)";
+    }
+    return reason?{i,r,reason}:null;
+  }).filter(Boolean);
+  if(!flagged.length)return rivers;
+  const results=await Promise.all(flagged.map(async({r,reason})=>{
+    try{
+      const prompt=["You are checking one river's current conditions before it's featured as a top pick in a fishing report near "+((loc&&loc.label)||"the area")+".",
+        "Water: "+String(r.name||"?")+". Its flow is currently "+Math.round(Number(r.cfs))+" CFS, which is "+reason+".",
+        "Search for CURRENT or very recent fly shop reports, guide reports, or fishing reports specifically about this water.",
+        "Based ONLY on what you find: if reports confirm it is still fishing reasonably well despite the unusual flow, say so. If reports say it's fishing poorly, blown out, too low, or not worth it right now, say so. If you find no relevant recent report either way, say so honestly rather than guessing.",
+        "Return ONLY JSON, no markdown: {\"verdict\":\"confirmed_good\",\"note\":\"\"} or {\"verdict\":\"confirmed_poor\",\"note\":\"\"} or {\"verdict\":\"no_info\",\"note\":\"\"} — note is one short plain sentence for an angler, or empty for no_info."
+      ].join(" ");
+      const race=Promise.race([aiCtx.askAI(prompt,true,400,"planner"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),60000))]);
+      const clean=String(await race||"").replace(/```json|```/g,"").trim();
+      const a=clean.indexOf("{"),b=clean.lastIndexOf("}");
+      if(a===-1||b<=a)return{verdict:"no_info",note:""};
+      const parsed=JSON.parse(clean.slice(a,b+1));
+      const verdict=String((parsed&&parsed.verdict)||"no_info").toLowerCase();
+      return{verdict:["confirmed_good","confirmed_poor","no_info"].includes(verdict)?verdict:"no_info",note:String((parsed&&parsed.note)||"").trim()};
+    }catch{return{verdict:"no_info",note:""};} // fail toward caution, not toward silence — an
+    // unreachable search shouldn't let an unconfirmed number keep top billing either.
+  }));
+  const out=rivers.slice();
+  flagged.forEach(({i,r},k)=>{
+    const{verdict,note}=results[k];
+    if(verdict==="confirmed_good"){
+      out[i]={...r,why:(String(r.why||"").trim()+(note?" "+note:"")).trim()};
+    }else{
+      const tail=verdict==="confirmed_poor"&&note?note:"recent shop/fishing reports don't confirm it's fishing well right now — treat this pick with extra caution.";
+      out[i]={...r,flowUnconfirmed:true,why:(FLOW_SCRUTINY_NOTE+tail+" "+String(r.why||"")).trim()};
+    }
+  });
+  return out;
+}
+
 // Same day-trip ceiling used by labGovernor (main picks) and verifyOmissions (the
 // "Also consider" list, added 2026-08-12) — hoisted so both apply the identical cutoff
 // rather than two constants quietly drifting apart.
@@ -1142,14 +1212,23 @@ export function coreRiverName(name){
 // Shared eligibility predicate - pulled out of findIneligibleMatch's local closure
 // (2026-09-06) so reconcileBestBet can also ask "how many eligible rivers exist at all,"
 // not just "is this one river eligible."
-function isIneligibleRiver(r){return r.outOfRange===true||(r.restriction&&r.restriction.status==="closure");}
+function isIneligibleRiver(r){return r.outOfRange===true||(r.restriction&&r.restriction.status==="closure")||r.flowUnconfirmed===true;}
 
 function findIneligibleMatch(text,rivers){
   const norm=nrmName(text);
-  const matched=rivers.find(r=>{
+  // 2026-09-25 fix: rivers.find() took the FIRST array match, not the most specific one —
+  // "Boulder Creek" is a substring of "South Boulder Creek", so when a report's cards
+  // happened to list Boulder Creek before South Boulder Creek (as a real one did), a
+  // recommendation/bestFor line naming South Boulder Creek matched Boulder Creek instead,
+  // which IS eligible, so the function concluded "nothing to fix" while the text kept
+  // referencing the actual ineligible pick verbatim. Same fix shape as snapRiversToGauges's
+  // own ambiguity handling: among every river whose core name appears in the text, the
+  // longest (most specific) core name wins, not whichever happens to sit first.
+  let matched=null,bestLen=-1;
+  for(const r of rivers){
     const core=nrmName(coreRiverName(r.name));
-    return core&&norm.includes(core);
-  });
+    if(core&&norm.includes(core)&&core.length>bestLen){matched=r;bestLen=core.length;}
+  }
   if(matched){
     if(!isIneligibleRiver(matched))return null; // matched a real, in-range pick -- nothing to fix
     return{matched,eligible:rivers.filter(r=>r!==matched&&!isIneligibleRiver(r))};
@@ -1163,8 +1242,22 @@ function findIneligibleMatch(text,rivers){
   return{matched:null,eligible:rivers.filter(r=>!isIneligibleRiver(r))};
 }
 
+// 2026-09-25 fix: labSplitFused (above) can prepend a fixed "Note: access points here
+// cover the X stretch only — Y is a different section of river and isn't included."
+// sentence onto a river's own `why` before this ever runs (see its `why:(note+" "+...)`
+// line). That's the right lead sentence for the river's OWN card, where a reader needs
+// to know which stretch the card describes before anything else — but it is NOT a
+// reason "this is today's best bet" or "this wins Most Fish", and pasting it into
+// recommendation/bestFor as this water's whole rationale reads as a copy/paste error,
+// not an explanation. Strip that lead sentence here (swapText's one and only job is
+// producing category-facing rationale) and use what's left — which is exactly the
+// river's own original `why`, since labSplitFused only ever prepends, never replaces.
+function stripAccessNote(why){
+  return String(why||"").replace(/^Note: access points here cover the .+? isn't included\.\s*/i,"").trim();
+}
 function swapText(alt){
-  return String(alt.why||alt.conditions||"See its river card below for details.").trim();
+  const why=stripAccessNote(alt.why);
+  return String(why||alt.conditions||"See its river card below for details.").trim();
 }
 
 // Small, targeted AI call (thorough/background path only — same posture as
@@ -1241,11 +1334,8 @@ export async function reconcileBestBet(report,aiCtx,opts){
   const needAI=fields.filter(f=>f.eligible.length>1);
   const aiPicks=(needAI.length&&thorough&&aiCtx&&typeof aiCtx.askAI==="function")?await resolveSwapsWithAI(needAI,aiCtx):null;
 
-  let out=report;
-  let bfChanged=false;
-  const bf=report.bestFor?{...report.bestFor}:null;
-  fields.forEach(f=>{
-    if(!f.eligible.length)return; // nothing to swap to — leave the original text untouched
+  function resolveField(f){
+    if(!f.eligible.length)return f.originalText; // nothing to swap to — leave the original text untouched
     let alt=f.eligible[0]; // default: first eligible — used as-is when there's only one, or as the fail-open fallback
     if(f.eligible.length>1&&aiPicks){
       const idx=needAI.indexOf(f);
@@ -1253,11 +1343,37 @@ export async function reconcileBestBet(report,aiCtx,opts){
       const byName=pick&&f.eligible.find(r=>nrmName(r.name)===nrmName(String(pick.name||"")));
       if(byName)alt=byName;
     }
-    const text=swapText(alt);
-    if(f.kind==="recommendation")out={...out,recommendation:text};
-    else if(bf){bf[f.key]=text;bfChanged=true;}
-  });
-  if(bfChanged)out={...out,bestFor:bf};
+    return swapText(alt);
+  }
+  const byKey=new Map(fields.map(f=>[f.kind==="recommendation"?"recommendation":"bestFor."+f.key,f]));
+
+  // 2026-09-25 fix: two different swaps CAN legitimately land on the same water (e.g. the
+  // one tailwater holding up in a drought is both today's overall best bet AND the best
+  // pick for numbers) — that's a real answer, not a bug. The bug is showing the exact same
+  // SENTENCE under both headers, which reads as copy/paste rather than a second reason.
+  // Walk every slot in a fixed order (recommendation, then bestFor in its display order) so
+  // the first slot to reach a given wording keeps it and a later slot that would just repeat
+  // it verbatim gets dropped instead — same "drop rather than manufacture a fake distinction"
+  // call already made above for the all-one-water case, generalized to a single colliding pair.
+  const usedTexts=new Set();
+  const recField=byKey.get("recommendation");
+  const recommendationText=recField?resolveField(recField):report.recommendation;
+  if(recommendationText)usedTexts.add(recommendationText);
+  let out={...report,recommendation:recommendationText};
+
+  const bf=report.bestFor?{...report.bestFor}:null;
+  if(bf){
+    ["mostFish","bestScenery","mostSolitude","beginners"].forEach(k=>{
+      const f=byKey.get("bestFor."+k);
+      if(!f)return; // this category already named an eligible water — leave its own text as-is
+      const text=resolveField(f);
+      if(!text)return;
+      if(usedTexts.has(text)){bf[k]=null;return;} // would repeat an earlier slot word-for-word — drop it
+      bf[k]=text;
+      usedTexts.add(text);
+    });
+    out={...out,bestFor:bf};
+  }
   return out;
 }
 

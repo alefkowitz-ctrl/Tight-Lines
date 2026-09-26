@@ -740,6 +740,9 @@ export async function applyNWMFallback(rivers, opts) {
       const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
       if (nwm && nwm.cfs != null) {
         r.cfs = Math.round(nwm.cfs);
+        r.nwmEstimated = true; // explicit flag — lets downstream logic (e.g. flow-scrutiny)
+        // detect "this number is a modeled guess, not a live reading" without string-
+        // matching the disclaimer text below.
         // Always surface this, even when the AI already wrote its own condition text —
         // that text describes conditions for whatever number the AI guessed, not the
         // modeled one now actually shown, and a modeled number must never look like a
