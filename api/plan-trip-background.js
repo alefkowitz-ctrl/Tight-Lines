@@ -3,7 +3,7 @@ import { Resend } from "resend";
 import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
 import { runTripPlannerPipeline, filterFishableGauges, directionalSpread } from "../src/lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchNWMStreamflow } from "../src/lib/gaugeSources.js";
+import { fetchCODWRGauges, applyNWMFallback } from "../src/lib/gaugeSources.js";
 
 // Same ceiling Vercel Hobby supports; Pro/Enterprise allow more but this is plenty —
 // the full pipeline has run in the 2-4 minute range in on-screen testing.
@@ -27,20 +27,6 @@ const APP_URL = "https://www.guideschoicefishing.com"; // www required — bare 
 function cfsLabel(cfs) {
   if (!cfs || isNaN(cfs)) return { label: "No Data", cls: "fair" };
   return { label: Math.round(cfs).toLocaleString() + " CFS", cls: "" };
-}
-
-// 2026-08-30 fix: a pick's r.cfs can be a real gauge-derived value (e.g. labGovernor sets
-// it to String(Math.round(gaugeCfs))) OR the AI's own free-text estimate when no gauge
-// snapped (e.g. "upper 60s to low 70s") — see finalizeLabRivers' comment on that fallback
-// in tripPlannerPipeline.js. The NWM fallback below used to test only `r.cfs != null`,
-// which treats that free-text case as "already has a value" and skips right past it —
-// so a fabricated, non-numeric estimate got NEITHER a real gauge NOR the NWM safety net.
-// This checks the value is an actual finite number, not just present.
-function hasUsableCfs(v) {
-  if (v == null) return false;
-  const s = String(v).trim();
-  if (!s) return false;
-  return Number.isFinite(Number(s.replace(/,/g, "")));
 }
 
 async function fetchWeatherServer(lat, lng) {
@@ -357,25 +343,13 @@ export default async function handler(req, res) {
       );
       console.log("[plan-trip-background] pipeline finished in " + Math.round((Date.now() - startedAt) / 1000) + " s; audit: " + ((report && report.audit && report.audit.status) || "none"));
 
-      // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — same
-      // additive, fail-closed enrichment as the on-screen planner in App.jsx, so an
-      // emailed report doesn't fall behind the on-screen one for the same location.
-      // Only touches picks with no USABLE gauge-derived number — see hasUsableCfs above
-      // for why that's not the same as "r.cfs != null" — never overwrites a real reading
-      // or an AI-written condition note.
+      // NOAA National Water Model fallback (SPEC_streamflow_forecast.md) — same shared
+      // helper the on-screen planner in App.jsx now calls too (see applyNWMFallback in
+      // gaugeSources.js), so an emailed report can't fall behind or ahead of the
+      // on-screen one for the same location again the way the two hand-written copies
+      // already had (2026-09-25 consolidation).
       if (report?.rivers?.length) {
-        try {
-          await Promise.all(report.rivers.map(async (r) => {
-            if (hasUsableCfs(r.cfs) || r.lat == null || r.lng == null) return;
-            try {
-              const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
-              if (nwm && nwm.cfs != null) {
-                r.cfs = Math.round(nwm.cfs);
-                if (!r.condition) r.condition = "estimated, no gauge nearby";
-              }
-            } catch {}
-          }));
-        } catch {}
+        try { await applyNWMFallback(report.rivers, {}); } catch {}
       }
 
       const payload = { v: 1, ts: Date.now(), loc: { label, lat, lng }, date, wxData: wx, gauges: pgScaled, report };
