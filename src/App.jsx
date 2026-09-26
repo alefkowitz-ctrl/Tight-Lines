@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
-import { directionalSpread, filterFishableGauges, runTripPlannerPipeline } from "./lib/tripPlannerPipeline.js";
+import { directionalSpread, filterFishableGauges, runTripPlannerPipeline, scrutinizeAnomalousFlows, reconcileBestBet } from "./lib/tripPlannerPipeline.js";
 import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
@@ -6324,6 +6324,17 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           // optional — most reports will never have it.
           if(builtReport?.rivers?.length){
             try{ await applyNWMFallback(builtReport.rivers,{sb}); }catch{}
+            // Flow scrutiny (2026-09-25, per Adam: "when too high or low it should be
+            // heavily scrutinized — fly shop reports cross-referenced") — only reaches an
+            // AI/search call for the rare pick whose flow is estimated or well outside its
+            // seasonal average; everything else passes through untouched. Never removes a
+            // card; only disqualifies an unconfirmed one from Best Bet/Best For, which is
+            // why reconcileBestBet runs again right after — same swap/dedup logic already
+            // built, just re-applied now that flowUnconfirmed may be freshly set.
+            try{
+              builtReport={...builtReport,rivers:await scrutinizeAnomalousFlows(builtReport.rivers,{label:loc.label,lat,lng},flowAvgMap,{askAI:askClaude})};
+              builtReport=await reconcileBestBet(builtReport,{askAI:askClaude},{thorough:false});
+            }catch{}
           }
           setReport(builtReport);
         }catch(e2){
