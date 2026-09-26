@@ -2,7 +2,7 @@ import { waitUntil } from "@vercel/functions";
 import { Resend } from "resend";
 import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
-import { runTripPlannerPipeline, filterFishableGauges, directionalSpread } from "../src/lib/tripPlannerPipeline.js";
+import { runTripPlannerPipeline, filterFishableGauges, directionalSpread, scrutinizeAnomalousFlows, reconcileBestBet } from "../src/lib/tripPlannerPipeline.js";
 import { fetchCODWRGauges, applyNWMFallback } from "../src/lib/gaugeSources.js";
 
 // Same ceiling Vercel Hobby supports; Pro/Enterprise allow more but this is plenty —
@@ -350,6 +350,14 @@ export default async function handler(req, res) {
       // already had (2026-09-25 consolidation).
       if (report?.rivers?.length) {
         try { await applyNWMFallback(report.rivers, {}); } catch {}
+        // Flow scrutiny (2026-09-25) — same shared helper the on-screen planner now
+        // calls too; see its comment in tripPlannerPipeline.js. thorough: true here
+        // lets reconcileBestBet's own AI tie-break resolve a swap with a genuine choice,
+        // same as everything else on this background path already does.
+        try {
+          report.rivers = await scrutinizeAnomalousFlows(report.rivers, { label, lat, lng }, flowAvgMap, aiCtx);
+          Object.assign(report, await reconcileBestBet(report, aiCtx, { thorough: true }));
+        } catch {}
       }
 
       const payload = { v: 1, ts: Date.now(), loc: { label, lat, lng }, date, wxData: wx, gauges: pgScaled, report };
