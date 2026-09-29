@@ -718,6 +718,85 @@ export function hasUsableCfs(v) {
   return Number.isFinite(Number(s.replace(/,/g, "")));
 }
 
+// ---------------------------------------------------------------------------
+// "No live gauge" resolver — 2026-09-29. REPLACES showing an NWM modeled number as if it
+// were the water's flow. Verified live that the model is badly wrong exactly where this
+// app is used (Colorado R. at Hot Sulphur Springs showed 238 vs ~80-100 on the real gauges
+// just upstream; South Boulder at Gross showed 4 vs ~0.4): it knows nothing about
+// diversions or dam releases. So when a spot has no live gauge, say so plainly and show
+// the nearest REAL reading, with its name and distance, so the angler can judge it.
+//
+// One nationwide USGS call pair (latest readings + names/coords in a box around the
+// point) — no per-state logic. Same-stream gauges (via normalizeStreamName, the same match
+// used everywhere else) within 40 mi qualify — a nearer gauge on a DIFFERENT creek is
+// deliberately never shown (tested: it put Joe Wright Creek under the Poudre and Fourmile
+// Creek under South Boulder, which is the same silent-substitution bug as the model).
+// Returns null when nothing qualifies (caller then just says "No live gauge").
+// ---------------------------------------------------------------------------
+const NEAREST_LIVE_PAD_DEG = 0.6; // ~40 mi of latitude
+const NEAREST_LIVE_MAX_MI_SAME = 40;
+const NEAREST_LIVE_FRESH_MS = 6 * 60 * 60 * 1000; // a "live" reading must be < 6h old
+
+function haversineMi(lat1, lng1, lat2, lng2) {
+  const R = 3958.8, rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+export async function findNearestLiveGauge(lat, lng, opts) {
+  if (lat == null || lng == null) return null;
+  const o = opts || {};
+  try {
+    const bbox = [lng - NEAREST_LIVE_PAD_DEG, lat - NEAREST_LIVE_PAD_DEG, lng + NEAREST_LIVE_PAD_DEG, lat + NEAREST_LIVE_PAD_DEG]
+      .map((n) => n.toFixed(3)).join(",");
+    const base = "https://api.waterdata.usgs.gov/ogcapi/v0/collections";
+    const [liveRes, locRes] = await Promise.all([
+      fetchWithTimeout(base + "/latest-continuous/items?f=json&limit=500&parameter_code=00060&bbox=" + bbox, 8000),
+      fetchWithTimeout(base + "/monitoring-locations/items?f=json&limit=3000&site_type_code=ST&bbox=" + bbox +
+        "&properties=monitoring_location_number,monitoring_location_name", 8000),
+    ]);
+    if (!liveRes.ok || !locRes.ok) return null;
+    const [live, locs] = await Promise.all([liveRes.json(), locRes.json()]);
+    const byId = new Map();
+    (locs.features || []).forEach((f) => {
+      const c = (f.geometry || {}).coordinates || [];
+      const p = f.properties || {};
+      const id = p.monitoring_location_number || String(f.id || "").replace(/^USGS-/, "");
+      if (id && c.length >= 2) byId.set(id, { name: p.monitoring_location_name || ("Site " + id), lat: c[1], lng: c[0] });
+    });
+    const now = Date.now();
+    const targetNorm = o.name ? normalizeStreamName(o.name) : "";
+    const cands = [];
+    (live.features || []).forEach((f) => {
+      const p = f.properties || {};
+      const id = String(p.monitoring_location_id || "").replace(/^USGS-/, "");
+      const cfs = parseFloat(p.value);
+      const t = Date.parse(p.time || "");
+      const loc = byId.get(id);
+      if (!loc || isNaN(cfs) || cfs < 0 || cfs >= 500000 || isNaN(t) || now - t > NEAREST_LIVE_FRESH_MS) return;
+      if (o.excludeSite && String(o.excludeSite).replace(/^USGS-/, "") === id) return;
+      const distMi = haversineMi(lat, lng, loc.lat, loc.lng);
+      const sameStream = !!targetNorm && normalizeStreamName(loc.name) === targetNorm;
+      if (!sameStream || distMi > NEAREST_LIVE_MAX_MI_SAME) return;
+      cands.push({ siteNo: id, name: loc.name, cfs, distMi, sameStream, time: p.time });
+    });
+    if (!cands.length) return null;
+    cands.sort((a, b) => a.distMi - b.distMi);
+    const b = cands[0];
+    return { siteNo: b.siteNo, name: b.name, cfs: Math.round(b.cfs * 10) / 10, distMi: Math.round(b.distMi), sameStream: b.sameStream, time: b.time };
+  } catch (e) {
+    return null; // fail closed
+  }
+}
+
+// One-line text for anywhere a plain string is needed (trip-plan cards, emails).
+export function describeNearestLive(nl) {
+  if (!nl) return "No live gauge on this water";
+  const cfsTxt = nl.cfs >= 100 ? Math.round(nl.cfs).toLocaleString() : String(nl.cfs);
+  return "No live gauge here — nearest live: " + nl.name + ", " + cfsTxt + " CFS (" + nl.distMi + " mi away)";
+}
+
 // Trip-planner river-CARD fallback — single source of truth (2026-09-25) for what used
 // to be two hand-written copies (App.jsx's on-screen planner and api/plan-trip-
 // background.js's emailed one) that had already drifted apart: only the background copy
@@ -732,29 +811,20 @@ export function hasUsableCfs(v) {
 // My Gauges, Guide tab) — those tag a short `label` unconditionally already and don't
 // have either bug; this function is only for the report's own river cards.
 export async function applyNWMFallback(rivers, opts) {
+  // 2026-09-29: no longer writes a modeled CFS onto the card (see findNearestLiveGauge's
+  // comment for why). Same name and call sites, so the two callers (App.jsx on-screen
+  // planner + api/plan-trip-background.js emailed report) needed no change. Cards with no
+  // usable cfs now get r.noLiveGauge + r.nearestLive (or just the plain "no live gauge"
+  // note) and r.cfs is left unset — so nothing downstream can mistake it for a reading.
   if (!Array.isArray(rivers) || !rivers.length) return;
-  const sb = opts && opts.sb;
   await Promise.all(rivers.map(async (r) => {
     if (hasUsableCfs(r.cfs) || r.lat == null || r.lng == null) return;
     try {
-      const nwm = await fetchNWMStreamflow(r.lat, r.lng, r.name);
-      if (nwm && nwm.cfs != null) {
-        r.cfs = Math.round(nwm.cfs);
-        r.nwmEstimated = true; // explicit flag — lets downstream logic (e.g. flow-scrutiny)
-        // detect "this number is a modeled guess, not a live reading" without string-
-        // matching the disclaimer text below.
-        // Always surface this, even when the AI already wrote its own condition text —
-        // that text describes conditions for whatever number the AI guessed, not the
-        // modeled one now actually shown, and a modeled number must never look like a
-        // live reading (SPEC_streamflow_forecast.md's confidence-labeling guardrail).
-        r.condition = "Estimated (no live gauge nearby)" + (r.condition ? " — " + r.condition : "");
-        if (nwm.reachId != null && sb) {
-          try {
-            const outlook = await fetchNWMForecastOutlook(sb, nwm.reachId);
-            if (outlook && outlook.length) r.nwmOutlook = outlook;
-          } catch {}
-        }
-      }
+      const nl = await findNearestLiveGauge(r.lat, r.lng, { name: r.name });
+      r.noLiveGauge = true;
+      r.cfs = null; // clears the AI's own free-text guess too — it is not a reading either
+      if (nl) r.nearestLive = nl;
+      r.condition = describeNearestLive(nl) + (r.condition ? " — " + r.condition : "");
     } catch {}
   }));
 }
