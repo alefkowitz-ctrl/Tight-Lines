@@ -1686,6 +1686,32 @@ async function fetchUSGSRange(siteNo, days){
       }
     }
   }
+  // Tail top-up: USGS's daily collection can lag (or be served from a cached copy), leaving
+  // the newest days missing while the header — which reads live data — is already current.
+  // For long ranges, fill any gap after the last daily point from live /continuous readings,
+  // one mean per day, so the chart always ends where the header does.
+  if(days>7 && pts.length){
+    try{
+      var lastDay=String(pts[pts.length-1].t).slice(0,10);
+      var todayStr=fmt(new Date());
+      if(lastDay<todayStr && /^\d+$/.test(String(siteNo))){
+        var gapStart=new Date(lastDay+"T00:00:00Z"); gapStart.setUTCDate(gapStart.getUTCDate()+1);
+        var cd=await nwGet(USGS_NW+"/continuous/items?f=json&limit=10000&monitoring_location_id=USGS-"+nwSiteNo(siteNo)
+          +"&parameter_code=00060&time="+fmt(gapStart)+"T00:00:00Z/"+fmt(new Date(Date.now()+86400000))+"T00:00:00Z");
+        var byDay={};
+        (cd?.features||[]).forEach(function(f){
+          var pr=f.properties||{}, v=parseFloat(pr.value);
+          if(isNaN(v)||v<0||v>=500000) return;
+          var d=new Date(pr.time), key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+          if(key<=lastDay) return;
+          (byDay[key]=byDay[key]||[]).push(v);
+        });
+        Object.keys(byDay).sort().forEach(function(k){
+          var a=byDay[k]; pts.push({t:k, v:a.reduce(function(x,y){return x+y;},0)/a.length});
+        });
+      }
+    }catch(err){}
+  }
   return thin(pts);
 }
 
@@ -2591,7 +2617,8 @@ function GaugeChart({siteNo, siteName, initialCFS}){
           </text>
         ))}
         {xIdxs.map((idx,i)=>{
-          const d=new Date(points[idx].t);
+          const rawT=String(points[idx].t);
+          const d=/^\d{4}-\d{2}-\d{2}$/.test(rawT)?new Date(rawT+"T12:00:00"):new Date(rawT); // date-only = local calendar day, not UTC midnight
           const label=days<=7
             ? d.toLocaleString("en-US",{month:"numeric",day:"numeric",hour:"numeric",hour12:true}).replace(":00","")
             : `${d.getMonth()+1}/${d.getDate()}`;
