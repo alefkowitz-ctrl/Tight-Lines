@@ -102,120 +102,114 @@ async function fetchWithTimeout(url, ms) {
 // ---------------------------------------------------------------------------
 const CO_DWR_BASE = "https://dwr.state.co.us/Rest/GET/api/v2";
 
-async function fetchCODWRStations(lat, lng, radiusMiles) {
+// ---------------------------------------------------------------------------
+// 2026-10-31 rewrite — "state gauges like South Boulder Creek vanished."
+// The old path made 1 station search + one raw 15-minute history call per 100
+// stations, pulling ~2.5 days of readings per station just to keep the newest one.
+// Near Lafayette that was ~400+ stations, so tens of thousands of rows per Streams
+// load (and far more for the planner's 100-mile sweep). DWR caps anonymous use at
+// 600,000 rows/day per IP, so a day of normal use could exhaust it, and every
+// failure (cap hit, CORS, timeout) was swallowed by `catch { return [] }`, so the
+// state gauges just silently disappeared. DWR also shipped a new API version on
+// 10/28/2026.
+//
+// Now: ONE call to telemetrystations/telemetrystation, which already carries each
+// station's latest reading (measValue + measDateTime) — verified live 10/31/2026:
+// BOCBGRCO "SOUTH BOULDER CREEK BELOW GROSS RESERVOIR", Active, DISCHRG, 66.3 CFS.
+// One row per station (~400 rows near Lafayette instead of ~30,000+).
+// If the browser's direct call fails, it retries through this app's own
+// /api/claude proxy (same pattern nwGetResilient uses for USGS). If both fail,
+// the reason is kept in lastDWRError so the Streams tab can show it on screen
+// instead of hiding it.
+// ---------------------------------------------------------------------------
+let lastDWRError = null;
+export function getLastDWRError() {
+  return lastDWRError;
+}
+
+const DWR_FRESH_MS = 2 * 24 * 60 * 60 * 1000; // same 2-day window the old raw lookback used
+
+async function dwrGet(url, ms) {
+  let why = "";
+  try {
+    const r = await fetchWithTimeout(url, ms || 10000);
+    if (r.ok) {
+      const d = await r.json();
+      if (d && Array.isArray(d.ResultList)) return d;
+      why = "unexpected reply";
+    } else {
+      why = "DWR " + r.status;
+    }
+  } catch (e) {
+    why = e && e.name === "AbortError" ? "DWR timed out" : "DWR blocked or offline";
+  }
+  // Browser only: retry through this app's own server proxy. In the Vercel server
+  // function (api/plan-trip-background.js) there is no relative /api URL, so skip it.
+  if (typeof window !== "undefined") {
+    try {
+      const pr = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxy_url: url }),
+      });
+      if (pr.ok) {
+        const pd = await pr.json();
+        if (pd && Array.isArray(pd.ResultList)) return pd;
+        why += pd && (pd.message || pd.Message || pd.error) ? "; proxy: " + String(pd.message || pd.Message || pd.error).slice(0, 120) : "; proxy: unexpected reply";
+      } else {
+        why += "; proxy " + pr.status;
+      }
+    } catch (e) {
+      why += "; proxy unreachable";
+    }
+  }
+  throw new Error(why || "DWR unavailable");
+}
+
+// Live discharge stations near a point, each already carrying its latest reading.
+async function fetchCODWRLiveStations(lat, lng, radiusMiles) {
   const url =
     CO_DWR_BASE +
-    "/surfacewater/surfacewaterstations/?format=json&latitude=" +
+    "/telemetrystations/telemetrystation/?format=json&latitude=" +
     lat +
     "&longitude=" +
     lng +
     "&radius=" +
     radiusMiles +
     "&units=miles";
-  const r = await fetchWithTimeout(url, 6000);
-  if (!r.ok) return [];
-  const d = await r.json();
-  return (d.ResultList || []).filter(
-    (s) => s.abbrev && s.latitude != null && s.longitude != null
-  );
-}
-
-function chunkArr(a, n) {
-  const out = [];
-  for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n));
-  return out;
-}
-
-// Batched into groups of 100 abbrevs per request — tested directly: an
-// unbatched request for 655 stations (a real 40-mile-radius result near
-// Denver) built a 6,000+ character URL that DWR's server rejected outright
-// (404, not a graceful empty result), silently dropping every candidate
-// including the motivating South Boulder Creek case. Same batching pattern
-// this app already uses for USGS site lookups (chunkArr(...,100)).
-//
-// Originally pointed at DWR's DAILY endpoint (surfacewatertsday) — reasonable-looking
-// tradeoff at the time (one row/station/day vs. ~96 for the raw feed), but wrong in
-// practice: DWR doesn't publish a day's row until later that day, so "most recent
-// available" was routinely YESTERDAY's value. Fixed once for the My Gauges
-// single-value path (fetchCODWRSingleValue, same day), but this shared function feeds
-// fetchCODWRGauges too — the Streams tab's auto-populated nearby list — and a user
-// confirmed directly afterward that list was still showing the stale number (their own
-// starred BOCPINCO card: 48 CFS here vs. the correct ~25 CFS once starred into My
-// Gauges). Switched to the raw 15-minute telemetry endpoint here as well, so every
-// caller of this function gets the same true-current behavior — no reason area-sweep
-// results should be less accurate than a single pinned gauge. Output is normalized to
-// {abbrev, value, measDate} below specifically so fetchCODWRGauges' existing
-// `v.value`/`v.measDate` consumption doesn't need to change.
-async function fetchCODWRLatestValues(abbrevs) {
-  if (!abbrevs.length) return {};
-  const today = new Date();
-  const lookback = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000); // 2-day window — comfortably absorbs a short station outage; the raw feed's actual lag is only ~15-50min, tested directly
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000); // endDate is EXCLUSIVE on this endpoint — tested directly: passing today's own date silently dropped every reading from today itself, cut off exactly at the prior midnight
-  const byAbbrev = {};
-  const chunks = chunkArr(abbrevs, 100);
-  const results = await Promise.all(
-    chunks.map(async (chunk) => {
-      const url =
-        CO_DWR_BASE +
-        "/telemetrystations/telemetrytimeseriesraw/?format=json&abbrev=" +
-        chunk.join(",") +
-        "&parameter=DISCHRG&startDate=" +
-        toMDY(lookback) +
-        "&endDate=" +
-        toMDY(tomorrow);
-      try {
-        const r = await fetchWithTimeout(url, 6000);
-        if (!r.ok) return [];
-        const d = await r.json();
-        return d.ResultList || [];
-      } catch {
-        return []; // one bad chunk shouldn't drop the others
-      }
-    })
-  );
-  for (const row of results.flat()) {
-    const prev = byAbbrev[row.abbrev];
-    if (!prev || new Date(row.measDateTime) > new Date(prev.measDate)) {
-      byAbbrev[row.abbrev] = { abbrev: row.abbrev, value: row.measValue, measDate: row.measDateTime };
-    }
-  }
-  return byAbbrev;
+  const d = await dwrGet(url, 12000);
+  const now = Date.now();
+  return (d.ResultList || []).filter((s) => {
+    if (!s.abbrev || s.latitude == null || s.longitude == null) return false;
+    if (String(s.parameter || "").toUpperCase() !== "DISCHRG") return false; // skip storage, stage-only, wells
+    const t = Date.parse(s.measDateTime || "");
+    return !isNaN(t) && now - t <= DWR_FRESH_MS;
+  });
 }
 
 // lat/lng: search origin. radiusMiles: how far out to search (callers use a
 // wider radius for the trip planner's full-area sweep, narrower for the
-// Streams tab's "nearby" list — see the call sites for the actual numbers in
-// use). usgsSiteNos: Set (or array) of siteNo values that ALREADY came back
-// with a LIVE reading from this same search's USGS fetch — not just "has a
-// usgsSiteId on file." DWR station records can carry a usgsSiteId for a USGS
-// gauge that's long dead (this is exactly the South Boulder Creek / BOCBGRCO
-// case: DWR lists usgsSiteId 06729450 for it, but that USGS site has had no
-// live feed since 1980) — only skip a DWR station when USGS *actually
-// returned* a live value for that same site this run.
+// Streams tab's "nearby" list). usgsSiteNos: Set (or array) of siteNo values
+// that ALREADY came back with a LIVE reading from this same search's USGS
+// fetch. DWR station records can carry a USGS cross-reference for a USGS
+// gauge that's long dead (South Boulder Creek / BOCBGRCO: DWR lists 06729450,
+// which hasn't reported since 1980) — only skip a DWR station when USGS
+// *actually returned* a live value for that same site this run.
 //
-// IMPORTANT for callers: siteNo on a DWR-sourced result is the USGS
-// cross-reference ID when DWR has one on file (numeric), or the DWR station
-// abbrev when it doesn't (letters, e.g. "BOCBGRCO"). Non-numeric siteNo
-// values are NOT valid USGS site numbers — filter them out (a simple
-// /^\d+$/ test) before passing a merged siteNo list into any USGS-only
-// batch lookup (fetchUSGSTempBatch, fetchFlowAvgBatch, etc.). Tested
-// directly: mixing a DWR abbrev into USGS's legacy iv endpoint's sites=
-// param returns an HTTP 400 for the WHOLE request, silently dropping temp
-// data for every real USGS gauge in the same batch — not just the bad one.
+// siteNo on a DWR result is ALWAYS the DWR abbrev (letters, e.g. "BOCBGRCO"),
+// never a USGS number — filter non-numeric siteNos out (/^\d+$/) before any
+// USGS-only batch lookup; mixing one into USGS's sites= param fails the whole
+// request. Output shape is unchanged from the old version, so no caller changes.
 export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
   try {
-    const stations = await fetchCODWRStations(lat, lng, radiusMiles);
+    const stations = await fetchCODWRLiveStations(lat, lng, radiusMiles);
+    lastDWRError = null;
     if (!stations.length) return [];
     const matched = usgsSiteNos instanceof Set ? usgsSiteNos : new Set(usgsSiteNos || []);
-    const candidates = stations.filter(
-      (s) => !(s.usgsSiteId && matched.has(s.usgsSiteId)) && isDWRFishableName(s.stationName)
-    );
-    if (!candidates.length) return [];
-    const values = await fetchCODWRLatestValues(candidates.map((s) => s.abbrev));
-    const normalized = candidates
+    const normalized = stations
+      .filter((s) => !(s.usgsStationId && matched.has(String(s.usgsStationId))) && isDWRFishableName(s.stationName))
       .map((s) => {
-        const v = values[s.abbrev];
-        const cfs = v && v.value != null ? parseFloat(v.value) : null;
+        const cfs = s.measValue != null ? parseFloat(s.measValue) : null;
         const { label, cls } = cfsLabel(cfs);
         const dist = Math.sqrt(Math.pow(s.latitude - lat, 2) + Math.pow(s.longitude - lng, 2));
         return {
@@ -223,73 +217,41 @@ export async function fetchCODWRGauges(lat, lng, radiusMiles, usgsSiteNos) {
           cfs,
           label,
           cls,
-          siteNo: s.abbrev, // ALWAYS the DWR abbrev (2026-08-15), never s.usgsSiteId. A
-          // usgsSiteId here, when present, is by construction a cross-reference that
-          // already failed to return a live USGS reading this run — this candidate only
-          // exists because the dedup step above excluded any DWR station whose usgsSiteId
-          // DID come back live. Treating that dead ID as this gauge's queryable identity
-          // breaks any future re-fetch by it. Confirmed directly: DWR abbrev BOCBGRCO
-          // (South Boulder Creek below Gross Reservoir) has a live ~69 CFS reading right
-          // now; its usgsSiteId cross-reference, 06729450, has returned zero live USGS
-          // timeSeries entries since 1980 — exactly the gauge a user starred from the
-          // Streams tab and then saw stuck on "Loading..." forever in My Gauges, because
-          // toggleStar persisted this siteNo verbatim and My Gauges only knew how to
-          // re-fetch from USGS. usgsSiteId is kept below for reference/display only.
-          usgsCrossRef: s.usgsSiteId || null,
+          siteNo: s.abbrev,
+          usgsCrossRef: s.usgsStationId || null,
           dist,
           lat: s.latitude,
           lng: s.longitude,
           sourceAgency: "CO-DWR",
         };
       })
-      .filter((g) => g.cfs != null && g.cfs >= 0 && g.cfs < 500000)
-      .sort((a, b) => a.dist - b.dist); // closest first — directionalSpread takes candidates
-      // from the FRONT of each compass bucket, so an unsorted array can let a
-      // crowded bucket's farther entries edge out its own closest one. Tested
-      // directly: without this sort, a 113-candidate batch dropped South
-      // Boulder Creek's own gauge even at distance zero from the search point.
-    // Same distance-spread budget the USGS path already uses (imported, not
-    // reimplemented) — round-robins across compass directions so a dense
-    // cluster near the origin can't crowd out a real drainage farther out.
-    // 60, not 25: tested directly against a real, dense search (Lafayette, CO — 239
-    // qualifying candidates within 100mi). A real, non-redundant gauge (South Boulder
-    // Creek below Gross Reservoir) ranked 33rd by pure distance but still lost a
-    // 25-slot directional-bucket competition to closer candidates crowding its
-    // specific compass direction; empirically it first survives at a 50-slot cap.
-    // 60 gives real margin above that. This runs AFTER USGS-redundant candidates are
-    // already excluded by the dedup step above, so everything competing here is
-    // already gap-filling, non-redundant coverage — no reason to cap it as tightly
-    // as a raw, unfiltered candidate pool would need.
+      .filter((g) => g.cfs != null && !isNaN(g.cfs) && g.cfs >= 0 && g.cfs < 500000)
+      .sort((a, b) => a.dist - b.dist); // closest first — directionalSpread takes from the front of each compass bucket
+    // Same 60-slot distance-spread budget as before (South Boulder Creek below Gross
+    // ranked 33rd by pure distance near Lafayette and lost a 25-slot competition).
     return directionalSpread(normalized, 60, lat, lng);
   } catch (e) {
-    return []; // fail closed — a supplemental source going down should never break a report
+    lastDWRError = (e && e.message) || "DWR unavailable";
+    return []; // still never breaks a report — but the reason is now kept, not hidden
   }
 }
 
-function toMDY(d) {
-  // MM/DD/YYYY, built from the UTC calendar date (toISOString()) — never the local
-  // calendar date. This function runs in both the browser (a user's own device
-  // timezone) and the Vercel server (UTC) per this file's own header comment;
-  // deriving the date from local getMonth()/getDate() would make the requested
-  // window depend on which environment ran it. Format confirmed directly against
-  // DWR's raw endpoint: zero-padded MM/DD/YYYY, e.g. "08/15/2026".
-  const iso = d.toISOString().slice(0, 10);
-  const [y, m, day] = iso.split("-");
-  return m + "/" + day + "/" + y;
-}
-
-// Single-station live fetch (2026-08-15) — for callers that already know exactly which
-// DWR abbrev they want (the saved-gauges "My Gauges" feature) and don't need the
-// station-search + dedup + directional-spread machinery fetchCODWRGauges does for a
-// fresh area sweep. Reuses fetchCODWRLatestValues rather than duplicating the
-// batching/lookback logic a second time — safe now that shared function is itself
-// on the raw/live endpoint (see its comment above for why that changed).
+// Single-station live fetch — for callers that already know the DWR abbrev
+// (My Gauges, Guide My Gauges). Same one-call endpoint as above.
 export async function fetchCODWRSingleValue(abbrev) {
   if (!abbrev) return null;
   try {
-    const values = await fetchCODWRLatestValues([abbrev]);
-    const v = values[abbrev];
-    return v && v.value != null ? parseFloat(v.value) : null;
+    const d = await dwrGet(
+      CO_DWR_BASE + "/telemetrystations/telemetrystation/?format=json&abbrev=" + encodeURIComponent(abbrev),
+      10000
+    );
+    const s = (d.ResultList || []).find((x) => x.abbrev === abbrev && String(x.parameter || "").toUpperCase() === "DISCHRG")
+      || (d.ResultList || [])[0];
+    if (!s || s.measValue == null) return null;
+    const t = Date.parse(s.measDateTime || "");
+    if (isNaN(t) || Date.now() - t > DWR_FRESH_MS) return null; // a days-old number is not a live reading
+    const v = parseFloat(s.measValue);
+    return isNaN(v) ? null : v;
   } catch {
     return null;
   }

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline, scrutinizeAnomalousFlows, reconcileBestBet } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback, findNearestLiveGauge, describeNearestLive } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback, findNearestLiveGauge, describeNearestLive, getLastDWRError } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -4090,11 +4090,17 @@ function GuideSavedGauges({user}){
       // One batched new-API call for all gauges; legacy per-site fallback for any it misses
       var nwMap={};
       try{
-        var feats=await nwLatest(savedGauges.map(g=>g.site_no),"00060");
+        var feats=await nwLatest(savedGauges.map(g=>g.site_no).filter(sn=>/^\d+$/.test(String(sn))),"00060"); // USGS numbers only — a DWR abbrev in the batch can fail the whole request
         feats.forEach(f=>{var sn=nwSiteNo(f.properties.monitoring_location_id);var v=parseFloat(f.properties.value);if(sn&&!isNaN(v))nwMap[sn]=v;});
       }catch{}
       var rows=await Promise.all(savedGauges.map(async g=>{
         if(nwMap[g.site_no]!=null){const cfs=nwMap[g.site_no];const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
+        // Colorado DWR gauges are saved by their DWR abbrev (letters, e.g. "BOCBGRCO"),
+        // which USGS has no record of — ask DWR instead (same routing fetchSavedGaugeData uses).
+        if(g.site_no&&!/^\d+$/.test(String(g.site_no))){
+          const cfs=await fetchCODWRSingleValue(g.site_no);const{label,cls}=cfsLabel(cfs);
+          return{...g,cfs,label,cls};
+        }
         try{const r=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&sites="+g.site_no+"&parameterCd=00060&siteStatus=all");const d=await r.json();const ts=d.value?.timeSeries?.[0];const raw=ts?.values?.[0]?.value?.[0]?.value;const rawDt=ts?.values?.[0]?.value?.[0]?.dateTime;const cfs=(raw!=null&&legacyFresh(rawDt))?parseFloat(raw):null;const{label,cls}=cfsLabel(cfs);return{...g,cfs,label,cls};}
         catch{return{...g,cfs:null,label:"N/A",cls:""};}
       }));
@@ -8902,7 +8908,10 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
         setGauges(parsed);window._loadedGauges=parsed;if(window._recomputeHatches)window._recomputeHatches();
         setLastUpd(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
         try{localStorage.setItem(gaugeKey,JSON.stringify({data:parsed,ts:Date.now()}));}catch{}
-        fetchUSGSTempBatch(parsed.map(g=>g.siteNo)).then(tempMap=>{
+        // 10s ceiling (2026-10-31): the DWR pass below waits on this to settle, and the legacy
+        // USGS temp fallback has no timeout of its own — a hung request used to mean the
+        // Colorado state gauges never loaded at all.
+        Promise.race([fetchUSGSTempBatch(parsed.map(g=>g.siteNo)),new Promise(r=>setTimeout(()=>r({}),10000))]).then(tempMap=>{
           if(myGen!==loadGenRef.current) return; // stale — a newer call has since taken over
           const withTemp=parsed.map(g=>({...g,waterTempF:(tempMap[g.siteNo]!=null?tempMap[g.siteNo]:null)}));
           setGauges(withTemp);window._loadedGauges=withTemp;if(window._recomputeHatches)window._recomputeHatches();
@@ -8919,7 +8928,15 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
           // without a temp badge for now.
           fetchCODWRGauges(lat,lng,30,new Set(parsed.map(g=>g.siteNo))).then(dwrGauges=>{
             if(myGen!==loadGenRef.current) return; // stale — an overlapping newer call already owns `gauges` state; applying this would append onto (and duplicate against) that call's own results
-            if(!dwrGauges.length) return;
+            // Show WHY state gauges are missing instead of silently dropping them (2026-10-31).
+            // Only near Colorado, and only when a DWR request actually failed — an empty
+            // answer outside the state is normal and says nothing.
+            const nearCO=lat>36.4&&lat<41.6&&lng>-109.6&&lng<-101.5;
+            const dwrErr=getLastDWRError();
+            if(!dwrGauges.length){
+              if(dwrErr&&nearCO) setGaugeError("Colorado state gauges (like South Boulder Creek) didn't load: "+dwrErr+". Tap \u21bb to retry.");
+              return;
+            }
             const dwrParsed=dwrGauges.map(g=>({...g,distMi:Math.round(g.dist*69),fishable:true,histMax:null,waterTempF:null}))
               .filter(g=>g.distMi<=50);
             if(!dwrParsed.length) return;
