@@ -257,6 +257,81 @@ export async function fetchCODWRSingleValue(abbrev) {
   }
 }
 
+// Name search across every Colorado DWR stream gauge (2026-10-31) — for the "Add a
+// Gauge" search box, which only ever searched USGS, so a state-only gauge like South
+// Boulder Creek below Gross Reservoir (BOCBGRCO) could never be found by name.
+// DWR ignores name filters on this endpoint (verified 10/31: stationName= returned all
+// 1,437 statewide stations), so the statewide list is fetched once and matched here.
+// The name/location index is cached for 7 days (names don't change); the live reading
+// shown in results is whatever came with the most recent fetch.
+const DWR_INDEX_KEY = "tl_dwr_index_v1";
+const DWR_INDEX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DWR_INDEX_DEAD_MS = 90 * 24 * 60 * 60 * 1000; // no reading in 90 days = retired, leave out
+let dwrIndexMem = null;
+let dwrIndexInflight = null; // one download at a time — the warm-up and the first search share it
+
+function loadCODWRIndex() {
+  if (dwrIndexMem && Date.now() - dwrIndexMem.ts < DWR_INDEX_TTL_MS) return Promise.resolve(dwrIndexMem.rows);
+  if (!dwrIndexInflight) {
+    dwrIndexInflight = loadCODWRIndexOnce().finally(() => { dwrIndexInflight = null; });
+  }
+  return dwrIndexInflight;
+}
+
+async function loadCODWRIndexOnce() {
+  if (dwrIndexMem && Date.now() - dwrIndexMem.ts < DWR_INDEX_TTL_MS) return dwrIndexMem.rows;
+  try {
+    if (typeof localStorage !== "undefined") {
+      const c = JSON.parse(localStorage.getItem(DWR_INDEX_KEY) || "null");
+      if (c && Array.isArray(c.rows) && c.rows.length && Date.now() - c.ts < DWR_INDEX_TTL_MS) {
+        dwrIndexMem = c;
+        return c.rows;
+      }
+    }
+  } catch {}
+  const d = await dwrGet(CO_DWR_BASE + "/telemetrystations/telemetrystation/?format=json", 15000);
+  const now = Date.now();
+  const rows = (d.ResultList || [])
+    .filter((x) => x.abbrev && x.latitude != null && x.longitude != null && String(x.parameter || "").toUpperCase() === "DISCHRG")
+    .filter((x) => {
+      const t = Date.parse(x.measDateTime || "");
+      return !isNaN(t) && now - t <= DWR_INDEX_DEAD_MS;
+    })
+    .map((x) => ({ a: x.abbrev, n: x.stationName || x.abbrev, la: x.latitude, lo: x.longitude, v: x.measValue, t: x.measDateTime, u: x.usgsStationId || null }));
+  dwrIndexMem = { ts: now, rows };
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(DWR_INDEX_KEY, JSON.stringify(dwrIndexMem));
+  } catch {}
+  return rows;
+}
+
+// Called when the search panel opens, so the one-time statewide download is usually done
+// before the first word is typed. Never throws.
+export function warmCODWRIndex() {
+  loadCODWRIndex().catch(() => {});
+}
+
+// query: what the person typed. Every word must appear in the station name (same rule
+// as the USGS name search), or the query is the station's own abbrev. Returns results
+// in the same shape the search list uses for USGS: {name, siteNo, lat, lng} plus
+// sourceAgency "CO-DWR" and, when fresh (< 2 days), the live cfs. Throws on failure so
+// the caller can say the state search is down instead of silently showing nothing.
+export async function searchCODWRStations(query) {
+  const tokens = String(query || "").toUpperCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
+  const rows = await loadCODWRIndex();
+  const q = tokens.join(" ");
+  const now = Date.now();
+  return rows
+    .filter((r) => r.a.toUpperCase() === q || tokens.every((t) => r.n.toUpperCase().includes(t)))
+    .map((r) => {
+      const t = Date.parse(r.t || "");
+      const v = parseFloat(r.v);
+      const fresh = !isNaN(t) && now - t <= DWR_FRESH_MS && !isNaN(v);
+      return { name: r.n, siteNo: r.a, lat: r.la, lng: r.lo, sourceAgency: "CO-DWR", cfs: fresh ? v : null, usgsCrossRef: r.u };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // NOAA NWPS (National Water Prediction Service) — forecast layer, nationwide.
 // Adds a 96-hour flow forecast alongside DWR/USGS's observed-only data.

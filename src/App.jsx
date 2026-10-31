@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 import { directionalSpread, filterFishableGauges, runTripPlannerPipeline, scrutinizeAnomalousFlows, reconcileBestBet } from "./lib/tripPlannerPipeline.js";
-import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback, findNearestLiveGauge, describeNearestLive, getLastDWRError } from "./lib/gaugeSources.js";
+import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback, findNearestLiveGauge, describeNearestLive, getLastDWRError, searchCODWRStations, warmCODWRIndex } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
 // height:100% (and vh units) resolving against a stale notion of the viewport — most
@@ -6679,13 +6679,15 @@ function tokenMatch(name,query){
   return tokens.length>0&&tokens.every(t=>n.includes(t));
 }
 
-function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
+function GaugeSearch({loc,onAdd,onAddDWR,isStarred,gaugeInput,setGaugeInput,gaugeAdding}){
   const q=(gaugeInput||"").toLowerCase().trim();
   const loadedGauges=window._loadedGauges||[];
   const [searchResults,setSearchResults]=React.useState([]);
   const [searching,setSearching]=React.useState(false);
   const [totalMatches,setTotalMatches]=React.useState(0);
   const [searchErr,setSearchErr]=React.useState("");
+  const [dwrErr,setDwrErr]=React.useState("");
+  React.useEffect(()=>{warmCODWRIndex();},[]); // start the Colorado state gauge list download as soon as the panel opens
   const distFrom=x=>x.distMi!=null?x.distMi:(loc?.lat!=null?Math.sqrt(Math.pow(x.lat-loc.lat,2)+Math.pow(x.lng-loc.lng,2))*69:9999);
   // No cap: this is the instant local placeholder shown while the nationwide search runs.
   // It was capped at 6, which was itself a limit on a pick-your-own list — removed.
@@ -6696,7 +6698,11 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
   React.useEffect(()=>{
     if(q.length<3||q.match(/^[0-9]+$/)){setSearchResults([]);setTotalMatches(0);return;}
     const timer=setTimeout(async()=>{
-      setSearching(true);setSearchErr("");
+      setSearching(true);setSearchErr("");setDwrErr("");
+      // Colorado state (DWR) gauges by name, in parallel with USGS (2026-10-31). The USGS
+      // search can't see them at all — e.g. South Boulder Creek below Gross Reservoir.
+      // Its own error slot, so a DWR hiccup never blanks the USGS results and vice versa.
+      const dwrP=searchCODWRStations(q).catch(e=>{setDwrErr(e?.message||"unavailable");return [];});
       try{
         // Nationwide name search — no bounding box. This is a deliberate pick-your-own
         // list: the person typed the name, so every real match is shown, sorted
@@ -6704,7 +6710,15 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
         // by terrain (an earlier elevation-based ranking here was removed — it hid
         // legitimate water like the Denver-metro South Platte, which is its own fishery
         // and not the app's call to exclude from someone's own favorites).
-        let matched=await nwSearchByName(q);
+        let matched=[];
+        try{ matched=await nwSearchByName(q); }
+        catch(e){ var usgsFail=e; }
+        const dwrMatched=await dwrP;
+        if(usgsFail&&!dwrMatched.length) throw usgsFail;
+        if(usgsFail) setSearchErr(usgsFail?.message||"Search failed");
+        // Skip a state gauge that is the same physical gauge as a USGS result already listed.
+        const usgsIds=new Set(matched.map(m=>String(m.siteNo)));
+        matched=[...matched,...dwrMatched.filter(d=>!(d.usgsCrossRef&&usgsIds.has(String(d.usgsCrossRef))))];
         // Colloquial place names (e.g. "Deckers") often never appear in a gauge's
         // official USGS name — those are usually named for a dam, a different nearby
         // town, or a tributary junction. Geocode the query text and pull in the closest
@@ -6759,7 +6773,12 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
       )}
       {searching&&(
         <div style={{marginTop:6,fontSize:13,color:"var(--sky)",fontStyle:"italic"}}>
-          Searching all USGS gauges nationwide…{localResults.length?" showing nearby matches so far.":""}
+          Searching USGS gauges nationwide and Colorado state gauges…{localResults.length?" showing nearby matches so far.":""}
+        </div>
+      )}
+      {!!dwrErr&&!searching&&(
+        <div style={{marginTop:6,fontSize:13,color:"#e8a0a0"}}>
+          Colorado state gauges couldn't be searched just now ({dwrErr}). USGS results are still below.
         </div>
       )}
       {!!searchErr&&!searching&&(
@@ -6774,12 +6793,16 @@ function GaugeSearch({loc,onAdd,gaugeInput,setGaugeInput,gaugeAdding}){
       )}
       <div style={{maxHeight:results.length>6?320:undefined,overflowY:results.length>6?"auto":undefined}}>
       {results.map((r,i)=>(
-        <div key={i} onClick={()=>{setGaugeInput(r.siteNo);}}
+        <div key={i} onClick={()=>{if(r.sourceAgency==="CO-DWR"){onAddDWR&&!(isStarred&&isStarred(r.siteNo))&&onAddDWR(r);return;}setGaugeInput(r.siteNo);}}
           style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:4,background:"rgba(255,255,255,0.05)",borderRadius:8,cursor:"pointer"}}>
           <div>
             <div style={{fontSize:15,color:"var(--foam)"}}>{r.name}</div>
-            <div style={{fontSize:14,color:"var(--stone)"}}>#{r.siteNo}{r.distMi!=null?" · "+r.distMi+"mi away":""}</div>
+            <div style={{fontSize:14,color:"var(--stone)"}}>{r.sourceAgency==="CO-DWR"?"Colorado state gauge "+r.siteNo+(r.cfs!=null?" · "+Math.round(r.cfs).toLocaleString()+" CFS":""):"#"+r.siteNo}{r.distMi!=null?" · "+r.distMi+"mi away":""}</div>
           </div>
+          {r.sourceAgency==="CO-DWR"&&onAddDWR&&(isStarred&&isStarred(r.siteNo)
+            ?<span style={{fontSize:14,color:"var(--stone)",marginRight:8}}>Saved</span>
+            :<button onClick={e=>{e.stopPropagation();onAddDWR(r);}}
+              style={{background:"var(--gold)",color:"#0d1f26",border:"none",borderRadius:8,padding:"4px 10px",fontSize:14,cursor:"pointer",marginRight:8,flexShrink:0}}>Save</button>)}
           {r.lat&&r.lng&&<a href={`https://maps.google.com/?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
             onClick={e=>e.stopPropagation()}
             style={{fontSize:14,color:"var(--sky)",textDecoration:"none"}}>📍 Map</a>}
@@ -9456,7 +9479,7 @@ function App({user, tier, trialExpired, refreshTier, redeemInviteCode, autoRedee
                   <div className="card">
                     <div style={{fontSize:15,color:"var(--gold)",marginBottom:8,fontFamily:"var(--font-head)"}}>⭐ Add a Gauge</div>
                     <div style={{fontSize:15,color:"var(--stone)",marginBottom:8}}>Search by river name or paste a USGS site number.</div>
-                    <GaugeSearch loc={loc} onAdd={addSavedGauge} gaugeInput={gaugeInput} setGaugeInput={setGaugeInput} gaugeAdding={gaugeAdding}/>
+                    <GaugeSearch loc={loc} onAdd={addSavedGauge} onAddDWR={async(g)=>{await toggleStar({siteNo:g.siteNo,name:g.name});setGaugeInput("");setShowAddGauge(false);}} isStarred={isStarred} gaugeInput={gaugeInput} setGaugeInput={setGaugeInput} gaugeAdding={gaugeAdding}/>
                     <button onClick={()=>setShowAddGauge(false)} style={{marginTop:8,fontSize:14,color:"var(--stone)",background:"none",border:"none",cursor:"pointer"}}>Cancel</button>
                   </div>
                 ):(
