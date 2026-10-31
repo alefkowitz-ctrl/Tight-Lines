@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
-import { directionalSpread, filterFishableGauges, runTripPlannerPipeline, scrutinizeAnomalousFlows, reconcileBestBet } from "./lib/tripPlannerPipeline.js";
+import { directionalSpread, filterFishableGauges, plannerPromptGauges, runTripPlannerPipeline, scrutinizeAnomalousFlows, reconcileBestBet } from "./lib/tripPlannerPipeline.js";
 import { fetchCODWRGauges, fetchCODWRSingleValue, fetchNWPSGauges, attachNWPSForecasts, enrichWithNWPSForecasts, fetchNWMStreamflow, fetchNWMForecastOutlook, fetchStreamflowOutlook, normalizeStreamName, applyNWMFallback, findNearestLiveGauge, describeNearestLive, getLastDWRError, searchCODWRStations, warmCODWRIndex } from "./lib/gaugeSources.js";
 
 // iOS Safari's address bar can show/hide independently of any CSS reflow, which leaves
@@ -1514,10 +1514,15 @@ async function nwLatest(siteNos,param){
   if(!siteNos||!siteNos.length)return[];
   var now=Date.now(),out=[];
   var chunks=chunkArr(siteNos.map(function(s){return "USGS-"+nwSiteNo(s);}),100);
+  var failed=0;
   for(var i=0;i<chunks.length;i++){
     var d=await nwGet(USGS_NW+"/latest-continuous/items?f=json&limit=10000&monitoring_location_id="+chunks[i].join(",")+"&parameter_code="+param);
+    if(!d){failed++;continue;} // 429/network: this whole chunk of up to 100 gauges is missing
     (d?.features||[]).forEach(function(f){if(nwFresh(f,now))out.push(f);});
   }
+  // 2026-10-31: callers that need the WHOLE area (the Trip Planner) read this to know the
+  // list is partial instead of silently treating whatever came back as everything.
+  out.failedChunks=failed;out.totalChunks=chunks.length;
   return out;
 }
 
@@ -1742,6 +1747,7 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2,fullSweep=false){
   // not just the nearest cluster). Default ring behavior suits nearest-gauge lookups.
   var rings=fullSweep?[radiusDeg]:[Math.min(radiusDeg*0.4,0.5),Math.min(radiusDeg*0.7,1.0),radiusDeg];
   // Try smallest radius first and return as soon as one has gauges.
+  fetchUSGSLive.lastIssue="";
   for(var i=0;i<rings.length;i++){
     var p=rings[i];
     var minLng=Math.round((lng-p)*10000)/10000;
@@ -1754,7 +1760,26 @@ async function fetchUSGSLive(lat,lng,radiusDeg=2,fullSweep=false){
       var locs=await nwLocations(bbox);
       if(locs.size){
         var feats=await nwLatest(Array.from(locs.keys()),"00060");
-        if(feats.length){var legacyShaped=nwToLegacy(feats,locs);if(legacyShaped.value.timeSeries.length>0) return legacyShaped;}
+        if(feats.length){
+          var legacyShaped=nwToLegacy(feats,locs);
+          // fullSweep (Trip Planner) + some chunks rate-limited: USGS returned 429 for part
+          // of the area and those gauges were simply missing — which streams vanished
+          // depended on how much gauge traffic the app had already made that day. Fill
+          // the gap from the legacy service (one bbox call, separate rate budget) and merge
+          // by site, rather than returning a partial list as if it were complete.
+          if(fullSweep&&feats.failedChunks>0){
+            try{
+              var lr=await fetch("https://waterservices.usgs.gov/nwis/iv/?format=json&bBox="+bbox+"&parameterCd=00060&siteType=ST");
+              if(lr.ok){
+                var lj=filterFreshTimeSeries(await lr.json());
+                var have=new Set(legacyShaped.value.timeSeries.map(function(t){return t.sourceInfo.siteCode[0].value;}));
+                var added=lj.value.timeSeries.filter(function(t){var sn=t?.sourceInfo?.siteCode?.[0]?.value;return sn&&!have.has(sn);});
+                legacyShaped.value.timeSeries=legacyShaped.value.timeSeries.concat(added);
+              }else fetchUSGSLive.lastIssue="USGS limited "+feats.failedChunks+" of "+feats.totalChunks+" gauge requests and the backup service answered "+lr.status;
+            }catch(le){fetchUSGSLive.lastIssue="USGS limited "+feats.failedChunks+" of "+feats.totalChunks+" gauge requests and the backup service didn't answer";}
+          }
+          if(legacyShaped.value.timeSeries.length>0) return legacyShaped;
+        }
       }
     }catch{}
     // Legacy fallback (covers gauges not yet on the new API), until decommission.
@@ -6288,7 +6313,12 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
       let pgScaled=[];
       if(!pgScaled.length){
         try{
-          const usgs0=await fetchUSGSLive(lat,lng,2,true);
+          // 2026-10-31: 1.5° instead of 2°. The planner's own day-trip ceiling is 150 min
+          // (labGovernor), roughly 80 straight-line miles of mountain road; a 2° box (about
+          // 140 x 105 mi each way) pulled in far more gauges than any pick can use, and
+          // every extra 100 gauges is one more USGS request that can be rate-limited.
+          const usgs0=await fetchUSGSLive(lat,lng,1.5,true);
+          if(fetchUSGSLive.lastIssue)addStep("⚠ Some stream gauges didn't load ("+fetchUSGSLive.lastIssue+") — picks may miss a few streams' live flows");
           const liveTS0=(usgs0?.value?.timeSeries)??[];
           pgScaled=liveTS0.map(t=>{
             const raw=t.values?.[0]?.value?.[0]?.value;
@@ -6303,9 +6333,14 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           // Meaningful-flow gauges get the candidate slots; near-dry trickles only pad if there's room left.
           // Spread across compass directions so a dense cluster close to the origin can't crowd
           // out a real drainage farther out in a different direction (same radius, just not "nearest").
-          pgScaled=directionalSpread([...pgScaled.filter(s=>s.cfs>=15),...pgScaled.filter(s=>s.cfs<15)],40,lat,lng);
+          // 2026-10-31: no 40-gauge cap here anymore. That cap ran BEFORE the fishable-water
+          // filter, so ditches and duplicate gauges on the same close creeks used up the slots
+          // and real drainages farther out never reached the pipeline at all (the background
+          // path's notes: Deckers never made the list from Lafayette). The pipeline now does
+          // the trimming itself, after filtering, one or two gauges per stream
+          // (plannerPromptGauges), and snaps picks against the full fishable list.
           // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
-          // more states/agencies later. Added AFTER the cap above, not before it: DWR only
+          // more states/agencies later. (History: this was added AFTER a 40-gauge cap that no longer exists as of 2026-10-31.) DWR only
           // survives dedup when it's covering something USGS isn't (see fetchCODWRGauges's
           // own comment), so by definition it's never redundant with what's already in
           // pgScaled — but a dense-USGS area can still fill all 40 directional-spread slots
@@ -6345,7 +6380,9 @@ function TripPlanner({defaultLocation,parentGauges,savedGauges,parentLoc,openRep
           // usually the dead gauge DWR is filling in for in the first place (a real query for
           // it, tested directly, just returns no data — harmless, but a wasted call). Filtering
           // to USGS-sourced entries here avoids both.
-          const gSiteNos=filterFishableGauges(pgScaled.filter(g=>!g.sourceAgency),lat,lng).map(g=>g.siteNo).filter(sn=>/^\d+$/.test(sn));
+          // Same gauges the synthesis prompt shows (plannerPromptGauges), so every gauge the
+          // AI reads gets its "vs. typical" flow baseline.
+          const gSiteNos=plannerPromptGauges(pgScaled.filter(g=>!g.sourceAgency),lat,lng).map(g=>g.siteNo).filter(sn=>/^\d+$/.test(sn));
           const [ptm,fam]=await Promise.all([
             fetchUSGSTempBatch(gSiteNos).catch(()=>({})),
             fetchFlowAvgBatch(gSiteNos).catch(()=>({}))

@@ -2,7 +2,7 @@ import { waitUntil } from "@vercel/functions";
 import { Resend } from "resend";
 import { SB_URL, SB_ANON, jwtSub, todayCount, getTier, PLAN_TIERS } from "./_lib/supabaseRest.js";
 import { callAnthropicRaw } from "./_lib/anthropicCall.js";
-import { runTripPlannerPipeline, filterFishableGauges, directionalSpread, scrutinizeAnomalousFlows, reconcileBestBet } from "../src/lib/tripPlannerPipeline.js";
+import { runTripPlannerPipeline, plannerPromptGauges, scrutinizeAnomalousFlows, reconcileBestBet } from "../src/lib/tripPlannerPipeline.js";
 import { fetchCODWRGauges, applyNWMFallback } from "../src/lib/gaugeSources.js";
 
 // Same ceiling Vercel Hobby supports; Pro/Enterprise allow more but this is plenty —
@@ -283,13 +283,15 @@ export default async function handler(req, res) {
     try {
       const [wx, usgs0] = await Promise.all([
         fetchWeatherServer(lat, lng),
-        fetchUSGSLiveServer(lat, lng, 2)
+        fetchUSGSLiveServer(lat, lng, 1.5) // 2026-10-31: was 2°; see the same change in App.jsx's generate()
       ]);
       const liveTS0 = (usgs0 && usgs0.value && usgs0.value.timeSeries) || [];
       let pgScaled = mapUSGSSeries(liveTS0, lat, lng);
-      pgScaled = directionalSpread([...pgScaled.filter(s => s.cfs >= 15), ...pgScaled.filter(s => s.cfs < 15)], 40, lat, lng);
+      // 2026-10-31: no 40-gauge cap before the fishable filter anymore (it let ditches and
+      // duplicate gauges on close creeks crowd out whole drainages, e.g. Deckers from
+      // Lafayette). The pipeline trims after filtering, one or two gauges per stream.
       // Supplemental sources beyond USGS (SPEC_gauge_sources.md) — Colorado DWR today,
-      // more states/agencies later. Added AFTER the cap above, not before it: DWR only
+      // more states/agencies later. (History: this was added AFTER a 40-gauge cap that no longer exists as of 2026-10-31.) DWR only
       // survives dedup when it's covering something USGS isn't (see fetchCODWRGauges's own
       // comment), so by definition it's never redundant with what's already in pgScaled —
       // but a dense-USGS area can still fill all 40 directional-spread slots on USGS alone,
@@ -312,7 +314,7 @@ export default async function handler(req, res) {
       // cross-reference that's usually the dead gauge DWR is filling in for in the first
       // place (a real query for it just returns no data — harmless, but a wasted call).
       // Filtering to USGS-sourced entries here avoids both.
-      const gSiteNos = filterFishableGauges(pgScaled.filter(g => !g.sourceAgency), lat, lng).map(g => g.siteNo).filter(sn => /^\d+$/.test(sn));
+      const gSiteNos = plannerPromptGauges(pgScaled.filter(g => !g.sourceAgency), lat, lng).map(g => g.siteNo).filter(sn => /^\d+$/.test(sn));
 
       let savedGauges = [];
       let flowAvgMap = {};

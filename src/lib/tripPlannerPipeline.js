@@ -213,6 +213,17 @@ export function cleanFlyList(arr){
   return deGarbled.length?deGarbled:baitClean; // never empty solely because of the garble guard
 }
 
+// Per-source character share of the search text that synthesis and the review read
+// (see balancedSearchTxt in runTripPlannerPipeline). 4500 x 3 sources is about 3,400
+// input tokens — small next to the 8000-token synthesis output budget.
+export const SEARCH_SHARE_CHARS=4500;
+// Joins several texts, giving each at most `share` characters, so no one source can
+// push the others out of a fixed window. Empty sources give their room to nobody (the
+// total just shrinks) — simple and predictable.
+export function balancedExcerpt(texts,share){
+  return (texts||[]).map(t=>String(t||"").trim()).filter(Boolean).map(t=>t.length>share?t.slice(0,share)+"…":t).join(" \n\n").trim();
+}
+
 // Search-driven synthesis prompt: candidates come from the RETRIEVED REPORTS,
 // gauges are a live-flow + reality-check layer (not the candidate list).
 export function buildLabSynth(a){
@@ -227,7 +238,7 @@ export function buildLabSynth(a){
   const heat=thermalRisk?(" WARM-DAY NOTE"+(airF!=null?" (air "+airF+"F)":"")+": suggest an early start and carrying a stream thermometer; note that if a stream warms past about 65F it is kindest to rest the fish and head home, but do NOT state this as an absolute ban - base any afternoon caution on each water's own elevation and likely temperature, since cold high-country and tailwater can fish well into the day."):"";
   return [
     "You are a fly fishing guide planning a trout day for a client near "+loc.label+". Date: "+ds+". Weather: "+wxF+".",
-    "RETRIEVED REPORTS (current intel synthesized from multiple independent public sources - fishing reports, guide services, state wildlife agencies, tourism and reference sites): "+(String(searchTxt).slice(0,5000)||"none")+".",
+    "RETRIEVED REPORTS (current intel synthesized from multiple independent public sources - fishing reports, guide services, state wildlife agencies, tourism and reference sites): "+(String(searchTxt).slice(0,SEARCH_SHARE_CHARS*3+20)||"none")+".",
     "USGS live gauges within range (these are REAL local streams with live flow - use them BOTH to attach live flow AND as a candidate source: include any gauged stream that is genuine trout water near here, but SKIP warmwater or bass streams. They do not replace the reports - combine the two): "+gaugeBlock+"."+home+heat,
     "FLOW LANGUAGE RULE: when a gauge above includes a 'vs. ~X CFS typical' note, that is the ONLY basis for describing how the flow compares to normal (e.g. 'well below average', 'about average') - use that exact phrasing or a close paraphrase, never invent your own characterization of whether a flow is low, moderate, or high. When a gauge has NO such note, describe the raw CFS number and what it suits for wading/technique WITHOUT any comparative judgment (do not say 'moderate' or 'good flows' with no baseline to support it) - stick to what the number itself supports.",
     "DISTANCE LANGUAGE RULE: you do NOT have real drive-time data for any individual pick - never state a specific number of minutes or hours to reach one named water anywhere in this report (this applies to the overview, recommendation, and every per-river field alike). Describe order only, in relative terms (e.g. 'the closest option here', 'a bit farther', 'the longest drive of the group', 'on the way toward X'). The app calculates and displays each pick's real drive time separately from your text - a specific guessed number can only end up contradicting it.",
@@ -505,18 +516,20 @@ function parseAvoidList(ground){
 }
 function coreNormBase(s){return String(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\b(the|creek|river|stream|fork)\b/g," ").replace(/\s+/g," ").trim();}
 function coreNormBare(s){return coreNormBase(s).replace(/\b(north|south|east|west|middle|upper|lower)\b/g," ").replace(/\s+/g," ").trim();}
+// 2026-10-31: exact match on the whole normalized name only. The old rule also dropped a
+// pick whenever one name CONTAINED the other ("St. Vrain" inside "St. Vrain Creek near
+// Longmont"), and shops routinely list the warm PLAINS reach of a Front Range river as
+// bass water — so a line like "AVOID AS TROUT WATER: Big Thompson River below Loveland"
+// silently removed the Big Thompson canyon pick, and the same for the St. Vrain, Boulder
+// Creek and the Poudre. Which rivers vanished depended on how the deep-read happened to
+// word its avoid line that day. A reach-qualified avoid entry now only removes a pick
+// for that same reach; labVerifyPicks' own trout/warmwater check still runs on every
+// pick that survives this.
+function avoidNorm(s){return coreNormBase(String(s||"").replace(/\bst\.?\s/ig,"saint ").replace(/\bmt\.?\s/ig,"mount "));}
 function avoidHit(name,avoid){
-  const nFull=coreNormBase(name),nBare=coreNormBare(name);
-  if(!nBare)return false;
-  const nHasDir=nFull!==nBare;
-  return avoid.some(a=>{
-    const aFull=coreNormBase(a),aBare=coreNormBare(a);
-    if(aBare.length<3)return false;
-    if(nHasDir||aFull!==aBare){
-      return nFull===aFull;
-    }
-    return nBare.includes(aBare)||aBare.includes(nBare);
-  });
+  const n=avoidNorm(name);
+  if(!n)return false;
+  return avoid.some(a=>{const c=avoidNorm(a);return c.length>=3&&c===n;});
 }
 // One more targeted, single-water check for a pick the batched pass above came back
 // "unsure" on — thorough/background path only (2026-08-12), given its larger time
@@ -558,7 +571,7 @@ async function labVerifyPicks(rivers,loc,ground,aiCtx,opts){
     const items=rivers.map((r,i)=>(i+1)+") "+String(r.name||"?")+(r.type?" ["+r.type+"]":"")+(r.gaugeSnap?" (gauge: "+r.gaugeSnap+")":"")).join("  ");
     const vp=["You are a skeptical senior fly fishing guide fact-checking a trip plan near "+((loc&&loc.label)||"the area")+".",
       "For EACH numbered water below, use current public sources to decide TWO things: (1) whether it is a COLDWATER TROUT fishery, or a WARMWATER/bass/smallmouth water that is NOT trout water; (2) whether it is a FREESTONE stream or a TAILWATER (flows directly below a dam or reservoir) — the water's own bracketed label may be wrong, so verify it independently rather than assuming the label given is correct.",
-      "Be conservative on both: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery — if uncertain, answer 'unsure' rather than guessing. Only report a 'type' when your sources clearly establish it one way or the other; omit the field entirely if you're not sure, rather than guessing.",
+      "Be conservative on both: answer 'warmwater' ONLY when sources clearly establish the water is primarily bass/smallmouth/warmwater and not a trout fishery — if uncertain, answer 'unsure' rather than guessing. Many rivers are cold trout water in their canyons and foothills and turn warm only far downstream on the plains — judge the reach this pick is about (its name, access point or canyon), not the river's lowest reach or the location of the gauge listed beside it, and never answer 'warmwater' for a canyon/foothills trout reach just because the same river is bass water downstream. Only report a 'type' when your sources clearly establish it one way or the other; omit the field entirely if you're not sure, rather than guessing.",
       "If 'type' is 'tailwater', you MUST also return 'dam' with the actual name of the specific dam or reservoir it flows below, confirmed by your sources — a stream name is often a common one shared by unrelated drainages elsewhere, so do not name a dam from memory or general knowledge, only from what your sources confirm for THIS water. If you cannot confirm the specific dam/reservoir by name, omit 'type' entirely rather than asserting 'tailwater' without one.",
       "A river can be a genuine tailwater immediately below its dam and revert to ordinary freestone character well before some of its other named access points — so when a water's name includes a specific access point, town, or reach (e.g., 'River Name (Loveland area)', 'near X'), your 'tailwater' verdict must be about THAT SPECIFIC reach, not just the river somewhere along its length. If your sources place the dam's cold-water tailwater influence as ending well upstream of the named reach, answer 'freestone' for this pick even though the river has a genuine tailwater section elsewhere.",
       "Return ONLY a JSON array, one object per item, SAME ORDER, no markdown: ",
@@ -623,15 +636,14 @@ async function labReviewReport(report,loc,ground,dateStr,aiCtx){
     // 2026-08-30 fix: `ground` used to be accepted as a parameter and never referenced
     // anywhere in this function — a real, confirmed dead-parameter bug, not an AI
     // judgment call. The caller passes it the SAME searchTxt synthesis itself uses,
-    // capped here to the same first-5000-char window buildLabSynth already limits
-    // itself to (see the [searchDiag] COMBINED-searchTxt logging in labSynth's own
-    // caller). Omission-detection was running an entirely separate, independent web
+    // capped here to the same window buildLabSynth reads (balancedSearchTxt since
+    // 2026-10-31; it was the first 5000 chars before that). Omission-detection was running an entirely separate, independent web
     // search with only "near <location>" for context — rolling the dice again instead
     // of cross-checking the SAME rich material synthesis already had. A well-known
     // water repeatedly confirmed present in searchTxt (South Platte/Deckers/Cheesman,
     // 2026-08-30 chat) could still go unflagged here even when synthesis's own search
     // results named it directly, simply because this separate check never looked.
-    const groundExcerpt=String(ground||"").slice(0,5000);
+    const groundExcerpt=String(ground||"").slice(0,SEARCH_SHARE_CHARS*3+20);
     const promptCtx=[
       "You are a senior fly fishing guide fact-checking a draft trip report near "+((loc&&loc.label)||"the area")+" for "+(dateStr||"today")+".",
       "Streams: "+picks.join(", ")+".",
@@ -1172,22 +1184,113 @@ function repairJSON(text){
 
 // Fishable-water filter applied to the raw USGS gauge list before it becomes AI-candidate
 // material (same rule the on-screen flow has always used).
-const NON_FISHABLE_WORDS=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","sewage","outfall","reservoir","lake","pond","inlet","outlet","tailrace","headgate","bypass","flume","return","delivery","main","supply","project","district","well","spring","seep","buffer zone","landfill","plant","facility","treatment"];
+//
+// 2026-10-31 rewrite (trip plan skipping major producing streams): the old version
+// matched every exclusion word as a SUBSTRING ANYWHERE in the gauge name, so a place name
+// after "NEAR"/"AT" could knock out a real trout river. Confirmed cases from real Front
+// Range gauge names: "SOUTH BOULDER CREEK NEAR ELDORADO SPRINGS" ("spring"), "BIG THOMPSON
+// RIVER ABOVE LAKE ESTES" ("lake"), anything "NEAR GRAND LAKE"/"AT IDAHO SPRINGS", and
+// real trout streams named "LAKE FORK"/"LAKE CREEK"/"SPRING CREEK". Words now match as
+// whole words, and the lake/spring/outlet family only counts when it names the site's
+// OWN water (the part before AT/NEAR/BELOW/ABOVE) and that water isn't itself a
+// creek/river/fork. Infrastructure words (canal, ditch, diversion, effluent...) still
+// count anywhere in the name, as before.
+const NON_FISHABLE_WORDS=["canal","ditch","drain","diversion","lateral","irrigation","pipeline","tunnel","aqueduct","municipal","effluent","waste","wastewater","sewage","outfall","headgate","bypass","flume","return","delivery","supply","project","district","buffer zone","landfill","plant","facility","treatment"];
+const SITE_ONLY_WORDS=["reservoir","res","lake","pond","inlet","outlet","tailrace","main","well","spring","seep"];
+const SITE_WORDS_OK_ON_A_STREAM=new Set(["reservoir","res","lake","pond","spring"]);
 const TAILWATER_GAUGE_RE=/\b(?:BELOW|BLW|BL)\b[\s\S]*\b(?:LAKE|RESERVOIR|RES|DAM)\b/i;
-const TAILWATER_EXEMPT_WORDS=new Set(["reservoir","lake","outlet","tailrace"]);
+const TAILWATER_EXEMPT_WORDS=new Set(["reservoir","res","lake","outlet","tailrace"]);
+const GAUGE_WATER_TOKENS=new Set(["creek","river","brook","run","fork","branch","stream","slough","gulch","canyon","bayou","kill","rio","riv","r","cr","ck","crk","fk"]);
+const GAUGE_QUALIFIER_RE=/\s+(?:AT|NEAR|NR|BLW|BL|BELOW|ABV|AB|ABOVE|@)\s+/i;
+function gaugeSitePart(name){return String(name||"").split(GAUGE_QUALIFIER_RE)[0];}
+function gaugeWords(s){return String(s||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(Boolean);}
+export function isFishableGaugeName(name){
+  const nm=String(name||"");
+  const site=gaugeWords(gaugeSitePart(nm));
+  const full=" "+gaugeWords(nm).join(" ")+" ";
+  const siteStr=" "+site.join(" ")+" ";
+  const siteIsStream=site.some(w=>GAUGE_WATER_TOKENS.has(w));
+  if(!siteIsStream)return false;
+  const tailGauge=TAILWATER_GAUGE_RE.test(nm);
+  if(NON_FISHABLE_WORDS.some(w=>full.includes(" "+w+" ")))return false;
+  const siteHit=SITE_ONLY_WORDS.some(w=>{
+    if(!siteStr.includes(" "+w+" "))return false;
+    if(tailGauge&&TAILWATER_EXEMPT_WORDS.has(w))return false;
+    if(SITE_WORDS_OK_ON_A_STREAM.has(w))return false; // "LAKE FORK", "SPRING CREEK" (siteIsStream already true)
+    return true;
+  });
+  if(siteHit)return false;
+  return !isWarmUrbanGauge(nm);
+}
+// Fishable gauges only, no cap — the full list is what pick-to-gauge snapping uses, so
+// a pick can still attach to the right reach's gauge (and the ambiguity guard in
+// snapRiversToGauges still sees every gauge on a creek).
+export function fishableGaugesOnly(list){
+  return (Array.isArray(list)?list:[]).filter(g=>g&&isFishableGaugeName(g.name));
+}
 export function filterFishableGauges(pgScaled,lat,lng){
-  return directionalSpread(pgScaled.filter(g=>{
-    const n=g.name.toLowerCase();
-    const waterWords=["creek","river","brook"," run"," fork","branch","stream","slough","gulch","canyon","bayou","kill"," rio "," riv"," r "," cr"," ck"," fk"];
-    const hasWater=waterWords.some(w=>n.includes(w));
-    // 2026-09-22: "<river> BELOW <name> LAKE/RESERVOIR/DAM" is standard tailwater naming
-    // nationwide (e.g. "SOUTH PLATTE RIVER BELOW CHEESMAN LAKE") -- the most valuable trout
-    // gauges in a region. Same root cause as the DWR "BELOW GROSS RESERVOIR" fix above: the
-    // lake/reservoir words mean a lake-type site ONLY when "below" isn't in front of them.
-    const tailGauge=TAILWATER_GAUGE_RE.test(g.name);
-    const hasNonFish=NON_FISHABLE_WORDS.some(w=>n.includes(w)&&!(tailGauge&&TAILWATER_EXEMPT_WORDS.has(w)));
-    return hasWater&&!hasNonFish&&!isWarmUrbanGauge(g.name);
-  }),25,lat,lng);
+  return directionalSpread(fishableGaugesOnly(pgScaled),25,lat,lng);
+}
+
+// The gauge list the synthesis prompt actually reads (2026-10-31). It used to be the 25
+// nearest fishable gauges round-robined by direction (after a 40-nearest cut on the raw,
+// unfiltered list). Nearest-first meant every slot in a direction went to whatever was
+// closest to town: four or five gauges on the same close creek, small suburban
+// tributaries, and plains reaches — and the region's major rivers farther out in the
+// same direction never made the list (the background path's own notes: the South Platte
+// at Deckers never made it from Lafayette). Now it's chosen by STREAM, not by gauge:
+//   - gauges are grouped by the water they're on (a below-dam gauge counts as its own
+//     water, so a tailwater never hides behind the same river's other gauges);
+//   - in each of the 8 compass directions, the 2 nearest streams always get in (the
+//     close anchors rule 9 of the synthesis prompt asks for), then the rest go by size —
+//     the biggest live flow on that stream — so a major river beats a trickle that
+//     happens to be closer;
+//   - each chosen stream shows its nearest gauge, plus (room permitting) one gauge at a
+//     clearly different reach so the AI sees canyon and plains numbers side by side.
+// Pick-to-gauge snapping still uses the full uncapped fishable list (snapGauges).
+const STREAM_ABBR={R:"RIVER",RIV:"RIVER",CRK:"CREEK",CR:"CREEK",CK:"CREEK",FK:"FORK",N:"NORTH",S:"SOUTH",E:"EAST",W:"WEST",M:"MIDDLE",ST:"SAINT",MO:"MOUTH"};
+function streamKey(name){
+  const nm=String(name||"").toUpperCase();
+  const site=nm.split(GAUGE_QUALIFIER_RE)[0].replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(Boolean).map(t=>STREAM_ABBR[t]||t).join(" ");
+  const m=nm.match(/\b(?:BELOW|BLW|BL)\s+([A-Z0-9 .'\-]+?)\s+(?:LAKE|RESERVOIR|RES|DAM)\b/);
+  return site+(m?" | BELOW "+m[1].replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim():"");
+}
+function bearingBucket(item,lat,lng){
+  const dy=(item.lat!=null?item.lat:lat)-lat,dx=(item.lng!=null?item.lng:lng)-lng;
+  const deg=(Math.atan2(dx,dy)*180/Math.PI+360)%360;
+  return Math.floor(((deg+22.5)%360)/45);
+}
+export function plannerPromptGauges(list,lat,lng,budget=44,streamBudget=36,anchorsPerDir=2){
+  const fish=fishableGaugesOnly(list);
+  const dOf=g=>(g.dist!=null?g.dist:Math.hypot((g.lat||0)-lat,(g.lng||0)-lng));
+  const groups=new Map();
+  for(const g of fish){const k=streamKey(g.name);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(g);}
+  const streams=[];
+  for(const gs of groups.values()){
+    const byDist=[...gs].sort((a,b)=>dOf(a)-dOf(b));
+    const rep=byDist.find(g=>g.cfs!=null&&g.cfs>=15)||byDist[0];
+    let second=null,far=0;
+    for(const g of gs){if(g===rep||g.lat==null||rep.lat==null)continue;const mi=Math.hypot(g.lat-rep.lat,g.lng-rep.lng)*69;if(mi>=8&&mi>far){far=mi;second=g;}}
+    const size=Math.max(0,...gs.map(g=>Number(g.cfs)||0));
+    streams.push({rep,second,size,d:dOf(rep)});
+  }
+  const buckets=Array.from({length:8},()=>[]);
+  streams.forEach(st=>buckets[bearingBucket(st.rep,lat,lng)].push(st));
+  const ordered=buckets.map(b=>{
+    const near=[...b].sort((x,y)=>x.d-y.d);
+    const anchors=near.slice(0,anchorsPerDir);
+    const rest=near.slice(anchorsPerDir).sort((x,y)=>(y.size-x.size)||(x.d-y.d));
+    return [...anchors,...rest];
+  });
+  const chosen=[];
+  let added=true;
+  while(added&&chosen.length<streamBudget){
+    added=false;
+    for(const b of ordered){if(chosen.length>=streamBudget)break;if(b.length){chosen.push(b.shift());added=true;}}
+  }
+  const out=chosen.map(st=>st.rep);
+  for(const st of chosen){if(out.length>=budget)break;if(st.second)out.push(st.second);}
+  return out;
 }
 
 // Shared name normalizer — was two separate inline copies (in the review-fold and the
@@ -1786,7 +1889,13 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   // source's own filter is the only one that runs on its own gauges.
   const usgsOnly=(pgScaled||[]).filter(g=>!g.sourceAgency);
   const preVetted=(pgScaled||[]).filter(g=>g.sourceAgency);
-  const fishableGauges=[...filterFishableGauges(usgsOnly,loc.lat,loc.lng),...preVetted];
+  // 2026-10-31: two lists, not one. promptGauges (one or two gauges per named stream,
+  // direction-balanced) is what the synthesis AI reads as candidates; snapGauges (every
+  // fishable gauge, uncapped) is what picks get pinned to afterwards, so a canyon pick
+  // can still find its canyon gauge even when the prompt only showed one gauge per creek.
+  const promptGauges=[...plannerPromptGauges(usgsOnly,loc.lat,loc.lng),...preVetted];
+  const snapGauges=[...fishableGaugesOnly(usgsOnly),...preVetted];
+  const fishableGauges=promptGauges;
   step("Analyzing area conditions…","active");
   const savedInRadius=savedGauges.filter(sg=>{if(!sg.lat||!sg.lng)return false;const d=Math.sqrt(Math.pow((sg.lat||0)-loc.lat,2)+Math.pow((sg.lng||0)-loc.lng,2))*69;return d<=140;});
 
@@ -1806,27 +1915,18 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const parts=await Promise.all(tasks);
   const labGround=String(parts[2]||"").trim();
   const searchTxt=((labGround?labGround+" ":"")+String(parts[0]||"")+" "+String(parts[1]||"")).trim();
-  // TEMP DIAGNOSTIC (App Dev — South Platte/Deckers/Cheesman omission investigation,
-  // 2026-08-24): checks each of the three parallel search calls' RAW text — before any
-  // AI pick-selection or filtering touches it — for a mention of this specific known-gap
-  // water. Distinguishes "search never surfaced it" (all three log "not found") from
-  // "found it and something downstream dropped it" (a snippet logs, but it never makes
-  // the final rivers[] list). Scoped to this one known gap rather than a general check;
-  // remove once diagnosed.
-  try{
-    const southRe=/deckers|cheesman|south platte/i;
-    const snippet=t=>{const s=String(t||"");const m=s.match(southRe);if(!m)return null;const i=m.index;return s.slice(Math.max(0,i-60),i+90).replace(/\s+/g," ").trim();};
-    const report=(label,t)=>console.log("[searchDiag] Deckers/Cheesman/South Platte —",label+":",southRe.test(t)?snippet(t):"not found ("+String(t||"").length+" chars searched)");
-    report("searchPrompt1 (shop reports)",parts[0]);
-    report("searchPrompt2 (general reports)",parts[1]);
-    report("labFetchPrompt (fetched pages)",parts[2]);
-    // ROUND 2 (2026-08-25): round 1 confirmed all three raw calls find it — this checks
-    // whether the synthPrompt's hard "first 5000 chars" slice of the COMBINED searchTxt
-    // (labGround+parts[0]+parts[1], in that order) is what's cutting it before the
-    // synthesis AI ever reads it. Remove alongside the round-1 block once diagnosed.
-    const cMatch=searchTxt.match(southRe);
-    console.log("[searchDiag] Deckers/Cheesman/South Platte — COMBINED searchTxt ("+searchTxt.length+" chars total; synthPrompt uses only the first 5000):",cMatch?("match at index "+cMatch.index+" — "+(cMatch.index<5000?"SURVIVES the 5000-char cutoff":"CUT OFF, past the 5000-char cutoff")):"no match found in combined text (unexpected)");
-  }catch(_sd){void 0;}
+  // 2026-10-31: what synthesis and the review actually READ. They used to read only the
+  // first 5000 characters of searchTxt — and searchTxt starts with the deep-read of two or
+  // three shop pages, which alone can run past 5000. So the two directional searches
+  // (north/south/east/west, written specifically so a whole drainage isn't missed) were
+  // usually cut off before the AI ever saw them, and which streams made it in depended on
+  // whichever shop the deep-read happened to land on that day. The 2026-08-25 [searchDiag]
+  // log below proved this for the South Platte; the window was never widened. Now each of
+  // the three sources gets its own share, so every one of them reaches the AI.
+  const balancedSearchTxt=balancedExcerpt([labGround,parts[0],parts[1]],SEARCH_SHARE_CHARS);
+  // (The 2026-08-24/25 [searchDiag] South Platte logging that lived here was removed
+  // 2026-10-31: it diagnosed the 5000-char cutoff that balancedSearchTxt above now fixes.)
+  console.log("[searchDiag] search text lengths — deep-read:",String(labGround).length,"shop:",String(parts[0]||"").length,"general:",String(parts[1]||"").length,"→ synthesis reads",balancedSearchTxt.length);
   const searchNote=searchTxt.length>200?null:(searchFailReason?("Shop-report search "+searchFailReason+" — using live flows"):"No shop reports found — using live flows");
 
   // Step 2: synthesize into JSON
@@ -1836,7 +1936,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const thermalRisk=(airF!=null&&airF>=85)||maxWaterF>=65;
   const shopHeat=HEAT_SHOP_RE.test(searchTxt);
   const eThermal=shopHeat||(airF!=null&&airF>=85);
-  const synthPrompt=buildLabSynth({loc,ds,wx,fishableGauges,pTempMap,flowAvgMap,savedInRadius,thermalRisk:eThermal,airF,maxWaterF,searchTxt});
+  const synthPrompt=buildLabSynth({loc,ds,wx,fishableGauges,pTempMap,flowAvgMap,savedInRadius,thermalRisk:eThermal,airF,maxWaterF,searchTxt:balancedSearchTxt});
   let reportTxt;
   try{
     reportTxt=await aiCtx.askAI(synthPrompt,false,8000,"planner");
@@ -1872,7 +1972,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
   const originalRiverNames=(rpt.rivers||[]).map(r=>r&&r.name).filter(Boolean);
 
   // Report-level review runs in parallel with finalize (they're independent)
-  const reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips,overview:rpt.overview,recommendation:rpt.recommendation},loc,searchTxt,ds,aiCtx).catch(()=>null);
+  const reviewPromise=labReviewReport({rivers:rpt.rivers,hatches:rpt.hatches,bestTimes:rpt.bestTimes,tips:rpt.tips,overview:rpt.overview,recommendation:rpt.recommendation},loc,balancedSearchTxt,ds,aiCtx).catch(()=>null);
   const restrictionsPromise=labVerifyRestrictions(rpt.rivers,loc,ds,aiCtx).catch(e=>({result:null,debug:{outcome:"promise-reject",error:String((e&&e.message)||e).slice(0,120)}}));
 
   let builtReport={
@@ -1881,7 +1981,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
     overview:sbd(rpt.overview),
     recommendation:sbd(rpt.recommendation),
     bestFor:bf2,
-    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sbd(r.conditions),techniques:sbd(r.techniques),why:sbd(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),fishableGauges.length?fishableGauges:(pgScaled||[]),loc,searchTxt,aiCtx,{thorough}),
+    rivers:await finalizeRivers((rpt.rivers||[]).map(r=>({...r,conditions:sbd(r.conditions),techniques:sbd(r.techniques),why:sbd(r.why),bestTime:eThermal?scrubAfternoonPush(clean2(r.bestTime)):clean2(r.bestTime),accessPoints:Array.isArray(r.accessPoints)?r.accessPoints:r.accessPoints?[String(r.accessPoints)]:[],flies:cleanFlyList(Array.isArray(r.flies)?r.flies:r.flies?[String(r.flies)]:[])})),snapGauges.length?snapGauges:(pgScaled||[]),loc,searchTxt,aiCtx,{thorough}),
     hatches:sb2(rpt.hatches),
     bestTimes:eThermal?scrubAfternoonPush(sbd(rpt.bestTimes)):sbd(rpt.bestTimes),
     tips:eThermal?(THERMAL_TIP_SOFT+" "+scrubAfternoonPush(sb2(rpt.tips))).trim():sb2(rpt.tips),
@@ -1911,7 +2011,7 @@ export async function runTripPlannerPipeline(input, aiCtx, onStep){
       }
       if(review.omissions&&review.omissions.length){
         if(thorough){
-          const gaugeListForOmissions=fishableGauges.length?fishableGauges:(pgScaled||[]);
+          const gaugeListForOmissions=snapGauges.length?snapGauges:(pgScaled||[]);
           const verified=await verifyOmissions(review.omissions,loc,gaugeListForOmissions,flowAvgMap,aiCtx).catch(()=>[]);
           if(verified.length){
             nb.overview=applyVerifiedReviewNotes(nb.overview,verified.map(v=>v.text));
